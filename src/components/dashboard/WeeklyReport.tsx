@@ -2,21 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/ui/StatCard";
-import { ArrowLeftIcon, ArrowRightIcon, EditIcon, TrashIcon } from "@/components/ui/Icons";
-import { peso, fmtDate } from "@/lib/format";
-import { PLATFORMS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { ArrowLeftIcon, ArrowRightIcon, EditIcon, TrashIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { peso, fmtDate, initials } from "@/lib/format";
+import { PLATFORMS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, ROLE_LABEL } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
+import { cn } from "@/lib/utils";
 
-type Person = { name: string; role: string };
+type Person = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
 type Booking = {
-  id: string; date: string; unit: Unit; guests: string[]; pax: number | null; platform: string;
+  id: string; date: string; unit: Unit; guests: string[]; pax: number | null; platform: string; stayType: string;
   amount: number; paid: boolean; method: string | null;
   dpAmount: number | null; dpMethod: string | null;
-  booker: Person | null; receivedBy: Person | null; dpReceivedBy: Person | null;
+  booker: Person | null; receivedBy: Person | null; dpReceivedBy: Person | null; cleaner: Person | null;
 };
 type Employee = { id: string; name: string; role: string };
 type Expense = { id: string; date: string; amount: number; note: string; targetEmployee: Employee | null };
+type CleaningLogRow = { id: string; employeeId: string | null; startedAt: string };
+
+const AVATAR_COLORS = ["bg-rausch", "bg-teal", "bg-violet", "bg-amber", "bg-blue", "bg-green"];
 
 const METHOD_COLOR: Record<string, string> = { Cash: "var(--ink)", GCash: "var(--green)", BankTransfer: "var(--blue)" };
 
@@ -48,13 +52,14 @@ function methodBreakdown(bookings: Booking[]) {
 }
 
 export function WeeklyReport({
-  bookings, units, employees, initialExpenses, canEditExpenses,
+  bookings, units, employees, initialExpenses, canEditExpenses, cleaningLogs,
 }: {
   bookings: Booking[];
   units: Unit[];
   employees: Employee[];
   initialExpenses: Expense[];
   canEditExpenses: boolean;
+  cleaningLogs: CleaningLogRow[];
 }) {
   const [offset, setOffset] = useState(0);
   const [expenses, setExpenses] = useState(initialExpenses);
@@ -114,23 +119,66 @@ export function WeeklyReport({
     return PAYMENT_METHODS.map((m) => ({ method: m, total: totals[m] ?? 0 }));
   }, [weekBookings]);
 
-  const byPerson = useMemo(() => {
-    const map = new Map<string, { name: string; role: string; collected: number; expenses: number; bookingsLogged: number }>();
-    const get = (p: Person) => {
-      const row = map.get(p.name) ?? { name: p.name, role: p.role, collected: 0, expenses: 0, bookingsLogged: 0 };
-      map.set(p.name, row);
-      return row;
-    };
-    weekBookings.forEach((b) => {
-      if (b.receivedBy && b.paid) get(b.receivedBy).collected += b.amount;
-      if (b.dpReceivedBy && b.dpAmount) get(b.dpReceivedBy).collected += b.dpAmount;
-      if (b.booker) get(b.booker).bookingsLogged += 1;
+  // "Your team" — real wages owed this week, by role-specific formula:
+  //  · Housekeeping: ₱700 per distinct day with a logged cleaning session,
+  //    plus a ₱300 bonus per Night-stay booking they cleaned.
+  //  · Booker: ₱100 per booking they logged, plus their flat weekly
+  //    "Salary" (WeeklyExpense), plus any other one-off expense charged to
+  //    them this week (ad boosts, etc).
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
+
+  const cleaningDaysByEmployee = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    cleaningLogs.forEach((c) => {
+      if (!c.employeeId) return;
+      const d = dayOf(new Date(c.startedAt));
+      if (new Date(d) < start || new Date(d) >= end) return;
+      if (!map.has(c.employeeId)) map.set(c.employeeId, new Set());
+      map.get(c.employeeId)!.add(d);
     });
-    weekExpenses.forEach((e) => {
-      if (e.targetEmployee) get(e.targetEmployee).expenses += e.amount;
-    });
-    return [...map.values()].sort((a, b) => (b.collected - b.expenses) - (a.collected - a.expenses));
-  }, [weekBookings, weekExpenses]);
+    return map;
+  }, [cleaningLogs, start, end]);
+
+  type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
+  function teamBreakdown(emp: Employee): { total: number; items: TeamLineItem[]; subtitle: string } {
+    const items: TeamLineItem[] = [];
+    let subtitle = "";
+    if (emp.role === "HOUSEKEEPING") {
+      const days = cleaningDaysByEmployee.get(emp.id)?.size ?? 0;
+      const regularPay = days * 700;
+      if (days > 0) items.push({ label: "Regular pay", detail: `₱700/day × ${days} day${days !== 1 ? "s" : ""}`, amount: regularPay });
+      const nightCleans = weekBookings.filter((b) => b.cleaner?.id === emp.id && b.stayType === "Night").length;
+      const bonus = nightCleans * 300;
+      if (nightCleans > 0) items.push({ label: "Night-clean bonus", detail: `₱300 × ${nightCleans} unit${nightCleans !== 1 ? "s" : ""}`, amount: bonus });
+      subtitle = "₱700/day + ₱300 per night clean";
+    } else if (emp.role === "BOOKER") {
+      const bookingsLogged = weekBookings.filter((b) => b.booker?.id === emp.id).length;
+      const commission = bookingsLogged * 100;
+      if (bookingsLogged > 0) items.push({ label: "Booking commission", detail: `₱100 × ${bookingsLogged} booking${bookingsLogged !== 1 ? "s" : ""}`, amount: commission });
+      subtitle = "₱100/booking + weekly salary + boost fees";
+    }
+
+    // Manual weekly expenses charged to this employee: the flat recurring
+    // "Salary" adds to what they're owed; everything else logged against
+    // them (ad boosts, etc.) is deducted from it.
+    const empExpenses = weekExpenses.filter((e) => e.targetEmployee?.id === emp.id);
+    const salary = empExpenses.filter((e) => e.note === "Salary").reduce((s, e) => s + e.amount, 0);
+    if (salary > 0) items.push({ label: "Weekly salary", detail: "flat rate", amount: salary });
+    empExpenses.filter((e) => e.note !== "Salary").forEach((e) => items.push({ label: e.note, detail: "deducted this week", amount: e.amount, deduction: true }));
+
+    const total = items.reduce((s, i) => s + (i.deduction ? -i.amount : i.amount), 0);
+    return { total, items, subtitle };
+  }
+
+  const teamCalcs = useMemo(
+    () =>
+      employees
+        .filter((e) => e.role === "HOUSEKEEPING" || e.role === "BOOKER")
+        .map((e) => ({ employee: e, ...teamBreakdown(e) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [employees, weekBookings, weekExpenses, cleaningDaysByEmployee]
+  );
+  const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total, 0);
 
   async function refreshExpenses() {
     const res = await fetch("/api/weekly-expenses");
@@ -237,28 +285,60 @@ export function WeeklyReport({
         onChanged={refreshExpenses}
       />
 
-      <div className="card p-5">
-        <h2 className="mb-1 text-[15px] font-extrabold">Who collected the money</h2>
-        <p className="mb-3 text-[12.5px] text-[var(--gray)]">Everyone involved this week — bookers, housekeeping, owners — collected minus any expenses charged to them.</p>
-        {byPerson.length === 0 ? (
-          <p className="text-[13px] text-[var(--gray)]">No activity this week.</p>
-        ) : (
-          <div className="divide-y divide-[var(--line)]">
-            {byPerson.map((p) => (
-              <div key={p.name} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                <div>
-                  <div className="text-[13.5px] font-bold">{p.name}</div>
-                  <div className="text-[11.5px] text-[var(--gray)]">
-                    {p.role.replace("_", " ")}
-                    {p.bookingsLogged > 0 ? ` · logged ${p.bookingsLogged} booking${p.bookingsLogged !== 1 ? "s" : ""}` : ""}
-                    {p.expenses > 0 ? ` · ${peso(p.collected)} − ${peso(p.expenses)} expenses` : ""}
+      <div className="card overflow-hidden p-0">
+        <div className="flex items-center justify-between p-5 pb-0">
+          <h2 className="text-[15px] font-extrabold">Your team</h2>
+          <span className="text-[12px] font-semibold text-[var(--gray)]">tap a name for breakdown</span>
+        </div>
+        <div className="m-5 overflow-hidden rounded-2xl border border-[var(--line)]">
+          {teamCalcs.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff activity recorded yet.</p>}
+          {teamCalcs.map(({ employee: emp, total, items, subtitle }, i) => {
+            const isOpen = expandedTeamId === emp.id;
+            return (
+              <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
+                <button onClick={() => setExpandedTeamId(isOpen ? null : emp.id)} className="flex w-full items-center gap-3 p-4 text-left">
+                  <span className={cn("grid h-11 w-11 flex-none place-items-center rounded-full text-[13px] font-bold text-white", AVATAR_COLORS[i % AVATAR_COLORS.length])}>
+                    {initials(emp.name)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-bold">{emp.name}</div>
+                    <div className="text-[12px] text-[var(--gray)]">{ROLE_LABEL[emp.role] ?? emp.role}</div>
+                    {subtitle && <div className="mt-0.5 text-[11.5px] text-[var(--gray)]">{subtitle}</div>}
                   </div>
-                </div>
-                <div className={`text-[14px] font-extrabold ${p.collected - p.expenses < 0 ? "text-rausch" : "text-green"}`}>{peso(p.collected - p.expenses)}</div>
+                  <div className="flex-none text-right">
+                    <div className={cn("text-[16px] font-extrabold", total < 0 && "text-rausch")}>{peso(total)}</div>
+                    <div className="text-[11px] text-[var(--gray)]">this week</div>
+                  </div>
+                  <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", isOpen && "rotate-180")} />
+                </button>
+                {isOpen && (
+                  <div className="space-y-2 border-t border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
+                    {items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No activity this week.</p>}
+                    {items.map((item, j) => (
+                      <div key={j} className="flex items-center justify-between text-[13px]">
+                        <div>
+                          <div className="font-bold">{item.label}</div>
+                          <div className="text-[11.5px] text-[var(--gray)]">{item.detail}</div>
+                        </div>
+                        <div className={cn("font-bold", item.deduction && "text-rausch")}>{item.deduction ? "−" : ""}{peso(item.amount)}</div>
+                      </div>
+                    ))}
+                    {items.length > 0 && (
+                      <div className="flex items-center justify-between border-t border-dashed border-[var(--line-2)] pt-2 text-[13px] font-extrabold">
+                        <span>Subtotal</span>
+                        <span className={cn(total < 0 && "text-rausch")}>{peso(total)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
+            );
+          })}
+          <div className="flex items-center justify-between bg-[var(--bg-2)] p-4 text-sm font-extrabold">
+            <span>Total payroll</span>
+            <span className="text-rausch">{peso(teamPayrollTotal)}</span>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

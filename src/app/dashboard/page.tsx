@@ -25,6 +25,7 @@ export default async function DashboardPage() {
   let weeklyExpenses: any[] = [];
   let attentionFindings: any[] = [];
   let stocks: any[] = [];
+  let weeklyCleaningLogs: any[] = [];
 
   try {
     // Findings scoped to this user's units, plus any general (no-unit) ones.
@@ -50,9 +51,10 @@ export default async function DashboardPage() {
         take: 200,
         include: {
           unit: { select: { id: true, name: true, shortName: true, unitNumber: true, owners: { include: { user: { select: { name: true } } } } } },
-          booker: { select: { name: true, role: true } },
-          receivedBy: { select: { name: true, role: true } },
-          dpReceivedBy: { select: { name: true, role: true } },
+          booker: { select: { id: true, name: true, role: true } },
+          receivedBy: { select: { id: true, name: true, role: true } },
+          dpReceivedBy: { select: { id: true, name: true, role: true } },
+          cleaner: { select: { id: true, name: true, role: true } },
         },
       }),
       // Weekly expenses aren't tied to a unit (salaries, ad spend, etc.), so
@@ -69,8 +71,11 @@ export default async function DashboardPage() {
         },
       }),
       prisma.stock.findMany({ where }),
+      // Feeds the Weekly report's "Your team" payroll breakdown — days
+      // worked by housekeeping, broad window so past weeks work too.
+      prisma.cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 500, select: { id: true, employeeId: true, unitId: true, startedAt: true } }),
     ]);
-    [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyReportBookings, weeklyExpenses, attentionFindings, stocks] = res as any;
+    [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyReportBookings, weeklyExpenses, attentionFindings, stocks, weeklyCleaningLogs] = res as any;
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -88,6 +93,7 @@ export default async function DashboardPage() {
     weeklyExpenses = [];
     attentionFindings = [];
     stocks = [];
+    weeklyCleaningLogs = [];
   }
 
   return (
@@ -105,6 +111,7 @@ export default async function DashboardPage() {
       canEditExpenses={user.role === "OWNER_ADMIN"}
       attentionFindings={JSON.parse(JSON.stringify(attentionFindings))}
       stocks={JSON.parse(JSON.stringify(stocks))}
+      weeklyCleaningLogs={JSON.parse(JSON.stringify(weeklyCleaningLogs))}
     />
   );
 }

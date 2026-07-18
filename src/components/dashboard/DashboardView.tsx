@@ -14,20 +14,21 @@ import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdf
 import { WeeklyReport } from "./WeeklyReport";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; location: string; owners?: { user: { name: string } }[] };
-type Booking = { id: string; unitId: string; unit?: Unit; date: string; stayType: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null };
+type Booking = { id: string; unitId: string; unit?: Unit; date: string; stayType: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null };
 type Employee = { id: string; name: string; role: string };
 type Bill = { id: string; unitId: string; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; paid: boolean; unit: Unit };
 type HkState = { unitId: string; status: string; unit: Unit };
+type CleaningLogRow = { id: string; employeeId: string | null; unitId: string; startedAt: string };
 
 // Shapes for the Weekly report card — richer than the plain Booking/Unit
 // types above since WeeklyReport needs booker/platform/payment-method detail.
-type WeeklyPerson = { name: string; role: string };
+type WeeklyPerson = { id: string; name: string; role: string };
 type WeeklyUnit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
 type WeeklyBooking = {
-  id: string; date: string; unit: WeeklyUnit; guests: string[]; pax: number | null; platform: string;
+  id: string; date: string; unit: WeeklyUnit; guests: string[]; pax: number | null; platform: string; stayType: string;
   amount: number; paid: boolean; method: string | null;
   dpAmount: number | null; dpMethod: string | null;
-  booker: WeeklyPerson | null; receivedBy: WeeklyPerson | null; dpReceivedBy: WeeklyPerson | null;
+  booker: WeeklyPerson | null; receivedBy: WeeklyPerson | null; dpReceivedBy: WeeklyPerson | null; cleaner: WeeklyPerson | null;
 };
 type WeeklyExpenseRow = { id: string; date: string; amount: number; note: string; targetEmployee: Employee | null };
 
@@ -82,6 +83,7 @@ export function DashboardView({
   canEditExpenses,
   attentionFindings,
   stocks,
+  weeklyCleaningLogs,
 }: {
   role: string;
   units: Unit[];
@@ -96,6 +98,7 @@ export function DashboardView({
   canEditExpenses: boolean;
   attentionFindings: AttentionFinding[];
   stocks: Stock[];
+  weeklyCleaningLogs: CleaningLogRow[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -461,25 +464,6 @@ export function DashboardView({
         </div>
       </div>
 
-      <Accordion title="Needs your attention" sub={`${attentionItems.length} to discuss`}>
-        {attentionItems.length === 0 ? (
-          <p className="text-sm text-[var(--gray)]">Nothing needs your attention right now. 🎉</p>
-        ) : (
-          <div className="divide-y divide-[var(--line)]">
-            {attentionItems.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                <span className={cn("mt-1.5 h-2.5 w-2.5 flex-none rounded-full", item.dot)} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-bold">{item.title}</div>
-                  <div className="mt-0.5 text-[12px] text-[var(--gray)]">{item.desc}</div>
-                </div>
-                <span className="flex-none rounded-full border border-[var(--line)] px-3 py-1 text-[12px] font-bold text-[var(--gray)]">{item.tag}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Accordion>
-
       <Accordion title="Earnings" sub={periodLabel}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1.5">
@@ -620,6 +604,25 @@ export function DashboardView({
         </div>
       </Accordion>
 
+      <Accordion title="Needs your attention" sub={`${attentionItems.length} to discuss`}>
+        {attentionItems.length === 0 ? (
+          <p className="text-sm text-[var(--gray)]">Nothing needs your attention right now. 🎉</p>
+        ) : (
+          <div className="divide-y divide-[var(--line)]">
+            {attentionItems.map((item) => (
+              <div key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <span className={cn("mt-1.5 h-2.5 w-2.5 flex-none rounded-full", item.dot)} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-bold">{item.title}</div>
+                  <div className="mt-0.5 text-[12px] text-[var(--gray)]">{item.desc}</div>
+                </div>
+                <span className="flex-none rounded-full border border-[var(--line)] px-3 py-1 text-[12px] font-bold text-[var(--gray)]">{item.tag}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Accordion>
+
       <Accordion title="Your listings" sub={`${units.length} listings`}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {units.map((u) => {
@@ -695,25 +698,6 @@ export function DashboardView({
         </div>
       </Accordion>
 
-      <Accordion title="Your team" sub="collected this week">
-        <div className="space-y-0">
-          {payroll.length === 0 && <p className="text-sm text-[var(--gray)]">No staff activity recorded yet.</p>}
-          {payroll.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-3 border-t border-[var(--line)] py-3 first:border-0">
-              <div>
-                <div className="text-[13.5px] font-bold">{p.name}</div>
-                <div className="text-[12px] text-[var(--gray)]">{p.role.replace("_", " ")}</div>
-              </div>
-              <div className="text-[14px] font-extrabold">{peso(p.collected)}</div>
-            </div>
-          ))}
-          <div className="flex items-center justify-between border-t border-[var(--line)] pt-3 text-sm font-extrabold">
-            <span>Total</span>
-            <span>{peso(payrollTotal)}</span>
-          </div>
-        </div>
-      </Accordion>
-
       <Accordion title="Weekly report" sub="Sun–Sat breakdown">
         <WeeklyReport
           bookings={weeklyReportBookings}
@@ -721,6 +705,7 @@ export function DashboardView({
           employees={employees}
           initialExpenses={weeklyExpenses}
           canEditExpenses={canEditExpenses}
+          cleaningLogs={weeklyCleaningLogs}
         />
       </Accordion>
     </div>
