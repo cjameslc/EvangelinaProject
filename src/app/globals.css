@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --rausch: #ff385c;
+  --violet: #6c5ce7;
+  --green: #008a05;
+  --amber: #c87d00;
+  --teal: #0b7c74;
+  --blue: #3b71e8;
+  --ink: #222222;
+  --gray: #717171;
+  --line: #ebebeb;
+  --line-2: #dddddd;
+  --bg: #ffffff;
+  --bg-2: #f7f7f7;
+  --card: #ffffff;
+  --nav-bg: rgba(255, 255, 255, 0.92);
+}
+
+.dark {
+  --ink: #f4f4f5;
+  --gray: #a6a6ad;
+  --line: #2c2c31;
+  --line-2: #3a3a40;
+  --bg: #131316;
+  --bg-2: #1c1c20;
+  --card: #1f1f23;
+  --nav-bg: rgba(19, 19, 22, 0.9);
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  color: var(--ink);
+  background: var(--bg);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* Reusable component classes so pages stay close to the original markup. */
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-xl border border-[var(--line-2)] bg-[var(--card)] px-4 py-2.5 text-sm font-bold text-[var(--ink)] transition hover:border-[var(--ink)] hover:shadow-s disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn border-rausch bg-rausch text-white hover:shadow-[0_6px_16px_rgba(255,56,92,.35)];
+  }
+  .btn-ghost {
+    @apply btn border-transparent bg-transparent text-[var(--gray)] shadow-none hover:text-[var(--ink)] hover:shadow-none;
+  }
+  .btn-sm {
+    @apply px-3 py-2 text-[13px];
+  }
+  .btn-icon {
+    @apply btn h-[42px] w-[42px] justify-center p-0;
+  }
+  .card {
+    @apply rounded-card border border-[var(--line)] bg-[var(--card)] shadow-s;
+  }
+  .field-input {
+    @apply w-full rounded-field border border-[var(--line-2)] bg-[var(--card)] px-3.5 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-rausch focus:ring-4 focus:ring-rausch/15;
+  }
+  .field-label {
+    @apply text-[13px] font-bold text-[var(--ink)];
+  }
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-[var(--line-2)] bg-[var(--card)] px-3.5 py-2 text-[13.5px] font-semibold text-[var(--ink)] transition hover:border-[var(--ink)];
+  }
+  .pill.on {
+    @apply border-[var(--ink)] bg-[var(--ink)] text-[var(--bg)];
+  }
+  .tag {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold;
+  }
+  .stat-card {
+    @apply rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4;
+  }
+}

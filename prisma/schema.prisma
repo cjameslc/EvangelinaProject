@@ -1,0 +1,361 @@
+// Evangelina's Staycation — Prisma schema
+// Target: Neon (serverless Postgres)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Roles ──────────────────────────────────────────────
+// OWNER_ADMIN  — sees every unit and every feature, manages the whole site
+// CO_OWNER     — sees only the units assigned to them, same feature set as owner but scoped
+// HOUSEKEEPING — sees every feature except the main financial Dashboard
+// BOOKER       — logs bookings, uses Calendar; no housekeeping/admin/dashboard
+// AUDITOR      — read-only access to the Auditor trail (bookings, payments, housekeeping, bills)
+enum Role {
+  OWNER_ADMIN
+  CO_OWNER
+  HOUSEKEEPING
+  BOOKER
+  AUDITOR
+}
+
+enum StayType {
+  Daycation
+  Night
+  Full
+  Cleaning
+  Maintenance
+}
+
+enum Platform {
+  Airbnb
+  Facebook
+  TikTok
+  Other
+}
+
+enum PaymentMethod {
+  Cash
+  GCash
+  BankTransfer
+}
+
+enum BillKey {
+  assoc
+  water
+  elec
+  net
+  stream
+  custom
+}
+
+enum FindingCategory {
+  Cleaning
+  Laundry
+  Booking
+  Irregularity
+  Comms
+  GuestExp
+  Improvement
+}
+
+enum FindingSeverity {
+  Critical
+  Warning
+  Minor
+  Positive
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(BOOKER)
+  avatarColor  String   @default("#FF385C")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // co-owner scoping: which units this user is allowed to see
+  ownedUnits   UnitOwner[]
+  employee     Employee?
+  auditLogs    AuditLog[]
+  shifts       Shift[]
+
+  @@map("users")
+}
+
+// Links a CO_OWNER user to the units that belong to them.
+model UnitOwner {
+  id     String @id @default(cuid())
+  userId String
+  unitId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, unitId])
+  @@map("unit_owners")
+}
+
+model Unit {
+  id          String   @id @default(cuid())
+  name        String
+  unitNumber  String
+  shortName   String
+  location    String   @default("Cubao, Araneta City")
+  nightlyRate Int      @default(1799)
+  photoUrl    String?
+  rating      Float    @default(4.9)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owners        UnitOwner[]
+  bookings      Booking[]
+  calendarBlocks CalendarBlock[]
+  hkState       HousekeepingUnitState?
+  cleaningLogs  CleaningLog[]
+  stocks        Stock[]
+  bills         Bill[]
+  auditFindings AuditFinding[]
+
+  @@map("units")
+}
+
+// Staff directory — populates Booker / Cleaner / Received-by pickers.
+// May optionally be linked to a login-capable User.
+model Employee {
+  id           String   @id @default(cuid())
+  name         String
+  role         Role     @default(BOOKER)
+  payRateNote  String?
+  userId       String?  @unique
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  bookingsAsBooker    Booking[] @relation("BookerRel")
+  bookingsAsCleaner   Booking[] @relation("CleanerRel")
+  bookingsAsDpReceiver Booking[] @relation("DpReceiverRel")
+  bookingsAsReceiver  Booking[] @relation("ReceiverRel")
+  cleaningLogs        CleaningLog[]
+  shifts              Shift[]
+  targetedExpenses    WeeklyExpense[]
+  auditFindings       AuditFinding[]
+
+  @@map("employees")
+}
+
+// A manually-logged cost (e.g. ads, supplies) that can optionally be charged
+// against a specific staff member's collected total on the weekly report.
+model WeeklyExpense {
+  id               String    @id @default(cuid())
+  date             DateTime
+  amount           Int
+  note             String
+  targetEmployeeId String?
+  targetEmployee   Employee? @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+
+  @@index([date])
+  @@map("weekly_expenses")
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  unitId          String
+  unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  date            DateTime
+  checkOutDate    DateTime?
+  stayType        StayType
+  checkInTime     String?
+  checkOutTime    String?
+  guests          String[]
+  pax             Int?
+  contactNumber   String
+
+  bookerId        String?
+  booker          Employee?     @relation("BookerRel", fields: [bookerId], references: [id])
+  cleanerId       String?
+  cleaner         Employee?     @relation("CleanerRel", fields: [cleanerId], references: [id])
+
+  platform        Platform
+  platformOther   String?
+
+  // Downpayment (reservation fee)
+  dpAmount        Int?
+  dpReceivedById  String?
+  dpReceivedBy    Employee?     @relation("DpReceiverRel", fields: [dpReceivedById], references: [id])
+  dpMethod        PaymentMethod?
+  dpProofUrl      String?
+
+  // Full / remaining balance payment
+  amount          Int
+  receivedById    String?
+  receivedBy      Employee?     @relation("ReceiverRel", fields: [receivedById], references: [id])
+  method          PaymentMethod?
+  proofUrl        String?
+  paid            Boolean       @default(false)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([unitId, date])
+  @@map("bookings")
+}
+
+// Calendar occupancy blocks: reservations, cleaning holds, maintenance holds.
+model CalendarBlock {
+  id         String   @id @default(cuid())
+  unitId     String
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  type       StayType
+  date       DateTime
+  endDate    DateTime?
+  guest      String?
+  note       String?
+  status     String   @default("confirmed")
+  createdAt  DateTime @default(now())
+
+  @@index([unitId, date])
+  @@map("calendar_blocks")
+}
+
+// One row per unit: current housekeeping status + checklist progress.
+// `checked` mirrors the app's CHECKLIST_GROUPS shape: boolean[][] (group -> item).
+model HousekeepingUnitState {
+  id        String   @id @default(cuid())
+  unitId    String   @unique
+  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  status    String   @default("todo") // todo | cleaning | clean
+  byName    String?
+  startedAt DateTime?
+  endedAt   DateTime?
+  checked   Json     @default("[]")
+  updatedAt DateTime @updatedAt
+
+  @@map("housekeeping_unit_state")
+}
+
+model CleaningLog {
+  id         String    @id @default(cuid())
+  unitId     String
+  unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  startedAt  DateTime
+  endedAt    DateTime?
+
+  @@map("cleaning_logs")
+}
+
+model Shift {
+  id         String    @id @default(cuid())
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+  clockIn    DateTime
+  clockOut   DateTime?
+
+  @@map("shifts")
+}
+
+model Stock {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  name   String
+  count  Int    @default(0)
+
+  @@map("stocks")
+}
+
+model Bill {
+  id         String        @id @default(cuid())
+  unitId     String
+  unit       Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  key        BillKey
+  label      String?       // display name for a custom bill (key = "custom")
+  month      DateTime      // first day of the billing month
+  dueDay     Int?          // day-of-month (1-31) this bill is due; null = no set due date
+  amountDue  Int           @default(0)
+  amountPaid Int?
+  paid       Boolean       @default(false)
+  note       String?
+  receiptUrl String?
+  paidAt     DateTime?
+
+  // Not unique: a unit can have any number of custom bills in the same
+  // month. The 5 built-in bill types are kept from duplicating themselves
+  // by a findFirst-then-create check in the API instead of a DB constraint.
+  @@index([unitId, key, month])
+  @@map("bills")
+}
+
+// Auditor quality-inspection findings — cleaning/laundry/booking checks
+// logged by an auditor, scored per category, and flagged for the owner to
+// review, follow up on, and resolve.
+model AuditFinding {
+  id                String          @id @default(cuid())
+  auditorName       String
+  reviewDate        DateTime
+  unitId            String?
+  unit              Unit?           @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  employeeId        String?
+  employee          Employee?       @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  category          FindingCategory
+  severity          FindingSeverity
+  title             String
+  notes             String?
+  recommendedAction String?
+  cleaningScore     Float?
+  laundryScore      Float?
+  bookerScore       Float?
+  overallStars      Int?
+  followUpNeeded    Boolean         @default(false)
+  photoUrl          String?
+  resolved          Boolean         @default(false)
+  resolvedAt        DateTime?
+  createdAt         DateTime        @default(now())
+
+  @@index([resolved, severity])
+  @@map("audit_findings")
+}
+
+// Site-wide settings, managed from the Admin page.
+model Settings {
+  id            Int      @id @default(1)
+  businessName  String   @default("Evangelina's Staycation")
+  address       String   @default("Cubao, Quezon City")
+  nightlyRate   Int      @default(1799)
+  dpFee         Int      @default(500)
+  currency      String   @default("PHP")
+  checklistGroups Json?
+  updatedAt     DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// Append-only trail for the Auditor page.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorUserId String?
+  actor      User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action     String   // e.g. "booking.create", "bill.mark_paid", "unit.create"
+  entity     String   // e.g. "Booking", "Unit"
+  entityId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("audit_log")
+}
