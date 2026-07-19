@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/prisma";
 
-/** Completed-booking milestone tiers for the per-unit, per-month booker bonus. */
-export const BONUS_TIERS = [
-  { tier: 50, amount: 3000 },
-  { tier: 60, amount: 10000 },
+/** Monthly Elite Booker Challenge tiers — company-wide, limited reward slots. */
+export const ELITE_TIERS = [
+  { tier: 50, amount: 500, slots: 2, stars: 1, badge: "Bronze Booker", medal: "🥉" },
+  { tier: 100, amount: 1500, slots: 2, stars: 2, badge: "Silver Booker", medal: "🥈" },
+  { tier: 150, amount: 2500, slots: 2, stars: 3, badge: "Gold Booker", medal: "🥇" },
+  { tier: 200, amount: 3500, slots: 1, stars: 4, badge: "Platinum Booker", medal: "💎" },
+  { tier: 250, amount: 5000, slots: 1, stars: 5, badge: "Legend Booker", medal: "👑" },
 ] as const;
 
 /** A booking counts toward commission/gamification once its stay has actually finished. */
@@ -13,47 +16,62 @@ export function isBookingCompleted(booking: { date: Date | string; checkOutDate:
 }
 
 /**
- * Ensures every booker+unit+calendar-month combo that has crossed the 50/60
- * completed-booking threshold has its bonus award persisted. Idempotent —
- * the unique (employeeId, unitId, month, tier) constraint means calling
- * this repeatedly (e.g. on every My Earnings / admin payroll page load)
- * never double-awards, so there's no separate "recalculate" trigger needed
- * for booking edits/cancellations to be picked up correctly.
+ * Ensures every tier that's been legitimately reached this month has its
+ * limited slots correctly filled by whoever crossed the threshold earliest
+ * (booking-completion timestamp as tiebreaker) — company-wide, not per
+ * unit. Idempotent and safe to call on every read: an award, once
+ * persisted, is never revoked or reassigned by a later recompute (the
+ * unique employee+month+tier constraint plus a no-op update means a slot
+ * winner stays the winner even if new data would technically produce a
+ * different ranking) — "paid once" is a hard guarantee, not just a display
+ * convention.
  */
-export async function syncBookerBonusAwards(employeeId?: string) {
+export async function syncEliteBookerAwards() {
   const now = new Date();
-  const bookers = await prisma.employee.findMany({
-    where: { role: "BOOKER", active: true, ...(employeeId ? { id: employeeId } : {}) },
-    select: { id: true },
-  });
+  const bookers = await prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } });
   if (bookers.length === 0) return;
 
   const bookings = await prisma.booking.findMany({
     where: { bookerId: { in: bookers.map((b) => b.id) } },
-    select: { bookerId: true, unitId: true, date: true, checkOutDate: true },
+    select: { bookerId: true, date: true, checkOutDate: true },
   });
 
-  // Group completed bookings by bookerId::unitId::YYYY-MM, keyed off each
-  // booking's check-in date (the month it was logged against).
-  const counts = new Map<string, number>();
+  // Group each booker's completed bookings by calendar month (keyed off
+  // check-in date, matching the rest of the app's monthly-bucket
+  // convention), sorted by completion timestamp ascending.
+  const byEmployeeMonth = new Map<string, { completedAt: Date }[]>();
   for (const b of bookings) {
     if (!b.bookerId || !isBookingCompleted(b, now)) continue;
-    const d = new Date(b.date);
-    const key = `${b.bookerId}::${b.unitId}::${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const completedAt = b.checkOutDate ?? b.date;
+    const d = b.date;
+    const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const key = `${b.bookerId}::${monthKey}`;
+    if (!byEmployeeMonth.has(key)) byEmployeeMonth.set(key, []);
+    byEmployeeMonth.get(key)!.push({ completedAt: new Date(completedAt) });
   }
+  for (const list of byEmployeeMonth.values()) list.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
 
-  for (const [key, count] of counts) {
-    const [empId, unitId, ym] = key.split("::");
-    const [y, m] = ym.split("-").map(Number);
+  const monthKeys = new Set([...byEmployeeMonth.keys()].map((k) => k.split("::")[1]));
+  for (const monthKey of monthKeys) {
+    const [y, m] = monthKey.split("-").map(Number);
     const month = new Date(Date.UTC(y, m - 1, 1));
-    for (const { tier, amount } of BONUS_TIERS) {
-      if (count < tier) continue;
-      await prisma.bookerBonusAward.upsert({
-        where: { employeeId_unitId_month_tier: { employeeId: empId, unitId, month, tier } },
-        update: {},
-        create: { employeeId: empId, unitId, month, tier, amount },
-      });
+    for (const t of ELITE_TIERS) {
+      const crossings: { employeeId: string; completedAt: Date }[] = [];
+      for (const [key, list] of byEmployeeMonth) {
+        const [empId, mk] = key.split("::");
+        if (mk !== monthKey || list.length < t.tier) continue;
+        crossings.push({ employeeId: empId, completedAt: list[t.tier - 1].completedAt });
+      }
+      crossings.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+      const winners = crossings.slice(0, t.slots);
+      for (let i = 0; i < winners.length; i++) {
+        const w = winners[i];
+        await prisma.eliteBookerAward.upsert({
+          where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
+          update: {},
+          create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },
+        });
+      }
     }
   }
 }

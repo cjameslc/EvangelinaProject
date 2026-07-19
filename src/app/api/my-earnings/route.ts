@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
-import { isBookingCompleted, syncBookerBonusAwards, BONUS_TIERS } from "@/lib/gamification";
+import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS } from "@/lib/gamification";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -22,7 +22,7 @@ const ACHIEVEMENT_DEFS = [
 ] as const;
 
 // Every My Earnings figure is a *derived* view over Booking/CleaningLog/
-// WeeklyExpense/BookerBonusAward — there's no separate "payroll record" to
+// WeeklyExpense/EliteBookerAward — there's no separate "payroll record" to
 // go stale, so every read here is automatically live/recalculated; nothing
 // needs an explicit recompute trigger when a booking is edited or cancelled.
 export async function GET(req: NextRequest) {
@@ -59,10 +59,9 @@ export async function GET(req: NextRequest) {
     auditorWeeklyRate: settings.auditorWeeklyRate,
   };
 
-  if (employee.role === "BOOKER") await syncBookerBonusAwards(employee.id);
+  if (employee.role === "BOOKER") await syncEliteBookerAwards();
 
-  const [units, allBookingsForEmployee, cleaningLogs, expenses, bonusAwards] = await Promise.all([
-    prisma.unit.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true, name: true, shortName: true, unitNumber: true } }),
+  const [allBookingsForEmployee, cleaningLogs, expenses, myAwards] = await Promise.all([
     prisma.booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
       select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true },
@@ -70,7 +69,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
     prisma.weeklyExpense.findMany({ where: { targetEmployeeId: employee.id }, orderBy: { date: "desc" }, take: 200 }),
-    prisma.bookerBonusAward.findMany({ where: { employeeId: employee.id }, include: { unit: { select: { shortName: true } } }, orderBy: { awardedAt: "desc" } }),
+    prisma.eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
   ]);
 
   const now = new Date();
@@ -100,7 +99,7 @@ export async function GET(req: NextRequest) {
   const salaryThisWeek = weeklySalaryFor(employee.monthlySalary);
   const pendingPayroll = salaryThisWeek + thisWeek.total;
 
-  // ---- This month (gross/net + per-unit gamification progress) ----
+  // ---- This month (gross/net + Elite Booker Challenge progress) ----
   const thisMonthIso = dayOf(now).slice(0, 7);
   const monthBookings = allBookingsForEmployee.filter((b) => b.date.toISOString().slice(0, 7) === thisMonthIso);
   const cleaningDaysThisMonth = new Set(
@@ -117,8 +116,8 @@ export async function GET(req: NextRequest) {
     rates,
     periodWeeks: 30 / 7,
   });
-  const monthBonusAwards = bonusAwards.filter((a) => a.month.toISOString().slice(0, 7) === thisMonthIso);
-  const monthBonusTotal = monthBonusAwards.reduce((s, a) => s + a.amount, 0);
+  const monthAwards = myAwards.filter((a) => a.month.toISOString().slice(0, 7) === thisMonthIso);
+  const monthBonusTotal = monthAwards.reduce((s, a) => s + a.amount, 0);
   const grossThisMonth = employee.monthlySalary + thisMonthActivity.total + monthBonusTotal;
   const netThisMonth = grossThisMonth; // deductions are already netted into thisMonthActivity.total via computeTeamBreakdown
 
@@ -144,43 +143,71 @@ export async function GET(req: NextRequest) {
     lifetimeActivity = weeksSinceCreated * rates.auditorWeeklyRate;
   }
   const lifetimeAdjustments = expenses.reduce((s, e) => s + (e.note === "Salary" ? e.amount : -e.amount), 0);
-  const lifetimeBonusTotal = bonusAwards.reduce((s, a) => s + a.amount, 0);
+  const lifetimeBonusTotal = myAwards.reduce((s, a) => s + a.amount, 0);
   const lifetimeEarnings = lifetimeActivity + lifetimeAdjustments + lifetimeBonusTotal;
 
-  // ---- Per-unit gamification progress (Booker only) ----
-  let perUnitProgress: any[] = [];
+  // ---- Monthly Elite Booker Challenge progress (Booker only) ----
+  let eliteChallenge: any = null;
   if (employee.role === "BOOKER") {
-    const countsThisMonthByUnit = new Map<string, number>();
-    monthBookings.filter((b) => b.bookerId === employee!.id).forEach((b) => {
-      countsThisMonthByUnit.set(b.unitId, (countsThisMonthByUnit.get(b.unitId) ?? 0) + 1);
+    const completedThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && isBookingCompleted(b, now)).length;
+
+    // Everyone else's counts + awards this month, to compute rank and
+    // remaining slots per tier without exposing their identities beyond
+    // what's already public on the admin leaderboard.
+    const allBookers = await prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } });
+    const allMonthBookings = await prisma.booking.findMany({
+      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), lt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) } },
+      select: { bookerId: true, date: true, checkOutDate: true },
     });
-    perUnitProgress = units
-      .map((u) => {
-        const completed = countsThisMonthByUnit.get(u.id) ?? 0;
-        const nextTier = BONUS_TIERS.find((t) => completed < t.tier);
-        const awardedTiers = monthBonusAwards.filter((a) => a.unitId === u.id).map((a) => a.tier);
-        return {
-          unitId: u.id,
-          unitName: u.shortName,
-          unitNumber: u.unitNumber,
-          completedThisMonth: completed,
-          nextTier: nextTier?.tier ?? null,
-          nextTierAmount: nextTier?.amount ?? null,
-          remaining: nextTier ? nextTier.tier - completed : 0,
-          progressPct: nextTier ? Math.min(100, Math.round((completed / nextTier.tier) * 100)) : 100,
-          tiersAwardedThisMonth: awardedTiers,
-        };
-      })
-      .filter((p) => p.completedThisMonth > 0 || p.tiersAwardedThisMonth.length > 0)
-      .sort((a, b) => b.completedThisMonth - a.completedThisMonth);
+    const countsByBooker = new Map<string, number>();
+    allBookers.forEach((b) => countsByBooker.set(b.id, 0));
+    allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByBooker.set(b.bookerId, (countsByBooker.get(b.bookerId) ?? 0) + 1); });
+    const ranked = [...countsByBooker.entries()].sort((a, b) => b[1] - a[1]);
+    const rank = ranked.findIndex(([id]) => id === employee!.id) + 1;
+
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const allMonthAwards = await prisma.eliteBookerAward.findMany({ where: { month: monthStart } });
+
+    const currentTierDef = [...ELITE_TIERS].reverse().find((t) => completedThisMonth >= t.tier) ?? null;
+    const nextTierDef = ELITE_TIERS.find((t) => completedThisMonth < t.tier) ?? null;
+    const tiersWithSlots = ELITE_TIERS.map((t) => ({
+      tier: t.tier,
+      amount: t.amount,
+      stars: t.stars,
+      badge: t.badge,
+      medal: t.medal,
+      slotsTotal: t.slots,
+      slotsTaken: allMonthAwards.filter((a) => a.tier === t.tier).length,
+      wonByMe: monthAwards.some((a) => a.tier === t.tier),
+    }));
+    const nextTierSlots = nextTierDef ? tiersWithSlots.find((t) => t.tier === nextTierDef.tier)! : null;
+
+    eliteChallenge = {
+      completedThisMonth,
+      rank,
+      totalBookers: ranked.length,
+      currentTier: currentTierDef?.tier ?? null,
+      currentStars: currentTierDef?.stars ?? 0,
+      currentBadge: currentTierDef?.badge ?? null,
+      nextTier: nextTierDef?.tier ?? null,
+      nextTierAmount: nextTierDef?.amount ?? null,
+      remaining: nextTierDef ? nextTierDef.tier - completedThisMonth : 0,
+      progressPct: nextTierDef ? Math.min(100, Math.round((completedThisMonth / nextTierDef.tier) * 100)) : 100,
+      slotsRemainingForNextTier: nextTierSlots ? Math.max(0, nextTierSlots.slotsTotal - nextTierSlots.slotsTaken) : 0,
+      slotsTotalForNextTier: nextTierSlots?.slotsTotal ?? 0,
+      estimatedCommission: completedThisMonth * rates.bookerCommission,
+      potentialBonus: nextTierDef?.amount ?? 0,
+      tiers: tiersWithSlots,
+    };
   }
 
-  // ---- Achievements (derived, not persisted) ----
+  // ---- Achievements (derived, not persisted; tier badges are lifetime —
+  // once earned in any month, they're kept, per "historical achievements
+  // ... are retained"). ----
   const lifetimeCompletedCount = employee.role === "HOUSEKEEPING" ? cleanedByThisEmployee.length : bookedByThisEmployee.length;
   const achievements = [
     ...ACHIEVEMENT_DEFS.map((a) => ({ id: a.id, label: a.label, unlocked: lifetimeCompletedCount >= a.min })),
-    { id: "fifty-bonus", label: "50 Booking Bonus", unlocked: bonusAwards.some((a) => a.tier === 50) },
-    { id: "sixty-elite", label: "60 Booking Elite", unlocked: bonusAwards.some((a) => a.tier === 60) },
+    ...ELITE_TIERS.map((t) => ({ id: `tier-${t.tier}`, label: `${t.medal} ${t.badge}`, unlocked: myAwards.some((a) => a.tier === t.tier) })),
   ];
 
   // ---- Payroll history: last 12 weeks ----
@@ -199,7 +226,7 @@ export async function GET(req: NextRequest) {
       .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= wStart && d < wEnd; })
       .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
     const wActivity = computeTeamBreakdown(employee, { cleaningDays: wCleaningDays, weekBookings: wBookings, weekExpenses: wExpenses, rates });
-    const wBonuses = bonusAwards.filter((a) => { const d = new Date(a.awardedAt); return d >= wStart && d < wEnd; });
+    const wAwards = myAwards.filter((a) => { const d = new Date(a.completedAt); return d >= wStart && d < wEnd; });
     const wSalary = weeklySalaryFor(employee.monthlySalary);
     payrollHistory.push({
       weekStart: wStart.toISOString(),
@@ -207,8 +234,8 @@ export async function GET(req: NextRequest) {
       salary: wSalary,
       activity: wActivity.total,
       bookingCount: wBookings.filter((b) => b.bookerId === employee!.id).length,
-      bonuses: wBonuses.reduce((s, a) => s + a.amount, 0),
-      total: wSalary + wActivity.total + wBonuses.reduce((s, a) => s + a.amount, 0),
+      bonuses: wAwards.reduce((s, a) => s + a.amount, 0),
+      total: wSalary + wActivity.total + wAwards.reduce((s, a) => s + a.amount, 0),
       status: i === 0 ? "Current period" : "Historical",
     });
   }
@@ -228,10 +255,10 @@ export async function GET(req: NextRequest) {
     grossThisMonth,
     netThisMonth,
     lifetimeEarnings,
-    perUnitProgress,
+    eliteChallenge,
     achievements,
     payrollHistory,
-    bonusAwards: bonusAwards.map((a) => ({ id: a.id, unitName: a.unit.shortName, month: a.month.toISOString(), tier: a.tier, amount: a.amount, awardedAt: a.awardedAt.toISOString() })),
+    bonusAwards: myAwards.map((a) => ({ id: a.id, month: a.month.toISOString(), tier: a.tier, amount: a.amount, slotRank: a.slotRank, completedAt: a.completedAt.toISOString() })),
     adjustments: expenses.slice(0, 30).map((e) => ({ id: e.id, date: e.date.toISOString(), amount: e.amount, note: e.note, deduction: e.note !== "Salary" })),
   });
 }

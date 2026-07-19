@@ -154,7 +154,6 @@ model Unit {
   bills         Bill[]
   auditFindings AuditFinding[]
   recurringExpenseTemplates RecurringExpenseTemplate[]
-  bookerBonusAwards BookerBonusAward[]
   icalSyncLogs  IcalSyncLog[]
 
   @@map("units")
@@ -220,29 +219,33 @@ model Employee {
   shifts              Shift[]
   targetedExpenses    WeeklyExpense[]
   auditFindings       AuditFinding[]
-  bonusAwards         BookerBonusAward[]
+  eliteBookerAwards   EliteBookerAward[]
 
   @@map("employees")
 }
 
-// A booker's completed-booking milestone bonus for one unit in one calendar
-// month (50 -> P3,000, 60 -> P10,000) — persisted the moment it's earned so
-// it's awarded exactly once (enforced by the unique constraint below) and
-// shows up in payroll/earnings history even after that month's booking
-// count later changes for unrelated reasons.
-model BookerBonusAward {
-  id         String   @id @default(cuid())
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  unitId     String
-  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  month      DateTime // first-of-month marker, matching Bill.month's convention
-  tier       Int // 50 or 60
-  amount     Int // 3000 or 10000
-  awardedAt  DateTime @default(now())
+// Monthly Elite Booker Challenge — company-wide (not per-unit) completed-
+// booking milestones (50/100/150/200/250) with LIMITED reward slots (first
+// 2, first 2, first 2, first 1, first 1 employees each month). Persisted
+// the instant a slot is won (unique per employee+month+tier) so it's never
+// double-awarded and never reassigned later even if a recompute would
+// otherwise reorder who "should" have won — once paid, it stays paid.
+// completedAt is the timestamp of the exact booking that crossed the tier,
+// used to rank who got there first when multiple employees compete for the
+// same limited slots.
+model EliteBookerAward {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month       DateTime // first-of-month marker, matching Bill.month's convention
+  tier        Int // 50 | 100 | 150 | 200 | 250
+  amount      Int // 500 | 1500 | 2500 | 3500 | 5000
+  slotRank    Int // 1st or 2nd employee to reach this tier that month (always 1 for Platinum/Legend)
+  completedAt DateTime // when the tier-crossing booking completed — the tiebreaker
+  createdAt   DateTime @default(now())
 
-  @@unique([employeeId, unitId, month, tier])
-  @@map("booker_bonus_awards")
+  @@unique([employeeId, month, tier])
+  @@map("elite_booker_awards")
 }
 
 // Append-only log of monthlySalary changes, so a report for a past period

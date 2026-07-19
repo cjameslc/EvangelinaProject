@@ -13,13 +13,17 @@ import { FilePdfIcon } from "@/components/ui/Icons";
 
 type EmployeeLite = { id: string; name: string; role: string };
 type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
-type PerUnitProgress = {
-  unitId: string; unitName: string; unitNumber: string; completedThisMonth: number;
-  nextTier: number | null; nextTierAmount: number | null; remaining: number; progressPct: number; tiersAwardedThisMonth: number[];
+type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
+type EliteChallenge = {
+  completedThisMonth: number; rank: number; totalBookers: number;
+  currentTier: number | null; currentStars: number; currentBadge: string | null;
+  nextTier: number | null; nextTierAmount: number | null; remaining: number; progressPct: number;
+  slotsRemainingForNextTier: number; slotsTotalForNextTier: number;
+  estimatedCommission: number; potentialBonus: number; tiers: EliteTierStatus[];
 };
 type Achievement = { id: string; label: string; unlocked: boolean };
 type PayrollHistoryRow = { weekStart: string; weekEnd: string; salary: number; activity: number; bookingCount: number; bonuses: number; total: number; status: string };
-type BonusAward = { id: string; unitName: string; month: string; tier: number; amount: number; awardedAt: string };
+type BonusAward = { id: string; month: string; tier: number; amount: number; slotRank: number; completedAt: string };
 type Adjustment = { id: string; date: string; amount: number; note: string; deduction: boolean };
 type EarningsData = {
   employee: { id: string; name: string; role: string; salaryType: string; salaryRate: number; monthlySalary: number };
@@ -30,7 +34,7 @@ type EarningsData = {
   grossThisMonth: number;
   netThisMonth: number;
   lifetimeEarnings: number;
-  perUnitProgress: PerUnitProgress[];
+  eliteChallenge: EliteChallenge | null;
   achievements: Achievement[];
   payrollHistory: PayrollHistoryRow[];
   bonusAwards: BonusAward[];
@@ -207,28 +211,60 @@ export function EarningsView({
         </div>
       </Accordion>
 
-      {data.perUnitProgress.length > 0 && (
-        <Accordion title="Progress to next bonus" sub="per unit, this month">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {data.perUnitProgress.map((p) => (
-              <div key={p.unitId} className="rounded-2xl border border-[var(--line)] p-4">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[14px] font-extrabold">{p.unitNumber} · {p.unitName}</span>
-                  <span className="text-[12.5px] font-bold text-[var(--gray)]">{p.completedThisMonth}{p.nextTier ? ` / ${p.nextTier}` : ""} bookings</span>
+      {data.eliteChallenge && (
+        <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
+          <div className="mb-4 rounded-2xl border border-[var(--line)] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[18px] font-extrabold">
+                  {data.eliteChallenge.currentBadge ? `${"⭐".repeat(data.eliteChallenge.currentStars)} ${data.eliteChallenge.currentBadge}` : "No tier yet this month"}
                 </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-[var(--bg-2)]">
-                  <div className="h-full rounded-full bg-rausch transition-all" style={{ width: `${p.progressPct}%` }} />
+                <div className="mt-0.5 text-[13px] text-[var(--gray)]">
+                  {data.eliteChallenge.completedThisMonth}{data.eliteChallenge.nextTier ? ` / ${data.eliteChallenge.nextTier}` : ""} bookings this month
                 </div>
-                {p.nextTier ? (
-                  <p className="mt-2 text-[12.5px] font-semibold text-[var(--gray)]">
-                    {p.remaining} more booking{p.remaining === 1 ? "" : "s"} to unlock <b className="text-[var(--ink)]">{peso(p.nextTierAmount ?? 0)}</b>
-                  </p>
-                ) : (
-                  <p className="mt-2 text-[12.5px] font-semibold text-green">All bonus tiers unlocked for this unit this month 🎉</p>
-                )}
-                {p.tiersAwardedThisMonth.length > 0 && (
-                  <p className="mt-1 text-[11.5px] text-[var(--gray)]">Earned this month: {p.tiersAwardedThisMonth.map((t) => `${t}-booking bonus`).join(", ")}</p>
-                )}
+              </div>
+              <div className="text-right">
+                <div className="text-[13px] font-bold">Rank #{data.eliteChallenge.rank} of {data.eliteChallenge.totalBookers}</div>
+                <div className="text-[11.5px] text-[var(--gray)]">this month</div>
+              </div>
+            </div>
+
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-[var(--bg-2)]">
+              <div className="h-full rounded-full bg-rausch transition-all" style={{ width: `${data.eliteChallenge.progressPct}%` }} />
+            </div>
+
+            {data.eliteChallenge.nextTier ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] font-semibold text-[var(--gray)]">
+                  Only <b className="text-[var(--ink)]">{data.eliteChallenge.remaining} more booking{data.eliteChallenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(data.eliteChallenge.nextTierAmount ?? 0)}
+                </p>
+                <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-extrabold", data.eliteChallenge.slotsRemainingForNextTier > 0 ? "bg-teal/15 text-teal" : "bg-rausch/15 text-rausch")}>
+                  Reward Slots: {data.eliteChallenge.slotsRemainingForNextTier} of {data.eliteChallenge.slotsTotalForNextTier} Remaining
+                </span>
+              </div>
+            ) : (
+              <p className="mt-3 text-[13px] font-semibold text-green">👑 Maximum tier reached this month!</p>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3 sm:grid-cols-2">
+              <div>
+                <div className="text-[11px] font-bold uppercase text-[var(--gray)]">Estimated commission</div>
+                <div className="text-[15px] font-extrabold">{peso(data.eliteChallenge.estimatedCommission)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase text-[var(--gray)]">Potential bonus</div>
+                <div className="text-[15px] font-extrabold">{peso(data.eliteChallenge.potentialBonus)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
+            {data.eliteChallenge.tiers.map((t) => (
+              <div key={t.tier} className={cn("rounded-xl border p-3 text-center", t.wonByMe ? "border-rausch/30 bg-rausch/5" : "border-[var(--line)]")}>
+                <div className="text-lg">{t.medal}</div>
+                <div className="mt-0.5 text-[11.5px] font-extrabold">{t.badge}</div>
+                <div className="text-[10.5px] text-[var(--gray)]">{t.tier} bookings · {peso(t.amount)}</div>
+                <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, t.slotsTotal - t.slotsTaken)} of {t.slotsTotal} slots left</div>
               </div>
             ))}
           </div>

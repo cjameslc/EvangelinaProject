@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { isBookingCompleted, syncBookerBonusAwards } from "@/lib/gamification";
+import { isBookingCompleted, syncEliteBookerAwards } from "@/lib/gamification";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -13,7 +13,7 @@ export async function GET() {
   const { user, error } = await requireUser();
   if (error) return error;
 
-  await syncBookerBonusAwards();
+  await syncEliteBookerAwards();
 
   const settings = await prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
   const thisMonthIso = dayOf(new Date()).slice(0, 7);
@@ -23,7 +23,7 @@ export async function GET() {
     where: { bookerId: { in: bookers.map((b) => b.id) } },
     select: { bookerId: true, date: true, checkOutDate: true },
   });
-  const bonusAwards = await prisma.bookerBonusAward.findMany({ where: { employeeId: { in: bookers.map((b) => b.id) } } });
+  const bonusAwards = await prisma.eliteBookerAward.findMany({ where: { employeeId: { in: bookers.map((b) => b.id) } } });
 
   const now = new Date();
   const ranked = bookers
