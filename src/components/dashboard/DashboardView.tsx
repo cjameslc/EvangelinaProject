@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
 import {
-  computeTeamBreakdown, isPayrollRole, totalSalaryPayroll,
+  computeTeamBreakdown, isPayrollRole, totalSalaryPayroll, weeklySalaryFor,
   type PayrollRates, type DashboardPeriodType, type SalaryHistoryEntry,
 } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
@@ -266,19 +266,27 @@ export function DashboardView({
   const normalizedTeamExpensesThisPeriod = teamExpensesThisPeriod.map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: e.targetEmployee?.id ?? null }));
   const periodWeeks = Math.max(periodDays / 7, 1 / 7);
 
-  const teamCalcs = employees
-    .filter((e) => isPayrollRole(e.role))
-    .map((e) => ({
-      employee: e,
-      ...computeTeamBreakdown(e, {
-        cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
-        weekBookings: teamBookingsThisPeriod,
-        weekExpenses: normalizedTeamExpensesThisPeriod,
-        rates: payrollRates,
-        periodWeeks,
-      }),
-    }));
-  const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total, 0);
+  // Every staff member from Admin -> Staff appears here now, each with their
+  // flat "Salary this week" (their configured rate, normalized to a weekly
+  // figure — always the literal current week, independent of whatever
+  // period the Earnings filter above is set to, since that's what the label
+  // means on the Staff tab too) alongside the commission/day-rate activity
+  // breakdown for roles that have one (Booker/Housekeeping/Auditor) — a
+  // salaried Owner/Admin or Co-owner has no activity formula, only salary.
+  const teamCalcs = employees.map((e) => ({
+    employee: e,
+    salaryThisWeek: weeklySalaryFor(e.monthlySalary),
+    ...(isPayrollRole(e.role)
+      ? computeTeamBreakdown(e, {
+          cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
+          weekBookings: teamBookingsThisPeriod,
+          weekExpenses: normalizedTeamExpensesThisPeriod,
+          rates: payrollRates,
+          periodWeeks,
+        })
+      : { total: 0, items: [] as ReturnType<typeof computeTeamBreakdown>["items"], subtitle: "" }),
+  }));
+  const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total + t.salaryThisWeek, 0);
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const AVATAR_COLORS = ["bg-rausch", "bg-teal", "bg-violet", "bg-amber", "bg-blue", "bg-green"];
 
@@ -1054,9 +1062,9 @@ export function DashboardView({
         </div>
       </Accordion>
 
-      <Accordion title="Your team" sub={periodLabelShort}>
+      <Accordion title="Your team" sub="salary this week">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[12.5px] text-[var(--gray)]">Commission-based earnings collected {periodLabelShort}, by role — follows the same period filter as Earnings above.</p>
+          <p className="text-[12.5px] text-[var(--gray)]">Every staff member&rsquo;s flat &ldquo;Salary this week&rdquo; from Admin → Staff, plus commission/day-rate activity {periodLabelShort} for Booker/Housekeeping/Auditor.</p>
           {role === "OWNER_ADMIN" && (
             <Link href="/admin?tab=staff" className="flex-none text-[12.5px] font-bold text-rausch hover:underline">
               Manage staff →
@@ -1064,9 +1072,10 @@ export function DashboardView({
           )}
         </div>
         <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
-          {teamCalcs.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff activity recorded yet.</p>}
-          {teamCalcs.map(({ employee: emp, total, items, subtitle }, i) => {
+          {teamCalcs.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
+          {teamCalcs.map(({ employee: emp, total, items, subtitle, salaryThisWeek }, i) => {
             const isOpen = expandedTeamId === emp.id;
+            const hasActivity = isPayrollRole(emp.role);
             return (
               <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
                 <button onClick={() => setExpandedTeamId(isOpen ? null : emp.id)} className="flex w-full items-center gap-3 p-4 text-left">
@@ -1079,14 +1088,27 @@ export function DashboardView({
                     {subtitle && <div className="mt-0.5 text-[11.5px] text-[var(--gray)]">{subtitle}</div>}
                   </div>
                   <div className="flex-none text-right">
-                    <div className={cn("text-[16px] font-extrabold", total < 0 && "text-amber")}>{peso(total)}</div>
-                    <div className="text-[11px] text-[var(--gray)]">{periodLabelShort}</div>
+                    <div className="text-[16px] font-extrabold">{peso(salaryThisWeek)}</div>
+                    <div className="text-[11px] text-[var(--gray)]">salary this week</div>
+                    {hasActivity && (
+                      <div className={cn("mt-0.5 text-[12px] font-bold", total < 0 ? "text-amber" : "text-green")}>
+                        {total >= 0 ? "+" : ""}{peso(total)} activity {periodLabelShort}
+                      </div>
+                    )}
                   </div>
                   <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", isOpen && "rotate-180")} />
                 </button>
                 {isOpen && (
                   <div className="space-y-2 border-t border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
-                    {items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No activity this week.</p>}
+                    <div className="flex items-center justify-between text-[13px]">
+                      <div>
+                        <div className="font-bold">Salary this week</div>
+                        <div className="text-[11.5px] text-[var(--gray)]">from Admin → Staff, flat rate ÷ 52 weeks</div>
+                      </div>
+                      <div className="font-bold">{peso(salaryThisWeek)}</div>
+                    </div>
+                    {!hasActivity && items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No commission activity — salaried role.</p>}
+                    {items.length === 0 && hasActivity && <p className="text-[12.5px] text-[var(--gray)]">No activity {periodLabelShort}.</p>}
                     {items.map((item, j) => (
                       <div key={j} className="flex items-center justify-between text-[13px]">
                         <div>
@@ -1096,12 +1118,10 @@ export function DashboardView({
                         <div className={cn("font-bold", item.deduction && "text-rausch")}>{item.deduction ? "−" : ""}{peso(item.amount)}</div>
                       </div>
                     ))}
-                    {items.length > 0 && (
-                      <div className="flex items-center justify-between border-t border-dashed border-[var(--line-2)] pt-2 text-[13px] font-extrabold">
-                        <span>Subtotal</span>
-                        <span className={cn(total < 0 && "text-amber")}>{peso(total)}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between border-t border-dashed border-[var(--line-2)] pt-2 text-[13px] font-extrabold">
+                      <span>Subtotal</span>
+                      <span className={cn(salaryThisWeek + total < 0 && "text-amber")}>{peso(salaryThisWeek + total)}</span>
+                    </div>
                   </div>
                 )}
               </div>
