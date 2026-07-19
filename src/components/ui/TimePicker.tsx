@@ -72,6 +72,13 @@ export function TimePicker({
     setOpen(false);
   }
 
+  // Keeps the Enter-key handler below able to call the latest commit()
+  // (which closes over the current hour/minute/meridiem) without the panel
+  // effect itself needing those values in its dependency array — see note
+  // there for why that matters.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(() => { hourRef.current?.focus(); hourRef.current?.select(); }, 0);
@@ -80,7 +87,7 @@ export function TimePicker({
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
-      if (e.key === "Enter") { e.preventDefault(); commit(); }
+      if (e.key === "Enter") { e.preventDefault(); commitRef.current(); }
     }
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
@@ -89,8 +96,13 @@ export function TimePicker({
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, hour, minute, meridiem]);
+    // Deliberately just [open] — this must run once when the panel opens,
+    // not on every hour/minute keystroke. It used to also depend on
+    // hour/minute/meridiem (to keep the Enter handler's commit() fresh),
+    // but that re-ran the focus+select on every digit typed, which
+    // re-selected the field's text mid-edit and made a second digit
+    // overwrite the first instead of appending to it.
+  }, [open]);
 
   return (
     <div className="relative" ref={rootRef}>

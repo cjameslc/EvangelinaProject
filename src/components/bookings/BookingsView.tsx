@@ -90,14 +90,20 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   }
 
   async function createBooking(v: BookingFormValue) {
-    const res = await fetch("/api/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(toPayload(v)),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toPayload(v)),
+      });
+    } catch {
+      toast("Couldn't reach the server — check your connection and try again.", true);
+      return;
+    }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      toast(j.error ?? "Couldn't save booking", true);
+      toast(j.error ?? (res.status === 413 ? "That photo is too large — try a smaller one." : "Couldn't save booking"), true);
       return;
     }
     toast("Booking added ✓");
@@ -105,12 +111,22 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   }
 
   async function updateBooking(id: string, v: BookingFormValue) {
-    const res = await fetch(`/api/bookings/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(toPayload(v)),
-    });
-    if (!res.ok) { toast("Couldn't update booking", true); return; }
+    let res: Response;
+    try {
+      res = await fetch(`/api/bookings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toPayload(v)),
+      });
+    } catch {
+      toast("Couldn't reach the server — check your connection and try again.", true);
+      return;
+    }
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      toast(j?.error ?? (res.status === 413 ? "That photo is too large — try a smaller one." : "Couldn't update booking"), true);
+      return;
+    }
     toast("Booking updated ✓");
     setEditing(null);
     refresh();

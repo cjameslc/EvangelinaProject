@@ -214,7 +214,12 @@ export function BookingForm({
 
   async function handleProof(file: File | undefined, key: "dpProofUrl" | "proofUrl") {
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { alert("Image is too large (max 4MB)."); return; }
+    // Kept well under Vercel's ~4.5MB request-body limit even after this
+    // gets base64-encoded (~33% larger) and wrapped in the rest of the
+    // booking JSON — a file right up against that ceiling made the save
+    // request fail (or crawl) with no clear error, which read as the UI
+    // being "stuck."
+    if (file.size > 2 * 1024 * 1024) { alert("Image is too large (max 2MB) — try a smaller screenshot or a more compressed photo."); return; }
     const dataUrl = await fileToDataUrl(file);
     set(key, dataUrl);
   }
@@ -222,7 +227,14 @@ export function BookingForm({
   const err = (k: string) => errors[k] && <span className="mt-1 block text-[12.5px] font-semibold text-rausch">{errors[k]}</span>;
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5">
+      {saving && (
+        <div className="sticky top-0 z-30 -mx-1 -mt-1 mb-1 flex items-center gap-2.5 rounded-2xl bg-[var(--ink)] px-4 py-3 text-[13.5px] font-bold text-[var(--bg)] shadow-card">
+          <span className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-[var(--bg)]/30 border-t-[var(--bg)]" />
+          Saving your changes — please wait, this can take a few seconds…
+        </div>
+      )}
+      <fieldset disabled={saving} className="contents">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className="field-label">Dates <span className="text-rausch">*</span></label>
@@ -469,6 +481,7 @@ export function BookingForm({
         )}
         {err("proofUrl")}
       </div>
+      </fieldset>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
         <button onClick={submit} disabled={saving || conflict} className="btn-primary order-first sm:order-none disabled:opacity-50">{saving ? "Saving…" : submitLabel}</button>
