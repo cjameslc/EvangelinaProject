@@ -12,3 +12,4 @@ build
 !.env.example
 .claude
 *.tsbuildinfo
+.vercel.old-account.bak
