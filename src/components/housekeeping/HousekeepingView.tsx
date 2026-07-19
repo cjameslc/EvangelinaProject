@@ -24,7 +24,7 @@ const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
-type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked: boolean[][]; startedAt?: string | null; endedAt?: string | null };
+type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked: boolean[][]; startedAt?: string | null; endedAt?: string | null; cleanedBookingIds?: string[] };
 type Log = { id: string; unitId: string; unit: { shortName: string }; startedAt: string; endedAt: string | null };
 type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
@@ -81,7 +81,16 @@ export function HousekeepingView({
   async function updateUnit(unitId: string, patch: any) {
     setStates((prev) => {
       const idx = prev.findIndex((s) => s.unitId === unitId);
-      const merged = { ...(prev[idx] ?? { unitId, status: "todo", byName: null, checked: [] }), ...patch };
+      // Mirrors the server's cleanedBookingIds bookkeeping (see the API
+      // route) so the optimistic update doesn't flash a stale pending
+      // checkout before refreshHk() lands.
+      const optimistic = { ...patch };
+      const prevIds = prev[idx]?.cleanedBookingIds ?? [];
+      if (patch.status === "clean" && patch.end && patch.bookingId) {
+        optimistic.cleanedBookingIds = prevIds.includes(patch.bookingId) ? prevIds : [...prevIds, patch.bookingId];
+      }
+      if (patch.status === "todo") optimistic.cleanedBookingIds = [];
+      const merged = { ...(prev[idx] ?? { unitId, status: "todo", byName: null, checked: [] }), ...optimistic };
       if (idx === -1) return [...prev, merged];
       const copy = [...prev];
       copy[idx] = merged;
@@ -151,17 +160,54 @@ export function HousekeepingView({
   }, [upcomingBookings]);
   const scheduleList = schedule[scheduleTab];
 
+  // A unit can have more than one checkout in a single day (e.g. a
+  // Daycation guest leaving in the evening plus a separate Night booking
+  // leaving that same day) — grouping today's checkouts per unit, in
+  // checkout-time order, is what lets the rest of this component tell them
+  // apart instead of treating "any checkout today" as one flat fact.
+  const todaysCheckoutsByUnit = useMemo(() => {
+    const map = new Map<string, typeof schedule.today>();
+    for (const b of schedule.today) {
+      if (!map.has(b.unitId)) map.set(b.unitId, []);
+      map.get(b.unitId)!.push(b);
+    }
+    return map;
+  }, [schedule]);
+  function hasAnyCheckoutToday(unitId: string) {
+    return (todaysCheckoutsByUnit.get(unitId)?.length ?? 0) > 0;
+  }
+  // The earliest of today's checkouts for this unit that hasn't been
+  // cleaned for yet (per HousekeepingUnitState.cleanedBookingIds) — null
+  // once every checkout that day has its own finished clean.
+  function pendingBookingIdForUnit(unitId: string): string | null {
+    const list = todaysCheckoutsByUnit.get(unitId);
+    if (!list || list.length === 0) return null;
+    const cleanedIds = states.find((s) => s.unitId === unitId)?.cleanedBookingIds ?? [];
+    const pending = list.find((b) => !cleanedIds.includes(b.id));
+    return pending?.id ?? null;
+  }
   // A room defaults to Clean/ready — it only becomes "to clean" once a guest
   // has actually checked out of it today. Without that, a raw "todo" status
   // (e.g. a freshly-added unit that's never had a stored state) would
   // otherwise misrepresent an untouched room as needing work.
-  const scheduledTodayUnitIds = useMemo(() => new Set(schedule.today.map((b) => b.unitId)), [schedule]);
-  function statusForUnit(unitId: string) {
+  function roomEffectiveStatus(unitId: string) {
     const raw = states.find((s) => s.unitId === unitId)?.status ?? "todo";
-    return raw === "todo" && !scheduledTodayUnitIds.has(unitId) ? "clean" : raw;
+    const pending = pendingBookingIdForUnit(unitId);
+    if (pending) return raw === "cleaning" ? "cleaning" : "todo";
+    return raw === "todo" && !hasAnyCheckoutToday(unitId) ? "clean" : raw;
   }
-  const todoCount = units.filter((u) => statusForUnit(u.id) === "todo").length;
-  const cleaningCount = units.filter((u) => statusForUnit(u.id) === "cleaning").length;
+  // Per-BOOKING status for the "Cleaning schedule" list below — two rows for
+  // the same unit (e.g. its Night and Daycation checkouts today) can now
+  // correctly show different statuses instead of sharing one unit-wide flag.
+  function statusForBooking(booking: (typeof schedule.today)[number]) {
+    const state = states.find((s) => s.unitId === booking.unitId);
+    const cleanedIds = state?.cleanedBookingIds ?? [];
+    if (cleanedIds.includes(booking.id)) return "clean";
+    const pending = pendingBookingIdForUnit(booking.unitId);
+    return pending === booking.id && state?.status === "cleaning" ? "cleaning" : "todo";
+  }
+  const todoCount = units.filter((u) => roomEffectiveStatus(u.id) === "todo").length;
+  const cleaningCount = units.filter((u) => roomEffectiveStatus(u.id) === "cleaning").length;
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
@@ -237,7 +283,7 @@ export function HousekeepingView({
         ) : (
           <div className="space-y-2.5">
             {scheduleList.map((b) => {
-              const status = statusForUnit(b.unitId);
+              const status = statusForBooking(b);
               const stayMeta = STAY_TYPES[b.stayType as keyof typeof STAY_TYPES];
               return (
                 <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--line)] p-3.5">
@@ -284,7 +330,8 @@ export function HousekeepingView({
               currentUserName={userName}
               onChange={updateUnit}
               checklistGroups={checklistGroups}
-              hasSchedule={scheduledTodayUnitIds.has(u.id)}
+              pendingBookingId={pendingBookingIdForUnit(u.id)}
+              hasAnyCheckoutToday={hasAnyCheckoutToday(u.id)}
             />
           ))}
         </div>

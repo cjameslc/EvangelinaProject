@@ -314,6 +314,15 @@ model HousekeepingUnitState {
   startedAt DateTime?
   endedAt   DateTime?
   checked   Json     @default("[]")
+  // Every Booking id whose checkout has been cleaned for, accumulated (not
+  // overwritten) — a unit can have more than one checkout in a day (e.g. a
+  // Daycation guest leaving in the evening AND a separate Night booking
+  // leaving that same day), and a single flat status/unit can't otherwise
+  // tell those apart. Must be an array: cleaning the second checkout would
+  // otherwise silently forget the first one was ever cleaned, wrongly
+  // marking it "to clean" again. Not a relation (no onDelete concern) since
+  // a deleted booking simply stops being referenced — nothing to cascade.
+  cleanedBookingIds Json @default("[]")
   updatedAt DateTime @updatedAt
 
   @@map("housekeeping_unit_state")

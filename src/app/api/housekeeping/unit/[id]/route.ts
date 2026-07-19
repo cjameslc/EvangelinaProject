@@ -3,29 +3,41 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { canEditHousekeeping } from "@/lib/rbac";
 
-// PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean }
+// PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean, bookingId?: string }
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canEditHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
 
   const body = await req.json();
+  const existing = await prisma.housekeepingUnitState.findUnique({ where: { unitId: params.id } });
+
   const data: any = {};
   if (body.checked) data.checked = body.checked;
   if (body.status) data.status = body.status;
   if (body.byName !== undefined) data.byName = body.byName;
   if (body.start) data.startedAt = new Date();
   if (body.end) data.endedAt = new Date();
+  // Records WHICH booking's checkout this finished clean satisfies —
+  // accumulated (not overwritten), since a unit can have more than one
+  // checkout in a day and a single flat "clean" would otherwise wrongly
+  // cover every checkout that day, not just the one just cleaned. See the
+  // schema comment on cleanedBookingIds.
+  if (body.status === "clean" && body.end && body.bookingId) {
+    const prevIds: string[] = Array.isArray(existing?.cleanedBookingIds) ? (existing!.cleanedBookingIds as string[]) : [];
+    data.cleanedBookingIds = prevIds.includes(body.bookingId) ? prevIds : [...prevIds, body.bookingId];
+  }
   if (body.status === "todo") {
     data.startedAt = null;
     data.endedAt = null;
     data.byName = null;
+    data.cleanedBookingIds = [];
   }
 
   const state = await prisma.housekeepingUnitState.upsert({
     where: { unitId: params.id },
     update: data,
-    create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null },
+    create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [] },
   });
 
   // When a clean finishes, write a permanent log entry.
