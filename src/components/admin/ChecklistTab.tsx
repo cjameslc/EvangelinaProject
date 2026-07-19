@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { PlusIcon, TrashIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
+import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/utils";
 
-type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
+type ChecklistGroup = { name: string; optional?: boolean; items: string[]; unitIds?: string[] };
+type UnitLite = { id: string; shortName: string; unitNumber: string };
 
 const EMPTY_GROUP: ChecklistGroup = { name: "", optional: false, items: [""] };
 
-export function ChecklistTab({ initial }: { initial: ChecklistGroup[] }) {
+export function ChecklistTab({ initial, units }: { initial: ChecklistGroup[]; units: UnitLite[] }) {
   const toast = useToast();
   const [groups, setGroups] = useState<ChecklistGroup[]>(initial.length ? initial : [EMPTY_GROUP]);
   const [openGroup, setOpenGroup] = useState<number | null>(0);
@@ -17,6 +19,16 @@ export function ChecklistTab({ initial }: { initial: ChecklistGroup[] }) {
 
   function updateGroup(gi: number, patch: Partial<ChecklistGroup>) {
     setGroups((gs) => gs.map((g, i) => (i === gi ? { ...g, ...patch } : g)));
+  }
+  function toggleGroupUnit(gi: number, unitId: string) {
+    setGroups((gs) =>
+      gs.map((g, i) => {
+        if (i !== gi) return g;
+        const current = g.unitIds ?? [];
+        const next = current.includes(unitId) ? current.filter((id) => id !== unitId) : [...current, unitId];
+        return { ...g, unitIds: next };
+      })
+    );
   }
   function updateItem(gi: number, ii: number, value: string) {
     setGroups((gs) => gs.map((g, i) => (i === gi ? { ...g, items: g.items.map((it, j) => (j === ii ? value : it)) } : g)));
@@ -90,6 +102,23 @@ export function ChecklistTab({ initial }: { initial: ChecklistGroup[] }) {
                     <button onClick={() => removeGroup(gi)} className="btn-sm btn-ghost !text-rausch">
                       <TrashIcon className="h-3.5 w-3.5" /> Remove group
                     </button>
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Applies to</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Pill on={!g.unitIds || g.unitIds.length === 0} onClick={() => updateGroup(gi, { unitIds: undefined })}>All units</Pill>
+                      {units.map((u) => (
+                        <Pill key={u.id} on={!!g.unitIds?.includes(u.id)} onClick={() => toggleGroupUnit(gi, u.id)}>
+                          {u.unitNumber} · {u.shortName}
+                        </Pill>
+                      ))}
+                    </div>
+                    {g.unitIds && g.unitIds.length > 0 && (
+                      <p className="mt-1.5 text-[11.5px] text-[var(--gray)]">
+                        Only shown on the room checklist for {g.unitIds.length} selected unit{g.unitIds.length === 1 ? "" : "s"} — every other unit skips this group.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

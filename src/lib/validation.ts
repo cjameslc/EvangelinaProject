@@ -113,6 +113,9 @@ export const checklistGroupSchema = z.object({
   name: z.string().min(1),
   optional: z.boolean().optional(),
   items: z.array(z.string().min(1)).min(1),
+  // Missing/empty = applies to every unit (the original, still-default
+  // behavior) — present and non-empty scopes this group to just those units.
+  unitIds: z.array(z.string()).optional(),
 });
 
 export const settingsSchema = z.object({

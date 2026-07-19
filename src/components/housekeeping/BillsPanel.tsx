@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BILL_TYPES } from "@/lib/constants";
 import { peso, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
+import { Pill } from "@/components/ui/Pill";
 import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
 import { UploadIcon, EditIcon, TrashIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
@@ -35,7 +36,7 @@ export function BillsPanel({
   const toast = useToast();
   const [receiptFor, setReceiptFor] = useState<Bill | null>(null);
   const [editing, setEditing] = useState<Bill | null>(null);
-  const [addingFor, setAddingFor] = useState<Unit | null>(null);
+  const [addingForUnitId, setAddingForUnitId] = useState<string | null | "__bulk__">(null);
   const [closedUnits, setClosedUnits] = useState<Set<string>>(new Set());
 
   function toggleUnit(unitId: string) {
@@ -77,6 +78,12 @@ export function BillsPanel({
         </div>
       )}
 
+      {canEdit && units.length > 1 && (
+        <button onClick={() => setAddingForUnitId("__bulk__")} className="btn btn-sm mb-3">
+          <PlusIcon className="h-3.5 w-3.5" /> Add bill to multiple units
+        </button>
+      )}
+
       {/* Shared/site-wide bills (no single unit — e.g. the shared Internet
           line) get their own pseudo-group after the real units, so a null
           unitId never gets silently dropped from the list. */}
@@ -103,7 +110,7 @@ export function BillsPanel({
                 <span className={cn("text-[12px] font-bold", allPaid ? "text-green" : "text-[var(--gray)]")}>{allPaid ? "All settled" : `${unitBills.filter((b) => !b.paid).length} unpaid`}</span>
               )}
               {canEdit && g.realUnit && (
-                <button onClick={() => setAddingFor(g.realUnit)} className="grid h-7 w-7 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Add a bill">
+                <button onClick={() => setAddingForUnitId(g.realUnit!.id)} className="grid h-7 w-7 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Add a bill">
                   <PlusIcon className="h-4 w-4" />
                 </button>
               )}
@@ -167,11 +174,12 @@ export function BillsPanel({
         />
       )}
 
-      {addingFor && (
+      {addingForUnitId && (
         <AddBillModal
-          unit={addingFor}
-          onClose={() => setAddingFor(null)}
-          onSaved={() => { setAddingFor(null); onChanged(); toast("Bill added ✓"); }}
+          units={units}
+          defaultUnitId={addingForUnitId === "__bulk__" ? undefined : addingForUnitId}
+          onClose={() => setAddingForUnitId(null)}
+          onSaved={() => { setAddingForUnitId(null); onChanged(); }}
         />
       )}
     </div>
@@ -240,29 +248,47 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
   );
 }
 
-function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => void; onSaved: () => void }) {
+function AddBillModal({ units, defaultUnitId, onClose, onSaved }: { units: Unit[]; defaultUnitId?: string; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const [label, setLabel] = useState("");
   const [amountDue, setAmountDue] = useState<number | null>(null);
   const [dueDay, setDueDay] = useState<number | null>(null);
   const [recurring, setRecurring] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scope, setScope] = useState<"all" | "select">(defaultUnitId ? "select" : "all");
+  const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set(defaultUnitId ? [defaultUnitId] : []));
+
+  const targetUnitIds = scope === "all" ? units.map((u) => u.id) : [...selectedUnitIds];
+
+  function toggleUnit(id: string) {
+    setSelectedUnitIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function save() {
     if (!label.trim()) { toast("Enter what this bill is for", true); return; }
     if (!amountDue || amountDue <= 0) { toast("Enter an amount", true); return; }
     if (dueDay !== null && (dueDay < 1 || dueDay > 31)) { toast("Due day must be between 1 and 31", true); return; }
+    if (targetUnitIds.length === 0) { toast("Select at least one unit", true); return; }
     setSaving(true);
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const res = await fetch("/api/housekeeping/bills", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ unitId: unit.id, label, amountDue, month, dueDay, recurring }),
-    });
-    const j = await res.json().catch(() => ({}));
+    const results = await Promise.all(
+      targetUnitIds.map((unitId) =>
+        fetch("/api/housekeeping/bills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ unitId, label, amountDue, month, dueDay, recurring }),
+        })
+      )
+    );
     setSaving(false);
-    if (!res.ok) { toast(j.error ?? "Couldn't add bill", true); return; }
+    const failed = results.filter((r) => !r.ok).length;
+    if (failed > 0) toast(`Added to ${targetUnitIds.length - failed}/${targetUnitIds.length} units — ${failed} failed.`, true);
+    else toast(`Bill added to ${targetUnitIds.length} unit${targetUnitIds.length === 1 ? "" : "s"} ✓`);
     onSaved();
   }
 
@@ -271,7 +297,7 @@ function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => v
       open
       onClose={onClose}
       title="Add a bill"
-      sub={`${unit.shortName} · this month`}
+      sub="This month"
       maxWidth={380}
       footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={save} disabled={saving} className="btn-primary ml-auto">{saving ? "Saving…" : "Add bill"}</button></>}
     >
@@ -287,6 +313,20 @@ function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => v
         <div>
           <label className="field-label">Due day of month (optional)</label>
           <input type="number" min={1} max={31} value={dueDay ?? ""} onChange={(e) => setDueDay(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 15" />
+        </div>
+        <div>
+          <label className="field-label">Apply to</label>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <Pill on={scope === "all"} onClick={() => setScope("all")}>All units</Pill>
+            <Pill on={scope === "select"} onClick={() => setScope("select")}>Select units</Pill>
+          </div>
+          {scope === "select" && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {units.map((u) => (
+                <Pill key={u.id} on={selectedUnitIds.has(u.id)} onClick={() => toggleUnit(u.id)}>{u.shortName}</Pill>
+              ))}
+            </div>
+          )}
         </div>
         <label className="flex items-center gap-2.5 rounded-xl border border-[var(--line)] px-3 py-2.5 text-[13.5px] font-semibold">
           <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-rausch" />

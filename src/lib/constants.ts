@@ -62,7 +62,7 @@ export const BILL_TYPES = [
 // Housekeeping checklist — group name -> item labels.
 // The `checked` column on HousekeepingUnitState is a boolean[][] with the
 // same shape as this array (index-aligned).
-export const CHECKLIST_GROUPS: { name: string; optional?: boolean; items: string[] }[] = [
+export const CHECKLIST_GROUPS: { name: string; optional?: boolean; items: string[]; unitIds?: string[] }[] = [
   { name: "Before entering", items: ["Wear clean slippers or shoe covers", "Bring complete cleaning supplies and guest kit", "Open windows for ventilation", "Turn on lights and inspect the unit"] },
   { name: "Bedroom & living area", items: ["Make the bed with fresh sheets", "Replace pillowcases if needed", "Fold the blanket properly", "Check mattress and pillows for stains", "Vacuum or sweep the floor", "Mop the floor", "No hair on carpet or floor", "Dust all furniture and shelves", "Wipe TV, remote, tables and chairs", "Clean mirrors", "Clean windows and window sills", "Wipe door handles and light switches", "Empty trash bins", "Replace trash bags"] },
   { name: "Bathroom", items: ["Clean toilet bowl", "Clean toilet seat and cover", "Scrub the sink", "Clean the faucet", "Remove water stains", "Clean shower area", "Clean shower drain", "Clean mirrors", "Refill hand soap", "Replace tissue roll if needed", "Check bidet is working", "Check hot and cold shower", "Mop bathroom floor", "Remove all hair from floor and drain"] },

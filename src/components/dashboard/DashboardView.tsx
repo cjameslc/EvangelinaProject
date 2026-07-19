@@ -588,6 +588,76 @@ export function DashboardView({
 
   const periodIncome = periodBookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0);
 
+  // Previous period (same length, immediately prior) for the trend
+  // indicator — reuses periodRangeFor for daily/weekly/monthly/yearly;
+  // "custom" has no natural "previous" cadence, so it's approximated as the
+  // same-length window immediately before the selected range.
+  const previousPeriodRange = useMemo(() => {
+    if (rangeType === "custom") {
+      const lengthMs = periodRange.end.getTime() - periodRange.start.getTime();
+      return { start: new Date(periodRange.start.getTime() - lengthMs), end: new Date(periodRange.start) };
+    }
+    return periodRangeFor(rangeType, periodOffset - 1, customRange);
+  }, [rangeType, periodOffset, customRange, periodRange]);
+
+  const previousPeriodIncome = useMemo(() => {
+    const unitIds = new Set(filteredUnits.map((u) => u.id));
+    return earningsBookings
+      .filter((b) => {
+        if (!unitIds.has(b.unitId)) return false;
+        const d = new Date(dayOf(new Date(b.date)));
+        return d >= previousPeriodRange.start && d < previousPeriodRange.end;
+      })
+      .reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0);
+  }, [earningsBookings, filteredUnits, previousPeriodRange]);
+
+  const periodTrendPct =
+    previousPeriodIncome > 0
+      ? Math.round(((periodIncome - previousPeriodIncome) / previousPeriodIncome) * 100)
+      : periodIncome > 0
+      ? 100
+      : 0;
+
+  // Earnings-by-day buckets for the bar chart — bucketing by day past ~31
+  // days would render an unreadable wall of slivers, so longer (yearly)
+  // ranges collapse to one bar per month instead.
+  const earningsBuckets = useMemo(() => {
+    const byDay = periodDays <= 31;
+    const buckets = new Map<string, { label: string; dateLabel: string; amount: number; count: number }>();
+    const cursor = new Date(periodRange.start);
+    while (cursor < periodRange.end) {
+      const key = byDay ? dayOf(cursor) : `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}`;
+      const label = byDay
+        ? new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(cursor)
+        : new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(cursor);
+      const dateLabel = byDay
+        ? new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(cursor)
+        : new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(cursor);
+      if (!buckets.has(key)) buckets.set(key, { label, dateLabel, amount: 0, count: 0 });
+      if (byDay) cursor.setUTCDate(cursor.getUTCDate() + 1);
+      else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    for (const b of periodBookings) {
+      const d = new Date(dayOf(new Date(b.date)));
+      const key = byDay ? dayOf(d) : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket.amount += (b.paid ? b.amount : 0) + (b.dpAmount || 0);
+        bucket.count += 1;
+      }
+    }
+    return [...buckets.values()];
+  }, [periodRange, periodDays, periodBookings]);
+
+  const avgStayNights = useMemo(() => {
+    if (periodBookings.length === 0) return 0;
+    const totalNights = periodBookings.reduce(
+      (s, b) => s + nightsFor(b.stayType as any, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null),
+      0
+    );
+    return totalNights / periodBookings.length;
+  }, [periodBookings]);
+
   // Revenue by platform — same periodBookings/periodIncome the Earnings card
   // above uses, just split out per source, so the two always add up.
   // Walk-in and Direct are combined into one row (both are effectively the
@@ -744,13 +814,43 @@ export function DashboardView({
               You&rsquo;ve earned {rangeType === "daily" ? "today" : rangeType === "weekly" ? "this week" : rangeType === "monthly" ? "this month" : rangeType === "custom" ? "in this range" : "this year"}
             </p>
             <div className="mt-1 text-[38px] font-extrabold tracking-tight">{peso(periodIncome)}</div>
+            {previousPeriodIncome > 0 && (
+              <div className="mt-1 flex items-center gap-1.5 text-[13px]">
+                <span className={cn("inline-flex items-center gap-0.5 font-bold", periodTrendPct >= 0 ? "text-green" : "text-rausch")}>
+                  {periodTrendPct >= 0 ? "▲" : "▼"} {Math.abs(periodTrendPct)}%
+                </span>
+                <span className="text-[var(--gray)]">vs previous {rangeType === "daily" ? "day" : rangeType === "weekly" ? "week" : rangeType === "monthly" ? "month" : rangeType === "custom" ? "period" : "year"}</span>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-[var(--gray)]">
               <span><b className="text-[var(--ink)]">{periodBookings.length}</b> booked nights</span>
               <span><b className="text-[var(--ink)]">{periodBookings.length}</b> reservations</span>
+              {periodBookings.length > 0 && <span>Avg. stay <b className="text-[var(--ink)]">{avgStayNights.toFixed(1)} nights</b></span>}
               {(selectedDate || statusFilter !== "all") && (
                 <span className="text-rausch">filtered{selectedDate ? ` · ${fmtDate(selectedDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}` : ""}{statusFilter !== "all" ? ` · ${statusFilter}` : ""}</span>
               )}
             </div>
+
+            {earningsBuckets.length > 1 && (
+              <div className="mt-4 flex h-[130px] items-end gap-2 sm:gap-3">
+                {(() => {
+                  const max = Math.max(1, ...earningsBuckets.map((b) => b.amount));
+                  return earningsBuckets.map((b, i) => (
+                    <div key={i} className="group relative flex flex-1 flex-col items-center gap-1.5">
+                      <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[var(--ink)] px-2.5 py-1.5 text-center opacity-0 shadow-card transition-opacity group-hover:opacity-100">
+                        <div className="text-[11px] font-extrabold text-[var(--bg)]">{peso(b.amount)}</div>
+                        <div className="text-[10px] font-semibold text-[var(--bg)]/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
+                      </div>
+                      <div
+                        className={cn("w-full max-w-[36px] rounded-t-md transition-all group-hover:brightness-110", b.amount > 0 ? "bg-rausch" : "bg-[var(--bg-2)]")}
+                        style={{ height: `${Math.max(4, Math.round((b.amount / max) * 80))}px` }}
+                      />
+                      <span className="text-[10.5px] font-semibold text-[var(--gray)]">{b.label}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
 
             <div className="mt-4 rounded-2xl border border-[var(--line)] p-4">
               <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Computation</div>

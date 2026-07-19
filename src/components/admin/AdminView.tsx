@@ -80,7 +80,7 @@ export function AdminView({
       )}
       {tab === "Bills" && <BillsPanel units={units} bills={bills} canEdit canTogglePaid={false} showMetrics={false} collapsible onChanged={refreshBills} />}
       {tab === "Supplies" && <StockPanel units={units} stocks={stocks} canEdit onChanged={refreshStocks} />}
-      {tab === "Housekeeping checklist" && <ChecklistTab initial={settings.checklistGroups ?? []} />}
+      {tab === "Housekeeping checklist" && <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />}
       {tab === "Login logs" && <LoginLogsTab logs={loginLogs} />}
       {tab === "Weekly report" && (
         <WeeklyReport

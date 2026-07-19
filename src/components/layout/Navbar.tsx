@@ -24,7 +24,8 @@ export function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
-  const { avatarUrl } = useAvatar();
+  const { avatarUrl, name: liveName } = useAvatar();
+  const displayName = liveName ?? session?.user?.name ?? "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -83,24 +84,24 @@ export function Navbar() {
                 className="flex items-center gap-2 rounded-full border border-[var(--line-2)] bg-[var(--card)] py-1.5 pl-3.5 pr-1.5 shadow-s"
               >
                 <span className="hidden text-left leading-tight sm:block">
-                  <span className="block text-[12.5px] font-bold text-[var(--ink)]">{session.user.name}</span>
+                  <span className="block text-[12.5px] font-bold text-[var(--ink)]">{displayName}</span>
                   <span className="block text-[10.5px] font-semibold text-[var(--gray)]">{ROLE_LABEL[session.user.role]}</span>
                 </span>
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={avatarUrl} alt={session.user.name} className="h-[30px] w-[30px] rounded-full object-cover" />
+                  <img src={avatarUrl} alt={displayName} className="h-[30px] w-[30px] rounded-full object-cover" />
                 ) : (
                   <span
                     className="grid h-[30px] w-[30px] place-items-center rounded-full text-[13px] font-bold text-white"
                     style={{ background: session.user.avatarColor || "#FF385C" }}
                   >
-                    {initials(session.user.name)}
+                    {initials(displayName)}
                   </span>
                 )}
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-[46px] w-48 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-1.5 shadow-card">
-                  <div className="px-3 py-2 text-[12px] text-[var(--gray)] sm:hidden">{session.user.name} · {ROLE_LABEL[session.user.role]}</div>
+                  <div className="px-3 py-2 text-[12px] text-[var(--gray)] sm:hidden">{displayName} · {ROLE_LABEL[session.user.role]}</div>
                   <Link
                     href="/profile"
                     onClick={() => setMenuOpen(false)}

@@ -29,7 +29,7 @@ type Log = { id: string; unitId: string; unit: { shortName: string }; startedAt:
 type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
 type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
-type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
+type ChecklistGroup = { name: string; optional?: boolean; items: string[]; unitIds?: string[] };
 type ScheduleBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; guests: string[];
   unit: Unit; cleaner: { id: string; name: string } | null;
@@ -329,7 +329,7 @@ export function HousekeepingView({
               canEdit={canEdit}
               currentUserName={userName}
               onChange={updateUnit}
-              checklistGroups={checklistGroups}
+              checklistGroups={checklistGroups.filter((g) => !g.unitIds || g.unitIds.length === 0 || g.unitIds.includes(u.id))}
               pendingBookingId={pendingBookingIdForUnit(u.id)}
               hasAnyCheckoutToday={hasAnyCheckoutToday(u.id)}
             />
