@@ -543,11 +543,9 @@ function toPayload(v: BookingFormValue) {
     dpAmount: v.dpAmount,
     dpReceivedById: v.dpReceivedById || null,
     dpMethod: v.dpMethod || null,
-    dpProofUrl: v.dpProofUrl,
     amount: v.amount ?? 0,
     receivedById: v.receivedById || null,
     method: v.method || null,
-    proofUrl: v.proofUrl,
     paid: v.paid,
   };
 }
@@ -571,11 +569,9 @@ function fromBooking(b: Booking): Partial<BookingFormValue> {
     dpAmount: b.dpAmount,
     dpReceivedById: b.dpReceivedById ?? "",
     dpMethod: (b.dpMethod as any) ?? "",
-    dpProofUrl: b.dpProofUrl,
     amount: b.amount,
     receivedById: b.receivedById ?? "",
     method: (b.method as any) ?? "",
-    proofUrl: b.proofUrl,
     paid: b.paid,
   };
 }

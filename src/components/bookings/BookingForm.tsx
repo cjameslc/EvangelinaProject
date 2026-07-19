@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
-import { UploadIcon, CloseIcon, AlertIcon } from "@/components/ui/Icons";
-import { fileToDataUrl } from "@/lib/file";
+import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr, unitLabel, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -31,11 +30,9 @@ export type BookingFormValue = {
   dpAmount: number | null;
   dpReceivedById: string;
   dpMethod: "Cash" | "GCash" | "BankTransfer" | "";
-  dpProofUrl: string | null;
   amount: number | null;
   receivedById: string;
   method: "Cash" | "GCash" | "BankTransfer" | "";
-  proofUrl: string | null;
   paid: boolean;
 };
 
@@ -43,8 +40,8 @@ const EMPTY: BookingFormValue = {
   unitId: "", date: manilaDayStart().toISOString().slice(0, 10), checkOutDate: "", stayType: "", checkInTime: "", checkOutTime: "", guests: [], pax: null,
   contactNumber: "", bookerId: "", cleanerId: "", platform: "", platformOther: "",
   totalAmount: null,
-  dpAmount: null, dpReceivedById: "", dpMethod: "", dpProofUrl: null,
-  amount: null, receivedById: "", method: "", proofUrl: null, paid: false,
+  dpAmount: null, dpReceivedById: "", dpMethod: "",
+  amount: null, receivedById: "", method: "", paid: false,
 };
 
 /** Smart defaults per stay type — Daycation runs same-day 8am-8pm; Night/Full
@@ -196,7 +193,6 @@ export function BookingForm({
     if (!v.totalAmount || v.totalAmount <= 0) e.totalAmount = "Enter the total amount for this stay.";
     if (!v.receivedById) e.receivedById = "Choose who received the money.";
     if (!v.method) e.method = "Choose how the full payment was made.";
-    if (v.paid && !v.proofUrl) e.proofUrl = "Attach the full payment proof.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -210,18 +206,6 @@ export function BookingForm({
     } finally {
       setSaving(false);
     }
-  }
-
-  async function handleProof(file: File | undefined, key: "dpProofUrl" | "proofUrl") {
-    if (!file) return;
-    // Kept well under Vercel's ~4.5MB request-body limit even after this
-    // gets base64-encoded (~33% larger) and wrapped in the rest of the
-    // booking JSON — a file right up against that ceiling made the save
-    // request fail (or crawl) with no clear error, which read as the UI
-    // being "stuck."
-    if (file.size > 2 * 1024 * 1024) { alert("Image is too large (max 2MB) — try a smaller screenshot or a more compressed photo."); return; }
-    const dataUrl = await fileToDataUrl(file);
-    set(key, dataUrl);
   }
 
   const err = (k: string) => errors[k] && <span className="mt-1 block text-[12.5px] font-semibold text-rausch">{errors[k]}</span>;
@@ -438,7 +422,6 @@ export function BookingForm({
             {PAYMENT_METHODS.map((m) => <Pill key={m} on={v.dpMethod === m} onClick={() => set("dpMethod", m)}>{PAYMENT_METHOD_LABEL[m]}</Pill>)}
           </div>
         </div>
-        <ProofUpload label="Screenshot of GCash, bank receipt, or cash acknowledgement." value={v.dpProofUrl} onChange={(f) => handleProof(f, "dpProofUrl")} onRemove={() => set("dpProofUrl", null)} />
       </div>
 
       {/* Full payment block */}
@@ -476,10 +459,6 @@ export function BookingForm({
             <Pill on={!v.paid} color="#FF385C" onClick={() => set("paid", false)}>Balance pending</Pill>
           </div>
         </div>
-        {v.paid && (
-          <ProofUpload label="Upload proof of full payment — GCash / bank receipt or cash acknowledgement." value={v.proofUrl} onChange={(f) => handleProof(f, "proofUrl")} onRemove={() => set("proofUrl", null)} />
-        )}
-        {err("proofUrl")}
       </div>
       </fieldset>
 
@@ -487,47 +466,6 @@ export function BookingForm({
         <button onClick={submit} disabled={saving || conflict} className="btn-primary order-first sm:order-none disabled:opacity-50">{saving ? "Saving…" : submitLabel}</button>
         {onCancel && <button onClick={onCancel} className="btn-ghost">Cancel</button>}
       </div>
-    </div>
-  );
-}
-
-function ProofUpload({ label, value, onChange, onRemove }: { label: string; value: string | null; onChange: (f: File | undefined) => void; onRemove: () => void }) {
-  const inputId = "proof-" + Math.random().toString(36).slice(2, 8);
-
-  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
-    const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
-    if (!item) return;
-    e.preventDefault();
-    onChange(item.getAsFile() ?? undefined);
-  }
-
-  return (
-    <div
-      className="rounded-2xl border border-dashed border-[var(--line-2)] bg-[var(--card)] outline-none focus:border-rausch focus:ring-4 focus:ring-rausch/15"
-      tabIndex={0}
-      onPaste={handlePaste}
-    >
-      <input id={inputId} type="file" accept="image/*" className="hidden" onChange={(e) => onChange(e.target.files?.[0])} />
-      {!value ? (
-        <label htmlFor={inputId} className="flex cursor-pointer flex-col items-center gap-2 p-5 text-center text-[13px] font-semibold text-[var(--gray)]">
-          <UploadIcon className="h-6 w-6" />
-          <span>{label}</span>
-          <span className="btn-sm btn mt-1">Choose image</span>
-          <span className="text-[11.5px] font-normal text-[var(--gray)]">or click here and press Ctrl+V to paste a screenshot</span>
-        </label>
-      ) : (
-        <div className="flex items-center gap-3 p-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="Proof" className="h-16 w-16 flex-none rounded-lg border border-[var(--line)] object-cover" />
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-bold">Attached</span>
-            <div className="flex gap-1.5">
-              <label htmlFor={inputId} className="btn-sm btn-ghost cursor-pointer">Replace</label>
-              <button type="button" onClick={onRemove} className="btn-sm btn-ghost">Remove</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
