@@ -9,7 +9,18 @@ import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon, ChevronDownIcon } from "@/components/ui/Icons";
+
+// How many role-visible nav items fit inline before the rest collapse into
+// a "More" dropdown — chosen from real measurement: a role seeing all 7
+// items (Owner/Admin) was truncating "Admin" to "Ad" at 1440px and hiding
+// Auditor/Admin off-screen entirely (in a silent, non-obvious overflow-x
+// scroll) at 1024px. Roles with 4 or fewer visible items (Housekeeping,
+// Booker, Auditor) never hit this cap, so nothing changes for them — My
+// Earnings in particular stays a primary, one-click tab for actual staff,
+// and only gets folded into "More" for Owner/Admin and Co-owner, who don't
+// have payroll of their own to check there anyway.
+const PRIMARY_NAV_COUNT = 4;
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   grid: GridIcon,
@@ -29,12 +40,16 @@ export function Navbar() {
   const displayName = liveName ?? session?.user?.name ?? "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const role = session?.user?.role;
   const items = NAV_ITEMS.filter((i) => role === "OWNER_ADMIN" || (role && i.roles.includes(role)));
+  const primaryItems = items.slice(0, PRIMARY_NAV_COUNT);
+  const moreItems = items.slice(PRIMARY_NAV_COUNT);
+  const onMoreItem = moreItems.some((item) => pathname.startsWith(item.href));
 
   // Close the mobile nav panel on route change so it never lingers open.
-  useEffect(() => setNavOpen(false), [pathname]);
+  useEffect(() => { setNavOpen(false); setMoreOpen(false); }, [pathname]);
 
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
@@ -46,8 +61,8 @@ export function Navbar() {
         </Link>
 
         {session && (
-          <div className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto md:flex">
-            {items.map((item) => {
+          <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
+            {primaryItems.map((item) => {
               const Icon = ICONS[item.icon];
               const on = pathname.startsWith(item.href);
               return (
@@ -64,6 +79,42 @@ export function Navbar() {
                 </Link>
               );
             })}
+            {moreItems.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setMoreOpen((v) => !v)}
+                  aria-expanded={moreOpen}
+                  className={cn(
+                    "flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-[13.5px] font-semibold transition",
+                    onMoreItem ? "bg-rausch/10 text-rausch" : "text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
+                  )}
+                >
+                  <span>More</span>
+                  <ChevronDownIcon className={cn("h-3.5 w-3.5 transition-transform", moreOpen && "rotate-180")} />
+                </button>
+                {moreOpen && (
+                  <div className="absolute left-0 top-[42px] w-48 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-1.5 shadow-card">
+                    {moreItems.map((item) => {
+                      const Icon = ICONS[item.icon];
+                      const on = pathname.startsWith(item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setMoreOpen(false)}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition",
+                            on ? "bg-rausch/10 text-rausch" : "text-[var(--ink)] hover:bg-[var(--bg-2)]"
+                          )}
+                        >
+                          <Icon className="h-4 w-4 flex-none" /> {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
