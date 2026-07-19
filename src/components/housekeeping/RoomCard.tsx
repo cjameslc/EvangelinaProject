@@ -60,14 +60,18 @@ export function RoomCard({
         <Tag variant={status}>{status === "todo" ? "To clean" : status === "cleaning" ? "Cleaning" : "Clean"}</Tag>
       </div>
 
-      {isDefaultClean ? (
-        <p className="text-[12.5px] font-semibold text-[var(--gray)]">Nothing scheduled — the checklist opens once a guest checks out.</p>
+      {status === "clean" ? (
+        <div className="flex items-center gap-2">
+          <p className="text-[12.5px] font-semibold text-[var(--gray)]">
+            {isDefaultClean ? "Nothing scheduled — the checklist opens once a guest checks out." : "Cleaned — checklist cleared."}
+          </p>
+          {canEdit && genuinelyFinished && <button onClick={reset} className="btn-sm btn-ghost ml-auto flex-none">Reset</button>}
+        </div>
       ) : (
         <>
           <div className="flex items-center gap-2">
             {canEdit && status === "todo" && <button onClick={start} className="btn-sm btn-primary ml-auto">Start cleaning</button>}
             {canEdit && status === "cleaning" && <button onClick={finish} className="btn-sm ml-auto" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
-            {canEdit && genuinelyFinished && <button onClick={reset} className="btn-sm btn-ghost ml-auto">Reset</button>}
           </div>
 
           <div className="flex flex-col gap-1.5">
