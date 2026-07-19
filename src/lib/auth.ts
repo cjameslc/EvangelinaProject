@@ -27,7 +27,17 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;
 
-        await logAudit(user.id, "user.login", "User", user.id, { username: user.username, role: user.role });
+        // Login logs are for auditing distinct sign-in events, not every
+        // token refresh/re-auth a flaky connection or multiple open tabs
+        // can trigger — skip logging if this account already has one within
+        // the last 30 minutes, so the list doesn't fill up with near-dupes.
+        const recentLogin = await prisma.auditLog.findFirst({
+          where: { actorUserId: user.id, action: "user.login", createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+          select: { id: true },
+        });
+        if (!recentLogin) {
+          await logAudit(user.id, "user.login", "User", user.id, { username: user.username, role: user.role });
+        }
 
         return {
           id: user.id,
