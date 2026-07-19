@@ -537,7 +537,9 @@ function toPayload(v: BookingFormValue) {
     pax: v.pax,
     contactNumber: v.contactNumber,
     bookerId: v.bookerId || null,
-    cleanerId: v.cleanerId || null,
+    // cleanerId is deliberately omitted — the form no longer collects it, and
+    // the PATCH endpoint only touches fields present in the payload, so any
+    // cleaner already assigned on an older booking is left untouched here.
     platform: v.platform,
     platformOther: v.platformOther || null,
     dpAmount: v.dpAmount,
@@ -562,7 +564,6 @@ function fromBooking(b: Booking): Partial<BookingFormValue> {
     pax: b.pax,
     contactNumber: b.contactNumber,
     bookerId: b.bookerId ?? "",
-    cleanerId: b.cleanerId ?? "",
     platform: b.platform as any,
     platformOther: b.platformOther ?? "",
     totalAmount: b.amount + (b.dpAmount ?? 0),

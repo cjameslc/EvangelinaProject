@@ -23,7 +23,6 @@ export type BookingFormValue = {
   pax: number | null;
   contactNumber: string;
   bookerId: string;
-  cleanerId: string;
   platform: "Airbnb" | "TikTok" | "Facebook" | "WalkIn" | "Direct" | "Other" | "";
   platformOther: string;
   totalAmount: number | null;
@@ -38,7 +37,7 @@ export type BookingFormValue = {
 
 const EMPTY: BookingFormValue = {
   unitId: "", date: manilaDayStart().toISOString().slice(0, 10), checkOutDate: "", stayType: "", checkInTime: "", checkOutTime: "", guests: [], pax: null,
-  contactNumber: "", bookerId: "", cleanerId: "", platform: "", platformOther: "",
+  contactNumber: "", bookerId: "", platform: "", platformOther: "",
   totalAmount: null,
   dpAmount: null, dpReceivedById: "", dpMethod: "",
   amount: null, receivedById: "", method: "", paid: false,
@@ -353,25 +352,17 @@ export function BookingForm({
           {err("contactNumber")}
         </div>
 
-        <div>
+        <div className="sm:col-span-2">
           <label className="field-label">Booker <span className="text-rausch">*</span></label>
           <select value={v.bookerId} onChange={(e) => set("bookerId", e.target.value)} className="field-input mt-1.5">
             <option value="">— Select —</option>
-            {/* Staff whose Admin-assigned role is Booker — plus the currently
-                selected person even if their role no longer matches, so
-                editing an older booking never silently drops its booker. */}
-            {employees.filter((e) => e.role === "BOOKER" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {/* Staff whose Admin-assigned role is Booker or Housekeeping —
+                plus the currently selected person even if their role no
+                longer matches, so editing an older booking never silently
+                drops its booker. */}
+            {employees.filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
           {err("bookerId")}
-        </div>
-        <div>
-          <label className="field-label">Cleaner</label>
-          <select value={v.cleanerId} onChange={(e) => set("cleanerId", e.target.value)} className="field-input mt-1.5">
-            <option value="">— Assign later —</option>
-            {/* Staff whose Admin-assigned role is Housekeeping — same
-                preserve-the-current-value rule as Booker above. */}
-            {employees.filter((e) => e.role === "HOUSEKEEPING" || e.id === v.cleanerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
         </div>
 
         <div className="sm:col-span-2">
