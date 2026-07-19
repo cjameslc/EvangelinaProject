@@ -9,7 +9,7 @@ import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon } from "@/components/ui/Icons";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   grid: GridIcon,
@@ -18,6 +18,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   calendar: CalendarIcon,
   search: SearchIcon,
   settings: SettingsIcon,
+  wallet: WalletIcon,
 };
 
 export function Navbar() {

@@ -154,6 +154,7 @@ model Unit {
   bills         Bill[]
   auditFindings AuditFinding[]
   recurringExpenseTemplates RecurringExpenseTemplate[]
+  bookerBonusAwards BookerBonusAward[]
   icalSyncLogs  IcalSyncLog[]
 
   @@map("units")
@@ -219,8 +220,29 @@ model Employee {
   shifts              Shift[]
   targetedExpenses    WeeklyExpense[]
   auditFindings       AuditFinding[]
+  bonusAwards         BookerBonusAward[]
 
   @@map("employees")
+}
+
+// A booker's completed-booking milestone bonus for one unit in one calendar
+// month (50 -> P3,000, 60 -> P10,000) — persisted the moment it's earned so
+// it's awarded exactly once (enforced by the unique constraint below) and
+// shows up in payroll/earnings history even after that month's booking
+// count later changes for unrelated reasons.
+model BookerBonusAward {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  unitId     String
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  month      DateTime // first-of-month marker, matching Bill.month's convention
+  tier       Int // 50 or 60
+  amount     Int // 3000 or 10000
+  awardedAt  DateTime @default(now())
+
+  @@unique([employeeId, unitId, month, tier])
+  @@map("booker_bonus_awards")
 }
 
 // Append-only log of monthlySalary changes, so a report for a past period

@@ -52,3 +52,5 @@ export const FilePdfIcon = (p: SVGProps<SVGSVGElement>) =>
   base(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="13" y2="13" /><line x1="8" y1="17" x2="16" y2="17" /><line x1="8" y1="21" x2="12" y2="21" /></>, p);
 export const RefreshIcon = (p: SVGProps<SVGSVGElement>) =>
   base(<><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" /><path d="M3 21v-5h5" /></>, p);
+export const WalletIcon = (p: SVGProps<SVGSVGElement>) =>
+  base(<><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" /><path d="M18 12a2 2 0 0 0 0 4h3v-4z" /></>, p);
