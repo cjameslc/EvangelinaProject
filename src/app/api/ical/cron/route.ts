@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { syncUnitFromAirbnb } from "@/lib/icalSync";
+import { syncAllUnitsFromAirbnb } from "@/lib/icalSync";
 
 // Periodic Airbnb import — invoked by Vercel Cron (see vercel.json). Airbnb
 // has no webhook, so this scheduled pull plus the always-live export
@@ -18,11 +17,6 @@ export async function GET(req: NextRequest) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const units = await prisma.unit.findMany({ where: { icalImportUrl: { not: null } }, select: { id: true, shortName: true } });
-  const results = [];
-  for (const unit of units) {
-    const result = await syncUnitFromAirbnb(unit.id);
-    results.push({ unit: unit.shortName, ...result });
-  }
-  return NextResponse.json({ synced: units.length, results });
+  const results = await syncAllUnitsFromAirbnb();
+  return NextResponse.json({ synced: results.length, results: results.map((r) => ({ unit: r.unit, ...r.result })) });
 }

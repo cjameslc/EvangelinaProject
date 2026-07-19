@@ -36,6 +36,7 @@ export default async function CalendarPage() {
 
   return (
     <CalendarView
+      role={user.role}
       units={JSON.parse(JSON.stringify(units))}
       initialBlocks={JSON.parse(JSON.stringify(blocks))}
     />

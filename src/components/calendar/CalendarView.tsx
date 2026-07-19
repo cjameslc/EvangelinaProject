@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
-import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon } from "@/components/ui/Icons";
+import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
+import { useToast } from "@/components/ui/Toast";
 import { fmtDate, fmtTimeStr, unitLabel, peso } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { nightsFor } from "@/lib/stayRange";
+import { canManageUnits } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
-type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; owners?: { user: { name: string } }[] };
+type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; icalImportUrl?: string | null; owners?: { user: { name: string } }[] };
 type BlockBooking = {
   platform: string; amount: number; paid: boolean; dpAmount: number | null;
   checkInTime: string | null; checkOutTime: string | null; pax: number | null; contactNumber: string;
@@ -69,8 +72,40 @@ function isoDate(d: Date) {
 // create/edit/cancel a reservation, so tiles here open a read-only detail
 // view, never an editable form (no click-to-add, no click-to-edit), avoiding
 // two divergent paths to the same data.
-export function CalendarView({ units, initialBlocks }: { units: Unit[]; initialBlocks: Block[] }) {
+export function CalendarView({ role, units, initialBlocks }: { role: string; units: Unit[]; initialBlocks: Block[] }) {
   const blocks = initialBlocks;
+  const router = useRouter();
+  const toast = useToast();
+  const canSync = canManageUnits(role as any);
+  const [syncing, setSyncing] = useState(false);
+  const unitsWithAirbnbFeed = useMemo(() => units.filter((u) => u.icalImportUrl), [units]);
+
+  async function syncAll() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/ical/sync-all", { method: "POST" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j) {
+        toast("Couldn't sync Airbnb calendars — try again.", true);
+        return;
+      }
+      const totalImported = j.results.reduce((s: number, r: any) => s + (r.imported ?? 0), 0);
+      const totalUpdated = j.results.reduce((s: number, r: any) => s + (r.updated ?? 0), 0);
+      const totalRemoved = j.results.reduce((s: number, r: any) => s + (r.removed ?? 0), 0);
+      const failed = j.results.filter((r: any) => !r.ok);
+      if (failed.length > 0) {
+        toast(`Synced ${j.synced - failed.length}/${j.synced} units — ${failed.length} failed. Check Admin → Units.`, true);
+      } else {
+        toast(`Synced ${j.synced} unit${j.synced === 1 ? "" : "s"} — ${totalImported} new, ${totalUpdated} updated, ${totalRemoved} removed ✓`);
+      }
+      router.refresh();
+    } catch {
+      toast("Couldn't reach the server — check your connection and try again.", true);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const [anchor, setAnchor] = useState(() => manilaToday());
   const [selected, setSelected] = useState<Block | null>(null);
 
@@ -303,6 +338,17 @@ export function CalendarView({ units, initialBlocks }: { units: Unit[]; initialB
             </button>
           </div>
           <button onClick={() => setAnchor(manilaToday())} className="btn btn-sm" title="Jump to today (T)">Today</button>
+          {canSync && unitsWithAirbnbFeed.length > 0 && (
+            <button
+              onClick={syncAll}
+              disabled={syncing}
+              className="btn btn-sm disabled:opacity-60"
+              title={`Pull live Airbnb reservations for ${unitsWithAirbnbFeed.length} unit${unitsWithAirbnbFeed.length === 1 ? "" : "s"}`}
+            >
+              <RefreshIcon className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+              {syncing ? "Syncing…" : `Sync Airbnb (${unitsWithAirbnbFeed.length})`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -327,7 +373,7 @@ export function CalendarView({ units, initialBlocks }: { units: Unit[]; initialB
             <div className="flex flex-wrap gap-1.5">
               {units.map((u) => (
                 <Pill key={u.id} on={!unitFilter || unitFilter.has(u.id)} onClick={() => setUnitFilter((prev) => toggleInSet(prev, units.map((x) => x.id), u.id))}>
-                  {u.shortName}
+                  {u.unitNumber} · {u.shortName}
                 </Pill>
               ))}
             </div>

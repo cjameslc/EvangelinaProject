@@ -162,3 +162,19 @@ export async function syncUnitFromAirbnb(unitId: string): Promise<IcalSyncResult
   await prisma.unit.update({ where: { id: unitId }, data: { icalLastSyncAt: new Date(), icalLastSyncError: null } });
   return { ok: true, imported, updated, removed, conflicts };
 }
+
+/**
+ * Syncs every unit that has an Airbnb .ics feed configured, one at a time
+ * (each call does its own live fetch — no caching, so this always reflects
+ * whatever Airbnb has right now). Shared by the daily cron and the manual
+ * "Sync all" trigger so both hit the exact same per-unit logic.
+ */
+export async function syncAllUnitsFromAirbnb(): Promise<{ unit: string; unitId: string; result: IcalSyncResult }[]> {
+  const units = await prisma.unit.findMany({ where: { icalImportUrl: { not: null } }, select: { id: true, shortName: true } });
+  const results = [];
+  for (const unit of units) {
+    const result = await syncUnitFromAirbnb(unit.id);
+    results.push({ unit: unit.shortName, unitId: unit.id, result });
+  }
+  return results;
+}
