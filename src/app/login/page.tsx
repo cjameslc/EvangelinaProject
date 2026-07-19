@@ -2,10 +2,9 @@
 
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [username, setUsername] = useState("");
@@ -25,9 +24,14 @@ function LoginForm() {
       return;
     }
 
+    // A full browser navigation (not router.push) on success — the client
+    // SessionProvider's cached session doesn't reliably refresh in time
+    // for a same-tree client-side transition, which left the Navbar (and
+    // anything else reading useSession()) rendering as if logged out until
+    // a manual reload. A hard navigation always mounts fresh with the
+    // now-valid session cookie already in place.
     const cb = searchParams?.get("callbackUrl");
-    router.push(cb ?? "/");
-    router.refresh();
+    window.location.href = cb ?? "/";
   }
 
   return (
