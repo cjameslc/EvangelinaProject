@@ -357,7 +357,10 @@ export function BookingForm({
           <label className="field-label">Booker <span className="text-rausch">*</span></label>
           <select value={v.bookerId} onChange={(e) => set("bookerId", e.target.value)} className="field-input mt-1.5">
             <option value="">— Select —</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {/* Staff whose Admin-assigned role is Booker — plus the currently
+                selected person even if their role no longer matches, so
+                editing an older booking never silently drops its booker. */}
+            {employees.filter((e) => e.role === "BOOKER" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
           {err("bookerId")}
         </div>
@@ -365,7 +368,9 @@ export function BookingForm({
           <label className="field-label">Cleaner</label>
           <select value={v.cleanerId} onChange={(e) => set("cleanerId", e.target.value)} className="field-input mt-1.5">
             <option value="">— Assign later —</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {/* Staff whose Admin-assigned role is Housekeeping — same
+                preserve-the-current-value rule as Booker above. */}
+            {employees.filter((e) => e.role === "HOUSEKEEPING" || e.id === v.cleanerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
 
