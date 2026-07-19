@@ -22,7 +22,7 @@ export function canManageUnits(role: Role) {
   return role === "OWNER_ADMIN";
 }
 export function canEditBookings(role: Role) {
-  return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "BOOKER";
+  return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "BOOKER" || role === "HOUSEKEEPING";
 }
 export function canEditHousekeeping(role: Role) {
   return role === "OWNER_ADMIN" || role === "HOUSEKEEPING";
