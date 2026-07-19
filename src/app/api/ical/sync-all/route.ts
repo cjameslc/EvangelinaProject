@@ -9,7 +9,7 @@ export async function POST() {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
 
-  const results = await syncAllUnitsFromAirbnb();
+  const results = await syncAllUnitsFromAirbnb("MANUAL");
   const summary = results.map((r) => ({ unit: r.unit, ...r.result }));
   await logAudit(user.id, "unit.ical_sync_all", "Unit", undefined, { synced: results.length, summary });
   return NextResponse.json({ synced: results.length, results: summary });

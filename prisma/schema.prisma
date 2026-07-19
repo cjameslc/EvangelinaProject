@@ -153,8 +153,36 @@ model Unit {
   bills         Bill[]
   auditFindings AuditFinding[]
   recurringExpenseTemplates RecurringExpenseTemplate[]
+  icalSyncLogs  IcalSyncLog[]
 
   @@map("units")
+}
+
+enum IcalSyncType {
+  AUTOMATIC
+  MANUAL
+}
+
+// One row per per-unit Airbnb sync attempt (both the daily cron and the
+// Calendar page's manual "Sync Airbnb" button write here) — powers the
+// Calendar page's Sync History panel.
+model IcalSyncLog {
+  id         String       @id @default(cuid())
+  unitId     String
+  unit       Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  syncType   IcalSyncType
+  startedAt  DateTime     @default(now())
+  durationMs Int
+  imported   Int          @default(0)
+  updated    Int          @default(0)
+  removed    Int          @default(0)
+  conflicts  Int          @default(0)
+  ok         Boolean
+  error      String?
+
+  @@index([startedAt])
+  @@index([unitId, startedAt])
+  @@map("ical_sync_log")
 }
 
 // Staff directory — populates Booker / Cleaner / Received-by pickers.

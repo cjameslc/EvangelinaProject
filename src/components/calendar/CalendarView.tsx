@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
+import { SyncHistory } from "@/components/calendar/SyncHistory";
 import { fmtDate, fmtTimeStr, unitLabel, peso } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { nightsFor } from "@/lib/stayRange";
@@ -78,6 +79,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
   const toast = useToast();
   const canSync = canManageUnits(role as any);
   const [syncing, setSyncing] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const unitsWithAirbnbFeed = useMemo(() => units.filter((u) => u.icalImportUrl), [units]);
 
   async function syncAll() {
@@ -103,6 +105,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       toast("Couldn't reach the server — check your connection and try again.", true);
     } finally {
       setSyncing(false);
+      setHistoryRefresh((n) => n + 1);
     }
   }
 
@@ -560,6 +563,8 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
           </div>
         </aside>
       </div>
+
+      {canSync && <SyncHistory units={units} isSyncingNow={syncing} refreshSignal={historyRefresh} />}
 
       {selected && <BookingDetailModal block={selected} onClose={() => setSelected(null)} />}
     </div>

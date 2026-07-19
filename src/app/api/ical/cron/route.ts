@@ -17,6 +17,6 @@ export async function GET(req: NextRequest) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const results = await syncAllUnitsFromAirbnb();
+  const results = await syncAllUnitsFromAirbnb("AUTOMATIC");
   return NextResponse.json({ synced: results.length, results: results.map((r) => ({ unit: r.unit, ...r.result })) });
 }

@@ -42,7 +42,35 @@ async function recordSyncError(unitId: string, message: string) {
  * Airbnb no longer lists, and flags (never silently overwrites) anything
  * that overlaps an existing manual/website/admin booking.
  */
-export async function syncUnitFromAirbnb(unitId: string): Promise<IcalSyncResult> {
+export async function syncUnitFromAirbnb(unitId: string, syncType: "AUTOMATIC" | "MANUAL" = "MANUAL"): Promise<IcalSyncResult> {
+  const startedAt = new Date();
+  const t0 = Date.now();
+  const result = await doSync(unitId);
+  try {
+    await prisma.icalSyncLog.create({
+      data: {
+        unitId,
+        syncType,
+        startedAt,
+        durationMs: Date.now() - t0,
+        imported: result.imported,
+        updated: result.updated,
+        removed: result.removed,
+        conflicts: result.conflicts,
+        ok: result.ok,
+        error: result.error ?? null,
+      },
+    });
+  } catch (e) {
+    // A bad unitId (FK violation) or a transient DB hiccup shouldn't make an
+    // otherwise-successful sync look like it failed — the History panel
+    // simply won't have a row for this run.
+    console.error(`[ical-sync] failed to write sync log for unit ${unitId}:`, e);
+  }
+  return result;
+}
+
+async function doSync(unitId: string): Promise<IcalSyncResult> {
   const empty = { imported: 0, updated: 0, removed: 0, conflicts: 0 };
   const unit = await prisma.unit.findUnique({ where: { id: unitId } });
   if (!unit) return { ok: false, ...empty, error: "Unit not found." };
@@ -169,11 +197,11 @@ export async function syncUnitFromAirbnb(unitId: string): Promise<IcalSyncResult
  * whatever Airbnb has right now). Shared by the daily cron and the manual
  * "Sync all" trigger so both hit the exact same per-unit logic.
  */
-export async function syncAllUnitsFromAirbnb(): Promise<{ unit: string; unitId: string; result: IcalSyncResult }[]> {
+export async function syncAllUnitsFromAirbnb(syncType: "AUTOMATIC" | "MANUAL" = "MANUAL"): Promise<{ unit: string; unitId: string; result: IcalSyncResult }[]> {
   const units = await prisma.unit.findMany({ where: { icalImportUrl: { not: null } }, select: { id: true, shortName: true } });
   const results = [];
   for (const unit of units) {
-    const result = await syncUnitFromAirbnb(unit.id);
+    const result = await syncUnitFromAirbnb(unit.id, syncType);
     results.push({ unit: unit.shortName, unitId: unit.id, result });
   }
   return results;
