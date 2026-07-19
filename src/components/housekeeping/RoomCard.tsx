@@ -61,17 +61,21 @@ export function RoomCard({
         <Tag variant={status}>{status === "todo" ? "To clean" : status === "cleaning" ? "Cleaning" : "Clean"}</Tag>
       </div>
 
-      <div className="h-[7px] overflow-hidden rounded-full bg-[var(--bg-2)]">
-        <div className="h-full rounded-full bg-teal transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="flex items-center gap-2 text-[12.5px] font-bold text-[var(--gray)]">
-        <span className="mr-auto">{done}/{required} required steps</span>
-        {canEdit && status === "todo" && <button onClick={start} className="btn-sm btn-primary">Start cleaning</button>}
-        {canEdit && status === "cleaning" && <button onClick={finish} className="btn-sm" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
-        {canEdit && status === "clean" && !isDefaultClean && <button onClick={reset} className="btn-sm btn-ghost">Reset</button>}
-      </div>
+      {isDefaultClean ? (
+        <p className="text-[12.5px] font-semibold text-[var(--gray)]">Nothing scheduled — checklist opens once a guest checks out.</p>
+      ) : (
+        <>
+          <div className="h-[7px] overflow-hidden rounded-full bg-[var(--bg-2)]">
+            <div className="h-full rounded-full bg-teal transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex items-center gap-2 text-[12.5px] font-bold text-[var(--gray)]">
+            <span className="mr-auto">{done}/{required} required steps</span>
+            {canEdit && status === "todo" && <button onClick={start} className="btn-sm btn-primary">Start cleaning</button>}
+            {canEdit && status === "cleaning" && <button onClick={finish} className="btn-sm" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
+            {canEdit && status === "clean" && <button onClick={reset} className="btn-sm btn-ghost">Reset</button>}
+          </div>
 
-      <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1.5">
         {checklistGroups.map((g, gi) => {
           const gDone = checked[gi]?.filter(Boolean).length ?? 0;
           const open = openGroup === gi;
@@ -101,7 +105,9 @@ export function RoomCard({
             </div>
           );
         })}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
