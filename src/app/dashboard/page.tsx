@@ -55,7 +55,7 @@ export default async function DashboardPage() {
       // Weekly expenses aren't tied to a unit (salaries, ad spend, etc.) — used
       // for the Earnings "Salary" line. The full manual-entry editor now
       // lives on the Admin page's Weekly report tab.
-      prisma.weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } } } }),
+      prisma.weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } }, addedBy: { select: { id: true, name: true } } } }),
       // Feeds the "Needs your attention" card — open Critical/Warning findings only.
       prisma.auditFinding.findMany({
         where: { ...findingsWhere, resolved: false, severity: { in: ["Critical", "Warning"] } },

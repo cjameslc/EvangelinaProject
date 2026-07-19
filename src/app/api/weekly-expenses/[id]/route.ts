@@ -19,16 +19,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
 
+  const existing = await prisma.weeklyExpense.findUnique({ where: { id: params.id }, select: { category: true } });
+  const nextCategory = body.category ?? existing?.category ?? "GENERAL";
+
   const data: Record<string, unknown> = {};
   if (body.date) data.date = new Date(body.date);
   if (body.amount) data.amount = body.amount;
   if (body.note) data.note = body.note;
-  if (body.targetEmployeeId !== undefined) data.targetEmployeeId = body.targetEmployeeId || null;
+  if (body.category) data.category = body.category;
+  // A TikTok Ads entry stays untargeted even if the request tries to set
+  // one — same rule as creation.
+  if (body.targetEmployeeId !== undefined) data.targetEmployeeId = nextCategory === "TIKTOK_ADS" ? null : body.targetEmployeeId || null;
 
   const expense = await prisma.weeklyExpense.update({
     where: { id: params.id },
     data,
-    include: { targetEmployee: { select: { id: true, name: true, role: true } } },
+    include: {
+      targetEmployee: { select: { id: true, name: true, role: true } },
+      addedBy: { select: { id: true, name: true } },
+    },
   });
   return NextResponse.json(expense);
 }

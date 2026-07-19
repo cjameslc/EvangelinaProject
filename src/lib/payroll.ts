@@ -11,7 +11,7 @@ export type PayrollRates = {
 
 export type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 
-type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; stayType: string };
+type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
 
 /** Roles the "Your team" payroll list includes at all. */
@@ -39,12 +39,25 @@ export function computeTeamBreakdown(
     if (cleaningDays > 0) {
       items.push({ label: "Regular pay", detail: `₱${rates.housekeepingDayRate}/day × ${cleaningDays} day${cleaningDays !== 1 ? "s" : ""}`, amount: regularPay });
     }
-    const nightCleans = weekBookings.filter((b) => b.cleanerId === emp.id && b.stayType === "Night").length;
-    const bonus = nightCleans * rates.housekeepingNightBonus;
-    if (nightCleans > 0) {
-      items.push({ label: "Night-clean bonus", detail: `₱${rates.housekeepingNightBonus} × ${nightCleans} unit${nightCleans !== 1 ? "s" : ""}`, amount: bonus });
+    // Evening incentive: a flat bonus, once per unit per calendar day, if
+    // this employee cleaned 2 or more bookings for that SAME unit that
+    // checked out at or after 5:00 PM that same day — scoped per unit, so
+    // two different units each hitting the threshold the same day both
+    // earn their own bonus; not scaled by how many qualified beyond 2.
+    const eveningCleansByUnitDay = new Map<string, number>();
+    weekBookings
+      .filter((b) => b.cleanerId === emp.id && !!b.checkOutTime && b.checkOutTime >= "17:00")
+      .forEach((b) => {
+        const day = (b.checkOutDate ?? b.date).slice(0, 10);
+        const key = `${b.unitId}::${day}`;
+        eveningCleansByUnitDay.set(key, (eveningCleansByUnitDay.get(key) ?? 0) + 1);
+      });
+    const incentiveUnitDays = [...eveningCleansByUnitDay.values()].filter((n) => n >= 2).length;
+    const bonus = incentiveUnitDays * rates.housekeepingNightBonus;
+    if (incentiveUnitDays > 0) {
+      items.push({ label: "Evening incentive", detail: `₱${rates.housekeepingNightBonus} × ${incentiveUnitDays} (unit, day) (2+ bookings after 5PM, same unit)`, amount: bonus });
     }
-    subtitle = `₱${rates.housekeepingDayRate}/day + ₱${rates.housekeepingNightBonus} per night clean`;
+    subtitle = `₱${rates.housekeepingDayRate}/day + ₱${rates.housekeepingNightBonus} evening incentive (2+ bookings after 5PM, same unit/day)`;
   } else if (emp.role === "BOOKER") {
     const bookingsLogged = weekBookings.filter((b) => b.bookerId === emp.id).length;
     const commission = bookingsLogged * rates.bookerCommission;
@@ -126,13 +139,16 @@ export function effectiveMonthlySalary(employeeId: string, currentMonthlySalary:
 
 /** Total salary payroll for a set of active employees over a reporting period, using each employee's historically-effective rate. */
 export function totalSalaryPayroll(
-  employees: { id: string; monthlySalary: number; active?: boolean }[],
+  employees: { id: string; role: string; monthlySalary: number; active?: boolean }[],
   history: SalaryHistoryEntry[],
   period: DashboardPeriodType,
   periodStart: Date,
   days?: number
 ): number {
+  // Owners and Co-owners are never part of payroll — excluded here too so
+  // Net Profit's "staff salaries" deduction can't be inflated by an owner's
+  // own rate field, even if one gets set on their Staff record.
   return employees
-    .filter((e) => e.active !== false)
+    .filter((e) => e.active !== false && isPayrollRole(e.role))
     .reduce((sum, e) => sum + salaryForPeriod(effectiveMonthlySalary(e.id, e.monthlySalary, history, periodStart), period, days), 0);
 }

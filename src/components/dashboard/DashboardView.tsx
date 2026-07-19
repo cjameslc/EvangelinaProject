@@ -8,10 +8,12 @@ import autoTable from "jspdf-autotable";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, initials, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, ROLE_LABEL, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon, PlusIcon, EditIcon, TrashIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
 import {
   computeTeamBreakdown, isPayrollRole, totalSalaryPayroll, weeklySalaryFor,
@@ -20,11 +22,11 @@ import {
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[] };
-type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null };
+type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 type HkState = { unitId: string; status: string; unit: Unit };
-type WeeklyExpenseRow = { id: string; date: string; amount: number; note: string; targetEmployee: Employee | null };
+type WeeklyExpenseRow = { id: string; date: string; createdAt?: string; amount: number; note: string; category?: "GENERAL" | "TIKTOK_ADS"; targetEmployee: Employee | null; addedBy: { id: string; name: string } | null };
 
 // "Needs your attention" card — a lightweight cross-section of open Auditor
 // findings, this week's due bills, and low stock. Not the full records (the
@@ -90,7 +92,7 @@ export function DashboardView({
   bills,
   hkStates,
   earningsBookings,
-  weeklyExpenses,
+  weeklyExpenses: initialWeeklyExpenses,
   attentionFindings,
   stocks,
   cleaningLogs,
@@ -114,6 +116,11 @@ export function DashboardView({
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
+  const [weeklyExpenses, setWeeklyExpenses] = useState(initialWeeklyExpenses);
+  async function refreshWeeklyExpenses() {
+    const res = await fetch("/api/weekly-expenses");
+    if (res.ok) setWeeklyExpenses(await res.json());
+  }
 
   // Only count the remaining-balance amount once it's actually paid — an
   // unpaid balance isn't collected revenue yet, same convention already
@@ -152,6 +159,23 @@ export function DashboardView({
     [employees, salaryHistory, thisMonthStart]
   );
 
+  // TikTok Ads is a pure operational expense — deducted from Net Profit
+  // like a paid bill, but never touches anyone's payroll (it's always
+  // untargeted, enforced server-side too).
+  const thisMonthIsoForAds = dayOf(new Date()).slice(0, 7);
+  const tikTokAdsThisMonth = useMemo(
+    () => weeklyExpenses.filter((e) => e.category === "TIKTOK_ADS" && e.date.slice(0, 7) === thisMonthIsoForAds),
+    [weeklyExpenses, thisMonthIsoForAds]
+  );
+  const tikTokAdsMonthTotal = tikTokAdsThisMonth.reduce((s, e) => s + e.amount, 0);
+  const tikTokAdsWeekTotal = useMemo(() => {
+    const { start, end } = periodRangeFor("weekly", 0);
+    return weeklyExpenses
+      .filter((e) => e.category === "TIKTOK_ADS")
+      .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= start && d < end; })
+      .reduce((s, e) => s + e.amount, 0);
+  }, [weeklyExpenses]);
+
   // Cash-based accounting: only expenses actually marked Paid ever reduce
   // Net Profit, Margin, or Cash Flow — a bill that's merely Pending,
   // Scheduled, Due, or Overdue is excluded (billsDueMonthCentavos above is
@@ -160,15 +184,16 @@ export function DashboardView({
   // before. All in centavos through the subtraction itself, so a recurring
   // expense's cents are actually reflected in the result — only the final
   // StatCard values below round to whole pesos.
+  const otherPaidCostsCentavos = monthlyStaffSalary * 100 + tikTokAdsMonthTotal * 100;
   const netProfitCents = computeNetProfitCentavos({
     revenueCentavos: monthIncome * 100,
     paidExpensesCentavos: billsPaidMonthCentavos,
-    otherPaidCostsCentavos: monthlyStaffSalary * 100,
+    otherPaidCostsCentavos,
   });
   const netProfit = Math.round(netProfitCents / 100);
   const margin = marginPct(netProfitCents, monthIncome * 100);
   const cashFlow = Math.round(
-    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: monthlyStaffSalary * 100 }) / 100
+    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos }) / 100
   );
 
   const occupiedNights = bookingsWeek.length;
@@ -266,26 +291,26 @@ export function DashboardView({
   const normalizedTeamExpensesThisPeriod = teamExpensesThisPeriod.map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: e.targetEmployee?.id ?? null }));
   const periodWeeks = Math.max(periodDays / 7, 1 / 7);
 
-  // Every staff member from Admin -> Staff appears here now, each with their
-  // flat "Salary this week" (their configured rate, normalized to a weekly
-  // figure — always the literal current week, independent of whatever
-  // period the Earnings filter above is set to, since that's what the label
-  // means on the Staff tab too) alongside the commission/day-rate activity
-  // breakdown for roles that have one (Booker/Housekeeping/Auditor) — a
-  // salaried Owner/Admin or Co-owner has no activity formula, only salary.
-  const teamCalcs = employees.map((e) => ({
-    employee: e,
-    salaryThisWeek: weeklySalaryFor(e.monthlySalary),
-    ...(isPayrollRole(e.role)
-      ? computeTeamBreakdown(e, {
-          cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
-          weekBookings: teamBookingsThisPeriod,
-          weekExpenses: normalizedTeamExpensesThisPeriod,
-          rates: payrollRates,
-          periodWeeks,
-        })
-      : { total: 0, items: [] as ReturnType<typeof computeTeamBreakdown>["items"], subtitle: "" }),
-  }));
+  // Owners and Co-owners are never part of payroll — no salary, commission,
+  // incentive, or payroll record of any kind. "Your team" only lists staff
+  // in a payroll-eligible role, each with their flat "Salary this week"
+  // (configured rate, normalized to a weekly figure — always the literal
+  // current week, independent of whatever period the Earnings filter above
+  // is set to, matching what the Staff tab's own field means) alongside the
+  // commission/day-rate activity breakdown for roles that have one.
+  const teamCalcs = employees
+    .filter((e) => isPayrollRole(e.role))
+    .map((e) => ({
+      employee: e,
+      salaryThisWeek: weeklySalaryFor(e.monthlySalary),
+      ...computeTeamBreakdown(e, {
+        cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
+        weekBookings: teamBookingsThisPeriod,
+        weekExpenses: normalizedTeamExpensesThisPeriod,
+        rates: payrollRates,
+        periodWeeks,
+      }),
+    }));
   const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total + t.salaryThisWeek, 0);
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const AVATAR_COLORS = ["bg-rausch", "bg-teal", "bg-violet", "bg-amber", "bg-blue", "bg-green"];
@@ -1062,9 +1087,19 @@ export function DashboardView({
         </div>
       </Accordion>
 
+      <Accordion title="TikTok Ads" sub="operational expense — not payroll">
+        <TikTokAdsWidget
+          entries={[...tikTokAdsThisMonth].sort((a, b) => b.date.localeCompare(a.date))}
+          weekTotal={tikTokAdsWeekTotal}
+          monthTotal={tikTokAdsMonthTotal}
+          canEdit={role === "OWNER_ADMIN"}
+          onChanged={refreshWeeklyExpenses}
+        />
+      </Accordion>
+
       <Accordion title="Your team" sub="salary this week">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[12.5px] text-[var(--gray)]">Every staff member&rsquo;s flat &ldquo;Salary this week&rdquo; from Admin → Staff, plus commission/day-rate activity {periodLabelShort} for Booker/Housekeeping/Auditor.</p>
+          <p className="text-[12.5px] text-[var(--gray)]">Flat &ldquo;Salary this week&rdquo; from Admin → Staff plus commission/day-rate activity {periodLabelShort}, for Booker/Housekeeping/Auditor — Owners and Co-owners are never part of payroll.</p>
           {role === "OWNER_ADMIN" && (
             <Link href="/admin?tab=staff" className="flex-none text-[12.5px] font-bold text-rausch hover:underline">
               Manage staff →
@@ -1075,7 +1110,6 @@ export function DashboardView({
           {teamCalcs.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
           {teamCalcs.map(({ employee: emp, total, items, subtitle, salaryThisWeek }, i) => {
             const isOpen = expandedTeamId === emp.id;
-            const hasActivity = isPayrollRole(emp.role);
             return (
               <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
                 <button onClick={() => setExpandedTeamId(isOpen ? null : emp.id)} className="flex w-full items-center gap-3 p-4 text-left">
@@ -1090,11 +1124,9 @@ export function DashboardView({
                   <div className="flex-none text-right">
                     <div className="text-[16px] font-extrabold">{peso(salaryThisWeek)}</div>
                     <div className="text-[11px] text-[var(--gray)]">salary this week</div>
-                    {hasActivity && (
-                      <div className={cn("mt-0.5 text-[12px] font-bold", total < 0 ? "text-amber" : "text-green")}>
-                        {total >= 0 ? "+" : ""}{peso(total)} activity {periodLabelShort}
-                      </div>
-                    )}
+                    <div className={cn("mt-0.5 text-[12px] font-bold", total < 0 ? "text-amber" : "text-green")}>
+                      {total >= 0 ? "+" : ""}{peso(total)} activity {periodLabelShort}
+                    </div>
                   </div>
                   <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", isOpen && "rotate-180")} />
                 </button>
@@ -1107,8 +1139,7 @@ export function DashboardView({
                       </div>
                       <div className="font-bold">{peso(salaryThisWeek)}</div>
                     </div>
-                    {!hasActivity && items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No commission activity — salaried role.</p>}
-                    {items.length === 0 && hasActivity && <p className="text-[12.5px] text-[var(--gray)]">No activity {periodLabelShort}.</p>}
+                    {items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No activity {periodLabelShort}.</p>}
                     {items.map((item, j) => (
                       <div key={j} className="flex items-center justify-between text-[13px]">
                         <div>
@@ -1134,5 +1165,128 @@ export function DashboardView({
         </div>
       </Accordion>
     </div>
+  );
+}
+
+type TikTokAdEntry = { id: string; date: string; amount: number; note: string; addedBy: { id: string; name: string } | null };
+
+function TikTokAdsWidget({
+  entries, weekTotal, monthTotal, canEdit, onChanged,
+}: {
+  entries: TikTokAdEntry[];
+  weekTotal: number;
+  monthTotal: number;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<TikTokAdEntry | null>(null);
+
+  async function removeEntry(id: string) {
+    if (!confirm("Remove this TikTok Ads expense entry?")) return;
+    const res = await fetch(`/api/weekly-expenses/${id}`, { method: "DELETE" });
+    if (!res.ok) { toast("Couldn't remove entry", true); return; }
+    toast("Removed");
+    onChanged();
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-[12.5px] text-[var(--gray)]">Manual weekly ad spend — deducted from Net Profit as an operational expense, never from anyone&rsquo;s payroll.</p>
+      <div className="mb-3 grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-[var(--line)] p-3 text-center">
+          <div className="text-lg font-extrabold">{peso(weekTotal)}</div>
+          <div className="text-[10.5px] font-bold uppercase text-[var(--gray)]">This week</div>
+        </div>
+        <div className="rounded-xl border border-[var(--line)] p-3 text-center">
+          <div className="text-lg font-extrabold">{peso(monthTotal)}</div>
+          <div className="text-[10.5px] font-bold uppercase text-[var(--gray)]">This month</div>
+        </div>
+      </div>
+
+      {canEdit && (
+        <button onClick={() => setAdding(true)} className="btn btn-sm mb-3">
+          <PlusIcon className="h-3.5 w-3.5" /> Log ad spend
+        </button>
+      )}
+
+      <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+        {entries.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No TikTok Ads spend logged this month.</p>}
+        {entries.map((e) => (
+          <div key={e.id} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-bold">{peso(e.amount)}</div>
+              <div className="truncate text-[11.5px] text-[var(--gray)]">
+                {fmtDate(e.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}
+                {e.note && e.note !== "TikTok Ads" && ` · ${e.note}`}
+                {e.addedBy && ` · added by ${e.addedBy.name}`}
+              </div>
+            </div>
+            {canEdit && (
+              <div className="flex flex-none gap-0.5">
+                <button onClick={() => setEditing(e)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Edit"><EditIcon className="h-4 w-4" /></button>
+                <button onClick={() => removeEntry(e.id)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {(adding || editing) && (
+        <TikTokAdModal
+          initial={editing}
+          onClose={() => { setAdding(false); setEditing(null); }}
+          onSaved={() => { setAdding(false); setEditing(null); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TikTokAdModal({ initial, onClose, onSaved }: { initial: TikTokAdEntry | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [date, setDate] = useState(initial ? initial.date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState<number | null>(initial?.amount ?? null);
+  const [notes, setNotes] = useState(initial && initial.note !== "TikTok Ads" ? initial.note : "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!amount || amount <= 0) { toast("Enter an amount", true); return; }
+    setSaving(true);
+    const body = { date, amount, note: notes.trim() || "TikTok Ads", category: "TIKTOK_ADS" as const };
+    const res = await fetch(initial ? `/api/weekly-expenses/${initial.id}` : "/api/weekly-expenses", {
+      method: initial ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setSaving(false);
+    if (!res.ok) { toast("Couldn't save", true); return; }
+    onSaved();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={initial ? "Edit TikTok ad spend" : "Log TikTok ad spend"}
+      maxWidth={360}
+      footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={save} disabled={saving} className="btn-primary ml-auto">{saving ? "Saving…" : "Save"}</button></>}
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="field-label">Week (date)</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1.5" />
+        </div>
+        <div>
+          <label className="field-label">Amount (₱)</label>
+          <input type="number" value={amount ?? ""} onChange={(e) => setAmount(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label className="field-label">Notes (optional)</label>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field-input mt-1.5" placeholder="e.g. boosted post campaign" />
+        </div>
+      </div>
+    </Modal>
   );
 }

@@ -42,7 +42,10 @@ export async function GET() {
   const expenses = await prisma.weeklyExpense.findMany({
     orderBy: { date: "desc" },
     take: 300,
-    include: { targetEmployee: { select: { id: true, name: true, role: true } } },
+    include: {
+      targetEmployee: { select: { id: true, name: true, role: true } },
+      addedBy: { select: { id: true, name: true } },
+    },
   });
   return NextResponse.json(expenses);
 }
@@ -58,15 +61,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
 
+  // A TikTok Ads entry is an operational expense, never a payroll
+  // adjustment — force it untargeted regardless of what the client sent.
+  const category = body.category ?? "GENERAL";
+  const targetEmployeeId = category === "TIKTOK_ADS" ? null : body.targetEmployeeId || null;
+
   const expense = await prisma.weeklyExpense.create({
     data: {
       date: new Date(body.date),
       amount: body.amount,
       note: body.note,
-      targetEmployeeId: body.targetEmployeeId || null,
+      targetEmployeeId,
+      category,
+      addedById: user.id,
     },
-    include: { targetEmployee: { select: { id: true, name: true, role: true } } },
+    include: {
+      targetEmployee: { select: { id: true, name: true, role: true } },
+      addedBy: { select: { id: true, name: true } },
+    },
   });
-  await logAudit(user.id, "expense.create", "WeeklyExpense", expense.id, { amount: expense.amount, note: expense.note });
+  const action = category === "TIKTOK_ADS" ? "expense.tiktok_ads.create" : "expense.create";
+  await logAudit(user.id, action, "WeeklyExpense", expense.id, { amount: expense.amount, note: expense.note, category });
   return NextResponse.json(expense, { status: 201 });
 }

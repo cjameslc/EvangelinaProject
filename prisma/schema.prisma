@@ -107,6 +107,7 @@ model User {
   employee     Employee?
   auditLogs    AuditLog[]
   shifts       Shift[]
+  weeklyExpensesAdded WeeklyExpense[]
 
   @@map("users")
 }
@@ -239,16 +240,29 @@ model SalaryHistory {
 
 // A manually-logged cost (e.g. ads, supplies) that can optionally be charged
 // against a specific staff member's collected total on the weekly report.
+enum WeeklyExpenseCategory {
+  GENERAL
+  TIKTOK_ADS
+}
+
 model WeeklyExpense {
-  id               String    @id @default(cuid())
+  id               String                @id @default(cuid())
   date             DateTime
   amount           Int
   note             String
   targetEmployeeId String?
-  targetEmployee   Employee? @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
-  createdAt        DateTime  @default(now())
+  targetEmployee   Employee?             @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+  // GENERAL entries targeted at an employee are payroll adjustments (the
+  // pre-existing "Salary"/deduction behavior). TIKTOK_ADS is always
+  // untargeted — an operational expense that deducts from Net Profit but
+  // must never touch anyone's payroll.
+  category         WeeklyExpenseCategory @default(GENERAL)
+  addedById        String?
+  addedBy          User?                 @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime              @default(now())
 
   @@index([date])
+  @@index([category, date])
   @@map("weekly_expenses")
 }
 

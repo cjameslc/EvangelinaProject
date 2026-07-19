@@ -60,6 +60,7 @@ export const weeklyExpenseSchema = z.object({
   amount: z.number().int().positive(),
   note: z.string().min(1),
   targetEmployeeId: z.string().nullable().optional(),
+  category: z.enum(["GENERAL", "TIKTOK_ADS"]).optional(),
 });
 
 export const calendarBlockSchema = z.object({

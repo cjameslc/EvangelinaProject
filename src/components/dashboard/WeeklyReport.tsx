@@ -12,7 +12,7 @@ import { computeTeamBreakdown, isPayrollRole, type PayrollRates } from "@/lib/pa
 type Person = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
 type Booking = {
-  id: string; date: string; unit: Unit; guests: string[]; pax: number | null; platform: string; stayType: string;
+  id: string; date: string; checkOutDate: string | null; checkOutTime: string | null; unit: Unit; guests: string[]; pax: number | null; platform: string; stayType: string;
   amount: number; paid: boolean; method: string | null;
   dpAmount: number | null; dpMethod: string | null;
   booker: Person | null; receivedBy: Person | null; dpReceivedBy: Person | null; cleaner: Person | null;
@@ -133,7 +133,7 @@ export function WeeklyReport({
   }, [cleaningLogs, start, end]);
 
   const normalizedWeekBookings = useMemo(
-    () => weekBookings.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, stayType: b.stayType })),
+    () => weekBookings.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, unitId: b.unit.id, stayType: b.stayType, date: b.date, checkOutDate: b.checkOutDate, checkOutTime: b.checkOutTime })),
     [weekBookings]
   );
   const normalizedWeekExpenses = useMemo(
