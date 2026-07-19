@@ -11,11 +11,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = userSchema.partial().parse(await req.json());
   const data: any = {
     ...(body.name && { name: body.name }),
-    ...(body.email && { email: body.email.toLowerCase().trim() }),
+    ...(body.username && { username: body.username.toLowerCase().trim() }),
     ...(body.role && { role: body.role }),
     ...(body.active !== undefined && { active: body.active }),
   };
-  if (body.password) data.passwordHash = await bcrypt.hash(body.password, 10);
+  if (body.password) {
+    data.passwordHash = await bcrypt.hash(body.password, 10);
+    // An admin resetting someone's password forces them to pick a new one on next sign-in.
+    data.mustChangePassword = true;
+  }
 
   if (body.ownedUnitIds) {
     await prisma.unitOwner.deleteMany({ where: { userId: params.id } });
@@ -24,10 +28,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
-  const updated = await prisma.user.update({ where: { id: params.id }, data });
-  await logAudit(user.id, "user.update", "User", params.id, { role: body.role });
-  const { passwordHash, ...safe } = updated;
-  return NextResponse.json(safe);
+  try {
+    const updated = await prisma.user.update({ where: { id: params.id }, data });
+    await logAudit(user.id, "user.update", "User", params.id, { role: body.role });
+    const { passwordHash, ...safe } = updated;
+    return NextResponse.json(safe);
+  } catch (e: any) {
+    if (e?.code === "P2002") return NextResponse.json({ error: "That username is already taken." }, { status: 409 });
+    throw e;
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

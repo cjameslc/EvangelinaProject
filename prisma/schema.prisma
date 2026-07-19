@@ -25,6 +25,12 @@ enum Role {
   AUDITOR
 }
 
+enum SalaryType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 enum StayType {
   Daycation
   Night
@@ -33,10 +39,19 @@ enum StayType {
   Maintenance
 }
 
+enum BookingSource {
+  MANUAL
+  AIRBNB
+  WEBSITE
+  ADMIN
+}
+
 enum Platform {
   Airbnb
-  Facebook
   TikTok
+  Facebook
+  WalkIn // displayed as "Walk-in" — PLATFORM_LABEL in src/lib/constants.ts
+  Direct
   Other
 }
 
@@ -52,6 +67,7 @@ enum BillKey {
   elec
   net
   stream
+  amort
   custom
 }
 
@@ -73,15 +89,18 @@ enum FindingSeverity {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(BOOKER)
-  avatarColor  String   @default("#FF385C")
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String
+  username           String   @unique
+  email              String?  @unique
+  passwordHash       String
+  role               Role     @default(BOOKER)
+  avatarColor        String   @default("#FF385C")
+  avatarUrl          String?  // profile picture, data-URL — kept out of the NextAuth session/JWT (would blow the cookie size limit), fetched fresh from the DB wherever it's shown
+  active             Boolean  @default(true)
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // co-owner scoping: which units this user is allowed to see
   ownedUnits   UnitOwner[]
@@ -115,6 +134,13 @@ model Unit {
   rating      Float    @default(4.9)
   active      Boolean  @default(true)
   sortOrder   Int      @default(0)
+
+  // Airbnb iCal sync
+  icalToken         String?   @unique // powers the public export URL: /api/ical/{icalToken}.ics
+  icalImportUrl     String?   // Airbnb (or other platform) .ics feed to import from
+  icalLastSyncAt    DateTime?
+  icalLastSyncError String?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -126,6 +152,7 @@ model Unit {
   stocks        Stock[]
   bills         Bill[]
   auditFindings AuditFinding[]
+  recurringExpenseTemplates RecurringExpenseTemplate[]
 
   @@map("units")
 }
@@ -142,6 +169,19 @@ model Employee {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  // What's actually entered/edited in Admin — a rate at whichever cadence
+  // fits how that person is paid (e.g. ₱700/day for housekeeping, ₱1,000/week
+  // for a booker, ₱15,000/month for salaried staff).
+  salaryType    SalaryType @default(MONTHLY)
+  salaryRate    Int        @default(0)
+  // Derived monthly-equivalent of salaryType+salaryRate — the source of
+  // truth every period-scaled payroll figure (weekly/daily/yearly/custom)
+  // actually reads, so that machinery doesn't need to know about salaryType
+  // at all. Changes are appended to salaryHistory (not overwritten) so past
+  // reports keep using the salary that was actually in effect at the time.
+  monthlySalary Int @default(0)
+  salaryHistory SalaryHistory[]
+
   bookingsAsBooker    Booking[] @relation("BookerRel")
   bookingsAsCleaner   Booking[] @relation("CleanerRel")
   bookingsAsDpReceiver Booking[] @relation("DpReceiverRel")
@@ -152,6 +192,21 @@ model Employee {
   auditFindings       AuditFinding[]
 
   @@map("employees")
+}
+
+// Append-only log of monthlySalary changes, so a report for a past period
+// can look up the salary that was effective then instead of the current
+// value — editing today's salary must never rewrite yesterday's numbers.
+model SalaryHistory {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  monthlySalary Int
+  effectiveDate DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([employeeId, effectiveDate])
+  @@map("salary_history")
 }
 
 // A manually-logged cost (e.g. ads, supplies) that can optionally be charged
@@ -172,7 +227,12 @@ model WeeklyExpense {
 model Booking {
   id              String        @id @default(cuid())
   unitId          String
-  unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade — a unit with real booking history must never be
+  // deletable out from under that history (would silently destroy revenue
+  // records). DELETE /api/units/[id] checks for this up front and returns a
+  // friendly error; this is the DB-level backstop for any path that skips
+  // that check (a raw script, a future endpoint, etc).
+  unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Restrict)
   date            DateTime
   checkOutDate    DateTime?
   stayType        StayType
@@ -205,9 +265,17 @@ model Booking {
   proofUrl        String?
   paid            Boolean       @default(false)
 
+  // Airbnb iCal sync
+  source          BookingSource @default(MANUAL)
+  externalUid     String?       // iCal UID from the imported VEVENT (source = AIRBNB)
+  conflict        Boolean       @default(false) // imported booking overlaps an existing confirmed one — flagged, not auto-overwritten
+
+  calendarBlock   CalendarBlock?
+
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@unique([unitId, externalUid])
   @@index([unitId, date])
   @@map("bookings")
 }
@@ -224,6 +292,12 @@ model CalendarBlock {
   note       String?
   status     String   @default("confirmed")
   createdAt  DateTime @default(now())
+
+  // Links this mirrored calendar entry back to the real Booking it was
+  // generated from, so edits/deletes on the booking can keep it in sync
+  // instead of leaving a stale or orphaned block on the calendar.
+  bookingId  String?  @unique
+  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([unitId, date])
   @@map("calendar_blocks")
@@ -248,7 +322,10 @@ model HousekeepingUnitState {
 model CleaningLog {
   id         String    @id @default(cuid())
   unitId     String
-  unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  // Restrict — cleaning-log history feeds payroll, so a unit that still has
+  // logged shifts must never be deletable out from under them. See
+  // Booking.unit above.
+  unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   employeeId String?
   employee   Employee? @relation(fields: [employeeId], references: [id])
   startedAt  DateTime
@@ -281,24 +358,79 @@ model Stock {
 
 model Bill {
   id         String        @id @default(cuid())
-  unitId     String
-  unit       Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  unitId     String?       // null = a shared/site-wide expense not tied to one unit (e.g. the shared Internet line)
+  // Restrict — a unit with real bill/payment history must never be
+  // deletable out from under that history. See Booking.unit above.
+  unit       Unit?         @relation(fields: [unitId], references: [id], onDelete: Restrict)
   key        BillKey
   label      String?       // display name for a custom bill (key = "custom")
   month      DateTime      // first day of the billing month
   dueDay     Int?          // day-of-month (1-31) this bill is due; null = no set due date
-  amountDue  Int           @default(0)
+  recurring  Boolean       @default(false) // custom bills only: auto-create next month's instance
+  amountDue  Int           @default(0)     // whole pesos — legacy bills only; template-generated bills use amountDueCentavos instead
   amountPaid Int?
   paid       Boolean       @default(false)
   note       String?
   receiptUrl String?
   paidAt     DateTime?
 
+  // Centavo-precise amount for bills generated from a RecurringExpenseTemplate
+  // (e.g. ₱18,300.26) — the whole-peso amountDue/amountPaid above can't
+  // represent that. Null for ordinary bills, which stay whole-peso as before.
+  // Read through billCentavos()/billPaidCentavos() in src/lib/format.ts,
+  // never these fields directly, so a bill is correct either way.
+  amountDueCentavos  Int?
+  amountPaidCentavos Int?
+  accountNumber      String? // copied from the template at generation time (e.g. a water utility account number), so it stays correct even if the template later changes
+
+  // Which template generated this instance, if any — lets the monthly
+  // generator guarantee "exactly one bill per template per month" with a
+  // simple lookup instead of guessing from key+unit+month, and lets a
+  // template's own bills be found/updated if the template changes.
+  templateId String?
+  template   RecurringExpenseTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
   // Not unique: a unit can have any number of custom bills in the same
   // month. The 5 built-in bill types are kept from duplicating themselves
   // by a findFirst-then-create check in the API instead of a DB constraint.
   @@index([unitId, key, month])
+  @@index([templateId, month])
   @@map("bills")
+}
+
+enum ExpenseCategory {
+  Amortization
+  Utilities
+  Water
+  Internet
+  AssociationDues
+  Streaming
+}
+
+// The source of truth for a recurring monthly operating expense — Admin
+// configures these once, and the monthly Bill-generation pass (see
+// generateBillsForMonth in src/lib/recurringExpenses.ts) creates exactly one
+// Pending Bill per template per month, carrying its centavo-precise amount
+// forward. Editing a template only affects bills generated after the edit —
+// already-generated bills (paid or not) are untouched, preserving history.
+model RecurringExpenseTemplate {
+  id             String    @id @default(cuid())
+  category       ExpenseCategory
+  unitId         String?   // null = shared/site-wide (e.g. Internet)
+  unit           Unit?     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  description    String
+  amountCentavos Int
+  accountNumber  String?
+  // Fixed day-of-month (1-31), OR a relative rule when there's no fixed day
+  // (e.g. "LAST_WEEK" for amortization) — resolved to a concrete day for
+  // each month at generation time. Exactly one of the two is set.
+  dueDay         Int?
+  dueRule        String?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  bills          Bill[]
+
+  @@map("recurring_expense_templates")
 }
 
 // Auditor quality-inspection findings — cleaning/laundry/booking checks
@@ -340,6 +472,14 @@ model Settings {
   dpFee         Int      @default(500)
   currency      String   @default("PHP")
   checklistGroups Json?
+
+  // Payroll rates — the "Your team" formula on Dashboard/Admin reads these
+  // instead of hardcoding them, so Admin can tune pay without a code change.
+  housekeepingDayRate    Int @default(700) // per distinct day with a logged cleaning session
+  housekeepingNightBonus Int @default(300) // per Night-stay booking they cleaned
+  bookerCommission       Int @default(100) // per booking logged
+  auditorWeeklyRate      Int @default(0)   // flat weekly rate for Auditor-role staff
+
   updatedAt     DateTime @updatedAt
 
   @@map("settings")

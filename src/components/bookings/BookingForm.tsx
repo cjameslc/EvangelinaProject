@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
-import { UploadIcon, CloseIcon } from "@/components/ui/Icons";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
+import { TimePicker } from "@/components/ui/TimePicker";
+import { UploadIcon, CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { fileToDataUrl } from "@/lib/file";
-import { peso } from "@/lib/format";
-import { STAY_TYPES, PLATFORMS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { peso, fmtDate, fmtTimeStr, unitLabel, manilaDayStart } from "@/lib/format";
+import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber?: string; nightlyRate?: number };
@@ -22,7 +25,7 @@ export type BookingFormValue = {
   contactNumber: string;
   bookerId: string;
   cleanerId: string;
-  platform: "Airbnb" | "Facebook" | "TikTok" | "Other" | "";
+  platform: "Airbnb" | "TikTok" | "Facebook" | "WalkIn" | "Direct" | "Other" | "";
   platformOther: string;
   totalAmount: number | null;
   dpAmount: number | null;
@@ -37,20 +40,44 @@ export type BookingFormValue = {
 };
 
 const EMPTY: BookingFormValue = {
-  unitId: "", date: new Date().toISOString().slice(0, 10), checkOutDate: "", stayType: "", checkInTime: "", checkOutTime: "", guests: [], pax: null,
+  unitId: "", date: manilaDayStart().toISOString().slice(0, 10), checkOutDate: "", stayType: "", checkInTime: "", checkOutTime: "", guests: [], pax: null,
   contactNumber: "", bookerId: "", cleanerId: "", platform: "", platformOther: "",
   totalAmount: null,
   dpAmount: null, dpReceivedById: "", dpMethod: "", dpProofUrl: null,
   amount: null, receivedById: "", method: "", proofUrl: null, paid: false,
 };
 
+/** Smart defaults per stay type — Daycation runs same-day 8am-8pm; Night/Full
+ * run overnight, check-in 2pm through checkout noon the next day. Matches
+ * the Airbnb-style "pick a type, get a sensible schedule" flow; the guest
+ * can still freely edit every field afterward. */
+function smartSchedule(type: BookingFormValue["stayType"], checkInDate: string) {
+  if (type === "Daycation") {
+    return { checkInTime: "08:00", checkOutTime: "20:00", checkOutDate: checkInDate };
+  }
+  if (type === "Night" || type === "Full") {
+    const next = new Date(`${checkInDate}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    return { checkInTime: "14:00", checkOutTime: "12:00", checkOutDate: next.toISOString().slice(0, 10) };
+  }
+  return { checkInTime: "", checkOutTime: "", checkOutDate: "" };
+}
+
+function addUtcDays(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function BookingForm({
-  units, employees, initial, defaultDpFee, onSubmit, onCancel, submitLabel = "Add booking",
+  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking",
 }: {
   units: Unit[];
   employees: Employee[];
   initial?: Partial<BookingFormValue>;
   defaultDpFee?: number;
+  /** The booking being edited, if any — excluded from its own conflict check. */
+  bookingId?: string;
   onSubmit: (v: BookingFormValue) => Promise<void> | void;
   onCancel?: () => void;
   submitLabel?: string;
@@ -59,10 +86,83 @@ export function BookingForm({
   const [guestInput, setGuestInput] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // Once the guest hand-edits the checkout date/time, stop auto-suggesting
+  // it on every check-in date/type change — their edit wins from then on.
+  const [checkOutTouched, setCheckOutTouched] = useState(!!initial?.checkOutDate);
+  const [conflict, setConflict] = useState(false);
+  const [checkingConflict, setCheckingConflict] = useState(false);
 
   useEffect(() => {
     setV({ ...EMPTY, dpAmount: defaultDpFee ?? EMPTY.dpAmount, ...initial });
+    setCheckOutTouched(!!initial?.checkOutDate);
   }, [initial, defaultDpFee]);
+
+  function selectStayType(type: BookingFormValue["stayType"]) {
+    const suggestion = smartSchedule(type, v.date || EMPTY.date);
+    setV((s) => ({ ...s, stayType: type, ...suggestion }));
+    setCheckOutTouched(false);
+  }
+
+  // Airbnb has no day-use product — every Airbnb booking is a full 21-hour
+  // stay, so picking that platform locks the stay type to "Full" (mirrored
+  // server-side in normalizeStayTypeForPlatform so this can't be bypassed
+  // via a direct API call either).
+  function selectPlatform(p: BookingFormValue["platform"]) {
+    if (p === "Airbnb") {
+      const suggestion = smartSchedule("Full", v.date || EMPTY.date);
+      setV((s) => ({ ...s, platform: p, stayType: "Full", ...suggestion }));
+      setCheckOutTouched(false);
+    } else {
+      set("platform", p);
+    }
+  }
+
+  function selectCheckInDate(date: string) {
+    setV((s) => {
+      if (checkOutTouched || !s.stayType) return { ...s, date };
+      return { ...s, date, checkOutDate: smartSchedule(s.stayType, date).checkOutDate };
+    });
+  }
+
+  function clearDates() {
+    setV((s) => ({ ...s, date: "", checkOutDate: "" }));
+    setCheckOutTouched(false);
+  }
+
+  // Live conflict check — same centralized rule the API enforces on submit,
+  // so the guest sees the warning before they even try to save.
+  useEffect(() => {
+    if (!v.unitId || !v.date || !v.stayType) { setConflict(false); return; }
+    const controller = new AbortController();
+    setCheckingConflict(true);
+    const t = setTimeout(() => {
+      const params = new URLSearchParams({ unitId: v.unitId, date: v.date, stayType: v.stayType });
+      if (v.checkOutDate) params.set("checkOutDate", v.checkOutDate);
+      if (bookingId) params.set("excludeId", bookingId);
+      fetch(`/api/bookings/check-conflict?${params}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((j) => setConflict(!!j.conflict))
+        .catch(() => {})
+        .finally(() => setCheckingConflict(false));
+    }, 300);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [v.unitId, v.date, v.checkOutDate, v.stayType, bookingId]);
+
+  // Live summary + duration for the "Booking summary" card.
+  const unit = units.find((u) => u.id === v.unitId);
+  const duration = (() => {
+    if (!v.date || !v.stayType) return null;
+    if (v.stayType === "Daycation") {
+      if (!v.checkInTime || !v.checkOutTime) return null;
+      const [ih, im] = v.checkInTime.split(":").map(Number);
+      const [oh, om] = v.checkOutTime.split(":").map(Number);
+      const hrs = (oh * 60 + om - (ih * 60 + im)) / 60;
+      return hrs > 0 ? `${hrs % 1 === 0 ? hrs : hrs.toFixed(1)} hr${hrs !== 1 ? "s" : ""}` : null;
+    }
+    const outDate = v.checkOutDate || addUtcDays(v.date, 1);
+    const nights = Math.round((new Date(`${outDate}T00:00:00Z`).getTime() - new Date(`${v.date}T00:00:00Z`).getTime()) / 86400000);
+    return nights > 0 ? `${nights} night${nights !== 1 ? "s" : ""}` : null;
+  })();
 
   // The remaining-balance amount is always derived from Total − Downpayment,
   // clamped so it never goes negative.
@@ -88,6 +188,7 @@ export function BookingForm({
     if (!v.date) e.date = "Pick a date.";
     if (!v.unitId) e.unitId = "Choose a unit.";
     if (!v.stayType) e.stayType = "Choose a stay type.";
+    if (conflict) e.unitId = "This unit is already booked during the selected schedule.";
     if (v.guests.length === 0) e.guests = "Add at least one guest name.";
     if (!v.contactNumber || v.contactNumber.replace(/\D/g, "").length < 10) e.contactNumber = "Enter a valid contact number.";
     if (!v.bookerId) e.bookerId = "Choose the booker.";
@@ -123,11 +224,22 @@ export function BookingForm({
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="field-label">Check-in date <span className="text-rausch">*</span></label>
-          <input type="date" value={v.date} onChange={(e) => set("date", e.target.value)} className="field-input mt-1.5" />
+        <div className="sm:col-span-2">
+          <label className="field-label">Dates <span className="text-rausch">*</span></label>
+          <div className="mt-1.5">
+            <DateRangePicker
+              checkIn={v.date}
+              checkOut={v.checkOutDate}
+              onSelectCheckIn={selectCheckInDate}
+              onSelectCheckOut={(iso) => { setCheckOutTouched(!!iso); set("checkOutDate", iso); }}
+              onClear={clearDates}
+              error={conflict}
+            />
+          </div>
           {err("date")}
+          <p className="mt-1 text-[12px] text-[var(--gray)]">Leave checkout unset for a same-day (Daycation) or next-day (Night/Full) stay — it&rsquo;s auto-suggested from the stay type below. Pick one for multi-night stays.</p>
         </div>
+
         <div>
           <label className="field-label">Unit <span className="text-rausch">*</span></label>
           <select
@@ -139,39 +251,77 @@ export function BookingForm({
               // but never clobber a value staff already typed in.
               setV((s) => ({ ...s, unitId, totalAmount: s.totalAmount == null && unit?.nightlyRate ? unit.nightlyRate : s.totalAmount }));
             }}
-            className="field-input mt-1.5"
+            className={cn("field-input mt-1.5", conflict && "border-rausch ring-4 ring-rausch/15")}
           >
             <option value="">— Select unit —</option>
-            {units.map((u) => <option key={u.id} value={u.id}>{u.unitNumber ? `${u.unitNumber} ${u.name}` : u.name}</option>)}
+            {units.map((u) => <option key={u.id} value={u.id}>{unitLabel(u)}</option>)}
           </select>
           {err("unitId")}
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="field-label">Check-out date</label>
-          <input type="date" value={v.checkOutDate} min={v.date} onChange={(e) => set("checkOutDate", e.target.value)} className="field-input mt-1.5" />
-          <p className="mt-1 text-[12px] text-[var(--gray)]">Leave blank for a same-day (Daycation) or next-day (Night/Full) stay. Set this for multi-night stays so the guest still shows as occupying the room on the days in between.</p>
-        </div>
+        {conflict && (
+          <div className="sm:col-span-2 flex items-start gap-2.5 rounded-2xl border border-rausch/30 bg-rausch/5 p-3.5 text-[13px] font-semibold text-rausch">
+            <AlertIcon className="h-4 w-4 flex-none translate-y-0.5" />
+            This unit is already booked during the selected schedule. Pick a different unit, date, or stay type.
+          </div>
+        )}
 
         <div className="sm:col-span-2">
           <label className="field-label">Stay type <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {(["Daycation", "Night", "Full"] as const).map((t) => (
-              <Pill key={t} on={v.stayType === t} color={STAY_TYPES[t].color} onClick={() => set("stayType", t)}>
+            {(v.platform === "Airbnb" ? (["Full"] as const) : (["Daycation", "Night", "Full"] as const)).map((t) => (
+              <Pill key={t} on={v.stayType === t} color={STAY_TYPES[t].color} onClick={() => selectStayType(t)}>
                 {STAY_TYPES[t].label} · {STAY_TYPES[t].hrs}
               </Pill>
             ))}
           </div>
+          {v.platform === "Airbnb" && <p className="mt-1.5 text-[12px] text-[var(--gray)]">Airbnb has no day-use listings — bookings from this platform are always a 21-Hour stay.</p>}
           {err("stayType")}
         </div>
 
+        {(v.unitId || v.stayType) && (
+          <div className="sm:col-span-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-4">
+            <div className="mb-2.5 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+              Booking summary
+              {checkingConflict && <span className="text-[10.5px] font-semibold normal-case text-[var(--gray)]">checking availability…</span>}
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13.5px] sm:grid-cols-4">
+              <div>
+                <div className="text-[11px] font-bold text-[var(--gray)]">Unit</div>
+                <div className="font-extrabold">{unit ? (unit.unitNumber ? `Unit ${unit.unitNumber}` : unit.name) : "—"}</div>
+                {unit?.unitNumber && <div className="truncate text-[11.5px] text-[var(--gray)]">{unit.name}</div>}
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-[var(--gray)]">Type</div>
+                <div className="font-extrabold">{v.stayType ? STAY_TYPES[v.stayType].label : "—"}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-[var(--gray)]">Check-in</div>
+                <div className="font-extrabold">{v.date ? fmtDate(v.date, { month: "short", day: "numeric", timeZone: "UTC" }) : "—"}{v.checkInTime && ` · ${fmtTimeStr(v.checkInTime)}`}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold text-[var(--gray)]">Check-out</div>
+                <div className="font-extrabold">
+                  {v.checkOutDate ? fmtDate(v.checkOutDate, { month: "short", day: "numeric", timeZone: "UTC" }) : v.stayType === "Daycation" && v.date ? fmtDate(v.date, { month: "short", day: "numeric", timeZone: "UTC" }) : "—"}
+                  {v.checkOutTime && ` · ${fmtTimeStr(v.checkOutTime)}`}
+                </div>
+              </div>
+            </div>
+            {duration && <div className="mt-2.5 text-[12px] font-bold text-rausch">{duration}</div>}
+          </div>
+        )}
+
         <div>
           <label className="field-label">Check-in time</label>
-          <input type="time" value={v.checkInTime} onChange={(e) => set("checkInTime", e.target.value)} className="field-input mt-1.5" />
+          <div className="mt-1.5">
+            <TimePicker value={v.checkInTime} onChange={(t) => set("checkInTime", t)} />
+          </div>
         </div>
         <div>
           <label className="field-label">Check-out time</label>
-          <input type="time" value={v.checkOutTime} onChange={(e) => set("checkOutTime", e.target.value)} className="field-input mt-1.5" />
+          <div className="mt-1.5">
+            <TimePicker value={v.checkOutTime} onChange={(t) => set("checkOutTime", t)} />
+          </div>
         </div>
 
         <div className="sm:col-span-2">
@@ -226,7 +376,7 @@ export function BookingForm({
         <div className="sm:col-span-2">
           <label className="field-label">Platform <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {PLATFORMS.map((p) => <Pill key={p} on={v.platform === p} onClick={() => set("platform", p)}>{p}</Pill>)}
+            {PLATFORMS.map((p) => <Pill key={p} on={v.platform === p} onClick={() => selectPlatform(p)}>{PLATFORM_LABEL[p] ?? p}</Pill>)}
           </div>
           {err("platform")}
         </div>
@@ -321,7 +471,7 @@ export function BookingForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
-        <button onClick={submit} disabled={saving} className="btn-primary order-first sm:order-none">{saving ? "Saving…" : submitLabel}</button>
+        <button onClick={submit} disabled={saving || conflict} className="btn-primary order-first sm:order-none disabled:opacity-50">{saving ? "Saving…" : submitLabel}</button>
         {onCancel && <button onClick={onCancel} className="btn-ghost">Cancel</button>}
       </div>
     </div>

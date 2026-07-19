@@ -39,6 +39,7 @@ export const CheckIcon = (p: SVGProps<SVGSVGElement>) => base(<polyline points="
 export const ArrowLeftIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M15 6l-6 6 6 6" />, p);
 export const ArrowRightIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M9 6l6 6-6 6" />, p);
 export const AlertIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></>, p);
+export const ClockIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></>, p);
 export const LogoutIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>, p);
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => base(<><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>, p);
 export const UserIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>, p);

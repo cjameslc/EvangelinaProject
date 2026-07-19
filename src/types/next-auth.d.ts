@@ -7,27 +7,33 @@ declare module "next-auth" {
     user: {
       id: string;
       name: string;
-      email: string;
+      username: string;
+      email: string | null;
       role: Role;
       ownedUnitIds: string[];
       avatarColor: string;
+      mustChangePassword: boolean;
     };
   }
   interface User {
     id: string;
     name: string;
-    email: string;
+    username: string;
+    email: string | null;
     role: Role;
     ownedUnitIds: string[];
     avatarColor: string;
+    mustChangePassword: boolean;
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     id: string;
+    username: string;
     role: Role;
     ownedUnitIds: string[];
     avatarColor: string;
+    mustChangePassword: boolean;
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireUser, unitIdWhere, logAudit } from "@/lib/session";
 import { unitSchema } from "@/lib/validation";
@@ -19,8 +20,13 @@ export async function POST(req: NextRequest) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
 
-  const { ownerUserIds, ...body } = unitSchema.parse(await req.json());
-  const unit = await prisma.unit.create({ data: body });
+  const { ownerUserIds, icalImportUrl, ...body } = unitSchema.parse(await req.json());
+  // 256-bit (32-byte) token — generated exactly once, here, and never
+  // touched again by a normal update (see PATCH below); only the explicit
+  // "Regenerate link" action replaces it.
+  const unit = await prisma.unit.create({
+    data: { ...body, icalImportUrl: icalImportUrl || null, icalToken: crypto.randomBytes(32).toString("hex") },
+  });
   if (ownerUserIds?.length) {
     await prisma.unitOwner.createMany({ data: ownerUserIds.map((userId) => ({ userId, unitId: unit.id })) });
   }

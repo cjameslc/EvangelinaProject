@@ -12,14 +12,14 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        username: { label: "Username", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.username || !credentials?.password) return null;
 
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase().trim() },
+          where: { username: credentials.username.toLowerCase().trim() },
           include: { ownedUnits: { select: { unitId: true } } },
         });
         if (!user || !user.active) return null;
@@ -27,15 +27,17 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;
 
-        await logAudit(user.id, "user.login", "User", user.id, { email: user.email, role: user.role });
+        await logAudit(user.id, "user.login", "User", user.id, { username: user.username, role: user.role });
 
         return {
           id: user.id,
           name: user.name,
+          username: user.username,
           email: user.email,
           role: user.role,
           ownedUnitIds: user.ownedUnits.map((o) => o.unitId),
           avatarColor: user.avatarColor,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -44,26 +46,32 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
+        token.username = user.username;
         token.role = user.role;
         token.ownedUnitIds = user.ownedUnitIds;
         token.avatarColor = user.avatarColor;
+        token.mustChangePassword = user.mustChangePassword;
       }
-      // Lets the Profile page push name/email/avatar edits into the live
-      // session (via useSession().update()) without forcing a re-login.
+      // Lets the Profile page push name/email/avatar edits, and the forced
+      // change-password screen clear its flag, into the live session (via
+      // useSession().update()) without forcing a re-login.
       if (trigger === "update" && session) {
         if (session.name) token.name = session.name;
         if (session.email) token.email = session.email;
         if (session.avatarColor) token.avatarColor = session.avatarColor;
+        if (session.mustChangePassword === false) token.mustChangePassword = false;
       }
       return token;
     },
     async session({ session, token }) {
       session.user.id = token.id;
       session.user.name = token.name as string;
-      session.user.email = token.email as string;
+      session.user.username = token.username;
+      session.user.email = (token.email as string | undefined) ?? null;
       session.user.role = token.role;
       session.user.ownedUnitIds = token.ownedUnitIds;
       session.user.avatarColor = token.avatarColor;
+      session.user.mustChangePassword = token.mustChangePassword;
       return session;
     },
   },

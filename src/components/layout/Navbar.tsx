@@ -8,6 +8,7 @@ import { NAV_ITEMS, ROLE_LABEL } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/ui/ThemeProvider";
+import { useAvatar } from "@/components/profile/AvatarProvider";
 import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon } from "@/components/ui/Icons";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -23,6 +24,7 @@ export function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
+  const { avatarUrl } = useAvatar();
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -36,7 +38,8 @@ export function Navbar() {
     <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-3 px-4 sm:px-6">
         <Link href="/dashboard" className="flex flex-none items-center gap-2 font-extrabold text-rausch">
-          <svg viewBox="0 0 32 32" className="h-7 w-7"><path d="M16 3 4 13v15a1 1 0 0 0 1 1h8v-8h6v8h8a1 1 0 0 0 1-1V13L16 3Z" fill="currentColor" /></svg>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/branding/logo.jpg" alt="Evangelina's Staycation" className="h-8 w-8 rounded-lg object-cover" />
           <span className="hidden text-[16px] tracking-tight sm:inline">Evangelina&rsquo;s Staycation</span>
         </Link>
 
@@ -83,12 +86,17 @@ export function Navbar() {
                   <span className="block text-[12.5px] font-bold text-[var(--ink)]">{session.user.name}</span>
                   <span className="block text-[10.5px] font-semibold text-[var(--gray)]">{ROLE_LABEL[session.user.role]}</span>
                 </span>
-                <span
-                  className="grid h-[30px] w-[30px] place-items-center rounded-full text-[13px] font-bold text-white"
-                  style={{ background: session.user.avatarColor || "#FF385C" }}
-                >
-                  {initials(session.user.name)}
-                </span>
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt={session.user.name} className="h-[30px] w-[30px] rounded-full object-cover" />
+                ) : (
+                  <span
+                    className="grid h-[30px] w-[30px] place-items-center rounded-full text-[13px] font-bold text-white"
+                    style={{ background: session.user.avatarColor || "#FF385C" }}
+                  >
+                    {initials(session.user.name)}
+                  </span>
+                )}
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-[46px] w-48 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-1.5 shadow-card">

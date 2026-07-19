@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, unitLabel, manilaDayStart } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
+import { Pagination } from "@/components/ui/Pagination";
 import { UploadIcon, DownloadIcon, EditIcon, AlertIcon } from "@/components/ui/Icons";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
@@ -58,7 +59,7 @@ function downloadBlob(blob: Blob, filename: string) {
 const EMPTY_FORM = {
   id: null as string | null,
   auditorName: "",
-  reviewDate: new Date().toISOString().slice(0, 10),
+  reviewDate: manilaDayStart().toISOString().slice(0, 10),
   unitId: "",
   employeeId: "",
   category: "Cleaning" as FindingCategory,
@@ -85,6 +86,18 @@ export function AuditorView({
   const [form, setForm] = useState({ ...EMPTY_FORM, auditorName: session?.user?.name ?? "" });
   const [saving, setSaving] = useState(false);
   const editing = form.id !== null;
+
+  // useSession() resolves asynchronously — on first mount session.user.name
+  // may not be ready yet, which would otherwise leave this read-only field
+  // permanently blank. Keep it in sync once the session loads, but only
+  // while creating a new finding (never overwrite an existing finding's
+  // original author while editing it).
+  useEffect(() => {
+    if (!editing && session?.user?.name) {
+      setForm((f) => (f.auditorName ? f : { ...f, auditorName: session.user.name }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, editing]);
 
   const [statusFilter, setStatusFilter] = useState<"All" | "Open" | "Resolved">("All");
   const [categoryFilter, setCategoryFilter] = useState<"All" | FindingCategory>("All");
@@ -263,6 +276,12 @@ export function AuditorView({
     });
   }, [findings, statusFilter, categoryFilter, auditorFilter]);
 
+  const FINDINGS_PAGE_SIZE = 10;
+  const [findingsPage, setFindingsPage] = useState(1);
+  useEffect(() => setFindingsPage(1), [statusFilter, categoryFilter, auditorFilter]);
+  const findingsPageCount = Math.max(1, Math.ceil(filteredFindings.length / FINDINGS_PAGE_SIZE));
+  const pagedFindings = filteredFindings.slice((findingsPage - 1) * FINDINGS_PAGE_SIZE, findingsPage * FINDINGS_PAGE_SIZE);
+
   return (
     <div className="mx-auto max-w-[1300px] px-4 py-9 sm:px-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -317,8 +336,8 @@ export function AuditorView({
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <label className="field-label">Auditor name *</label>
-                <input value={form.auditorName} onChange={(e) => setForm((f) => ({ ...f, auditorName: e.target.value }))} className="field-input mt-1.5" placeholder="Your full name" />
+                <label className="field-label">Auditor</label>
+                <input value={form.auditorName} readOnly disabled className="field-input mt-1.5 cursor-not-allowed opacity-70" title="Always the signed-in auditor — not editable" />
               </div>
               <div>
                 <label className="field-label">Review date *</label>
@@ -328,7 +347,7 @@ export function AuditorView({
                 <label className="field-label">Unit inspected</label>
                 <select value={form.unitId} onChange={(e) => setForm((f) => ({ ...f, unitId: e.target.value }))} className="field-input mt-1.5">
                   <option value="">— All / General —</option>
-                  {units.map((u) => <option key={u.id} value={u.id}>{u.shortName}</option>)}
+                  {units.map((u) => <option key={u.id} value={u.id}>{unitLabel(u)}</option>)}
                 </select>
               </div>
             </div>
@@ -535,7 +554,7 @@ export function AuditorView({
           <p className="py-8 text-center text-[13px] text-[var(--gray)]">No findings match these filters.</p>
         ) : (
           <div className="space-y-3">
-            {filteredFindings.map((f) => (
+            {pagedFindings.map((f) => (
               <div key={f.id} className={cn("rounded-2xl border p-4", f.resolved ? "border-[var(--line)] opacity-70" : SEVERITY_META[f.severity].bgClass)}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-2.5">
@@ -582,6 +601,7 @@ export function AuditorView({
             ))}
           </div>
         )}
+        <Pagination page={findingsPage} pageCount={findingsPageCount} onPageChange={setFindingsPage} totalLabel={`${filteredFindings.length} finding${filteredFindings.length !== 1 ? "s" : ""}`} />
       </div>
     </div>
   );

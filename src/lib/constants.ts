@@ -22,7 +22,7 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/bookings", label: "Bookings", icon: "file", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   { href: "/calendar", label: "Calendar", icon: "calendar", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   { href: "/housekeeping", label: "Housekeeping", icon: "home", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
-  { href: "/auditor", label: "Auditor", icon: "search", roles: ["OWNER_ADMIN", "AUDITOR"] },
+  { href: "/auditor", label: "Auditor", icon: "search", roles: ["OWNER_ADMIN", "AUDITOR", "CO_OWNER"] },
   { href: "/admin", label: "Admin", icon: "settings", roles: ["OWNER_ADMIN"] },
 ];
 
@@ -36,7 +36,13 @@ export const STAY_TYPES = {
 
 export const STAY_VARIANT: Record<string, string> = { Daycation: "day", Night: "night", Full: "full", Cleaning: "cleaning", Maintenance: "todo" };
 
-export const PLATFORMS = ["Airbnb", "Facebook", "TikTok", "Other"] as const;
+export const PLATFORMS = ["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"] as const;
+export const PLATFORM_LABEL: Record<string, string> = { WalkIn: "Walk-in" };
+
+// Airbnb bookings are imported automatically from the unit's iCal feed and
+// never have a guest-entered price — Airbnb doesn't expose the payout amount
+// in .ics data, so revenue is derived from this fixed per-night rate instead.
+export const AIRBNB_NIGHTLY_RATE = 1495;
 export const PAYMENT_METHODS = ["Cash", "GCash", "BankTransfer"] as const;
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {
   Cash: "Cash",
@@ -45,6 +51,7 @@ export const PAYMENT_METHOD_LABEL: Record<string, string> = {
 };
 
 export const BILL_TYPES = [
+  { key: "amort", label: "Amortization", sub: "Monthly — property loan", icon: "🏦" },
   { key: "assoc", label: "Association Dues", sub: "Monthly — building admin", icon: "🏢" },
   { key: "water", label: "Water Bill", sub: "MWSS / building meter", icon: "💧" },
   { key: "elec", label: "Electricity Bill", sub: "Meralco — online payment", icon: "⚡" },

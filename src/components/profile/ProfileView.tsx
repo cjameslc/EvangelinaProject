@@ -1,29 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { ROLE_LABEL } from "@/lib/constants";
 import { initials, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
+import { fileToDataUrl } from "@/lib/file";
+import { useAvatar } from "@/components/profile/AvatarProvider";
 import { cn } from "@/lib/utils";
-import { LogoutIcon } from "@/components/ui/Icons";
+import { LogoutIcon, EditIcon } from "@/components/ui/Icons";
 
 const AVATAR_COLORS = ["#FF385C", "#6C5CE7", "#0B7C74", "#3B71E8", "#C87D00", "#008A05", "#111111"];
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // 3MB
 
 type Unit = { id: string; name: string; shortName: string };
 type ProfileUser = {
-  id: string; name: string; email: string; role: string; avatarColor: string; createdAt: string;
+  id: string; name: string; username: string; email: string | null; role: string; avatarColor: string; avatarUrl: string | null; createdAt: string;
   ownedUnits: { unit: Unit }[];
 };
 
 export function ProfileView({ user }: { user: ProfileUser }) {
   const { update } = useSession();
   const toast = useToast();
+  const { setAvatarUrl: setNavAvatarUrl } = useAvatar();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
+  const [email, setEmail] = useState(user.email ?? "");
   const [avatarColor, setAvatarColor] = useState(user.avatarColor);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
+
+  async function handlePhoto(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast("Please choose an image file", true); return; }
+    if (file.size > MAX_AVATAR_BYTES) { toast("Photo is too large — the limit is 3MB", true); return; }
+
+    setUploadingPhoto(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: dataUrl }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(j.error ?? "Couldn't update your photo", true); return; }
+      setAvatarUrl(dataUrl);
+      setNavAvatarUrl(dataUrl);
+      toast("Profile photo updated ✓");
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removePhoto() {
+    setUploadingPhoto(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: null }),
+      });
+      if (!res.ok) { toast("Couldn't remove your photo", true); return; }
+      setAvatarUrl(null);
+      setNavAvatarUrl(null);
+      toast("Profile photo removed");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -72,15 +120,48 @@ export function ProfileView({ user }: { user: ProfileUser }) {
       </div>
 
       <div className="card mb-5 flex items-center gap-4 p-5">
-        <span className="grid h-16 w-16 flex-none place-items-center rounded-full text-[20px] font-bold text-white" style={{ background: avatarColor }}>
-          {initials(name)}
-        </span>
+        <div className="group relative flex-none">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handlePhoto(e.target.files?.[0])}
+          />
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatarUrl} alt={name} className="h-16 w-16 rounded-full object-cover" />
+          ) : (
+            <span className="grid h-16 w-16 place-items-center rounded-full text-[20px] font-bold text-white" style={{ background: avatarColor }}>
+              {initials(name)}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingPhoto}
+            aria-label="Change profile photo"
+            className="absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-[var(--card)] bg-rausch text-white shadow-s transition hover:bg-rausch/90"
+          >
+            <EditIcon className="h-3 w-3" />
+          </button>
+        </div>
         <div className="min-w-0">
           <div className="truncate text-[18px] font-extrabold">{user.name}</div>
-          <div className="truncate text-[13.5px] text-[var(--gray)]">{user.email}</div>
+          <div className="truncate text-[13.5px] text-[var(--gray)]">@{user.username}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-rausch/10 px-2.5 py-1 text-[11.5px] font-bold text-rausch">{ROLE_LABEL[user.role] ?? user.role}</span>
             <span className="text-[11.5px] text-[var(--gray)]">Member since {fmtDate(user.createdAt, { month: "long", year: "numeric" })}</span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-3 text-[12px] font-bold">
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingPhoto} className="text-rausch hover:underline disabled:opacity-50">
+              {uploadingPhoto ? "Uploading…" : avatarUrl ? "Change photo" : "Add photo"}
+            </button>
+            {avatarUrl && (
+              <button type="button" onClick={removePhoto} disabled={uploadingPhoto} className="text-[var(--gray)] hover:text-rausch disabled:opacity-50">
+                Remove photo
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -108,11 +189,13 @@ export function ProfileView({ user }: { user: ProfileUser }) {
           <input value={name} onChange={(e) => setName(e.target.value)} className="field-input mt-1.5" />
         </div>
         <div>
-          <label className="field-label">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="field-input mt-1.5" />
+          <label className="field-label">Email (optional)</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="field-input mt-1.5" placeholder="you@example.com" />
+          <p className="mt-1 text-[11.5px] text-[var(--gray)]">You sign in with your username (@{user.username}), not this email.</p>
         </div>
         <div>
           <label className="field-label">Avatar color</label>
+          <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">{avatarUrl ? "Used if you ever remove your profile photo." : "Shows behind your initials until you add a photo."}</p>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {AVATAR_COLORS.map((c) => (
               <button

@@ -33,8 +33,9 @@ export async function PATCH(req: NextRequest) {
 
   const data: Record<string, unknown> = {};
   if (body.name) data.name = body.name;
-  if (body.email) data.email = body.email.toLowerCase().trim();
+  if (body.email !== undefined) data.email = body.email ? body.email.toLowerCase().trim() : null;
   if (body.avatarColor) data.avatarColor = body.avatarColor;
+  if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
 
   if (body.newPassword) {
     if (!body.currentPassword) {
@@ -45,12 +46,13 @@ export async function PATCH(req: NextRequest) {
     const valid = await bcrypt.compare(body.currentPassword, dbUser.passwordHash);
     if (!valid) return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
     data.passwordHash = await bcrypt.hash(body.newPassword, 10);
+    data.mustChangePassword = false;
   }
 
   try {
     const updated = await prisma.user.update({ where: { id: user.id }, data });
     await logAudit(user.id, "profile.update", "User", user.id, {
-      name: !!body.name, email: !!body.email, passwordChanged: !!body.newPassword, avatarColor: !!body.avatarColor,
+      name: !!body.name, email: !!body.email, passwordChanged: !!body.newPassword, avatarColor: !!body.avatarColor, avatarUrl: body.avatarUrl !== undefined,
     });
     const { passwordHash, ...safe } = updated;
     return NextResponse.json(safe);

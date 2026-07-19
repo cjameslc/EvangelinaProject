@@ -10,7 +10,7 @@ export function canSeeAdmin(role: Role) {
   return role === "OWNER_ADMIN";
 }
 export function canSeeAuditor(role: Role) {
-  return role === "OWNER_ADMIN" || role === "AUDITOR";
+  return role === "OWNER_ADMIN" || role === "AUDITOR" || role === "CO_OWNER";
 }
 export function canSeeHousekeeping(role: Role) {
   return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "HOUSEKEEPING";

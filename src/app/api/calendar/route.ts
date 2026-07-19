@@ -10,7 +10,18 @@ export async function GET() {
   const blocks = await prisma.calendarBlock.findMany({
     where: unitWhere(user),
     orderBy: { date: "asc" },
-    include: { unit: { select: { id: true, name: true, unitNumber: true, shortName: true } } },
+    include: {
+      unit: { select: { id: true, name: true, unitNumber: true, shortName: true } },
+      booking: {
+        select: {
+          platform: true, amount: true, paid: true, dpAmount: true,
+          checkInTime: true, checkOutTime: true, pax: true, contactNumber: true,
+          method: true, dpMethod: true,
+          booker: { select: { name: true } },
+          cleaner: { select: { name: true } },
+        },
+      },
+    },
   });
   return NextResponse.json(blocks);
 }

@@ -1,0 +1,71 @@
+import { prisma } from "@/lib/prisma";
+import type { ExpenseCategory } from "@prisma/client";
+
+/** Maps a template's category to the underlying Bill.key so existing bill-key-based UI (icons, filters) keeps working without a rewrite. */
+export const CATEGORY_TO_BILL_KEY: Record<ExpenseCategory, string> = {
+  Amortization: "amort",
+  Utilities: "elec",
+  Water: "water",
+  Internet: "net",
+  AssociationDues: "assoc",
+  Streaming: "stream",
+};
+
+export const CATEGORY_LABEL: Record<ExpenseCategory, string> = {
+  Amortization: "Amortization",
+  Utilities: "Electricity",
+  Water: "Water",
+  Internet: "Internet",
+  AssociationDues: "Association Dues",
+  Streaming: "Netflix Subscription",
+};
+
+function daysInMonth(year: number, month0: number): number {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+
+/** Resolves a template's due day to a concrete day-of-month for a specific month — a fixed dueDay is used as-is; "LAST_WEEK" lands within the last 7 days of whatever that month's length actually is. */
+export function resolveDueDay(template: { dueDay: number | null; dueRule: string | null }, year: number, month0: number): number | null {
+  if (template.dueDay != null) return template.dueDay;
+  if (template.dueRule === "LAST_WEEK") return daysInMonth(year, month0) - 6;
+  return null;
+}
+
+/**
+ * Ensures every active RecurringExpenseTemplate has exactly one Bill for the
+ * given month, creating any missing ones as Pending (paid: false). Idempotent
+ * and safe to call from every page that reads bills — a template can never
+ * end up with two bills for the same month because each generated bill is
+ * looked up by templateId+month first.
+ */
+export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
+  const templates = await prisma.recurringExpenseTemplate.findMany({ where: { active: true } });
+  if (templates.length === 0) return;
+
+  const existing = await prisma.bill.findMany({
+    where: { templateId: { in: templates.map((t) => t.id) }, month },
+    select: { templateId: true },
+  });
+  const haveBill = new Set(existing.map((b) => b.templateId));
+
+  const year = month.getUTCFullYear();
+  const month0 = month.getUTCMonth();
+
+  for (const t of templates) {
+    if (haveBill.has(t.id)) continue;
+    await prisma.bill.create({
+      data: {
+        unitId: t.unitId,
+        key: CATEGORY_TO_BILL_KEY[t.category] as any,
+        label: t.description,
+        month,
+        dueDay: resolveDueDay(t, year, month0),
+        amountDue: Math.round(t.amountCentavos / 100),
+        amountDueCentavos: t.amountCentavos,
+        accountNumber: t.accountNumber,
+        paid: false,
+        templateId: t.id,
+      },
+    });
+  }
+}

@@ -2,15 +2,19 @@
 
 import { useState } from "react";
 import { BILL_TYPES } from "@/lib/constants";
-import { peso } from "@/lib/format";
+import { peso, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
 import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
-import { UploadIcon, EditIcon, TrashIcon, PlusIcon } from "@/components/ui/Icons";
+import { UploadIcon, EditIcon, TrashIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
-type Bill = { id: string; unitId: string; unit: Unit; key: string; label: string | null; amountDue: number; amountPaid: number | null; paid: boolean; note: string | null; receiptUrl: string | null; dueDay: number | null };
+type Bill = {
+  id: string; unitId: string | null; unit: Unit | null; key: string; label: string | null;
+  amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null;
+  accountNumber?: string | null; paid: boolean; note: string | null; receiptUrl: string | null; dueDay: number | null; recurring: boolean;
+};
 
 function billMeta(b: Bill) {
   const found = BILL_TYPES.find((t) => t.key === b.key);
@@ -18,17 +22,35 @@ function billMeta(b: Bill) {
   return { key: "custom", label: b.label ?? "Custom bill", sub: "Added manually", icon: "🧾" };
 }
 
-export function BillsPanel({ units, bills, canEdit, onChanged }: { units: Unit[]; bills: Bill[]; canEdit: boolean; onChanged: () => void }) {
+/** A bill amount as centavo-precise ("₱18,300.26") when the bill actually carries cents, otherwise the plain whole-peso format used everywhere else — avoids showing "₱1,799.00" for every ordinary bill. */
+function billAmountLabel(centavos: number) {
+  return centavos % 100 === 0 ? peso(centavos / 100) : pesoCentavos(centavos);
+}
+
+export function BillsPanel({
+  units, bills, canEdit, canTogglePaid = canEdit, showMetrics = true, collapsible = false, onChanged,
+}: {
+  units: Unit[]; bills: Bill[]; canEdit: boolean; canTogglePaid?: boolean; showMetrics?: boolean; collapsible?: boolean; onChanged: () => void;
+}) {
   const toast = useToast();
   const [receiptFor, setReceiptFor] = useState<Bill | null>(null);
   const [editing, setEditing] = useState<Bill | null>(null);
   const [addingFor, setAddingFor] = useState<Unit | null>(null);
+  const [closedUnits, setClosedUnits] = useState<Set<string>>(new Set());
 
-  const totalDue = bills.reduce((s, b) => s + (b.paid ? 0 : b.amountDue), 0);
-  const totalPaid = bills.reduce((s, b) => s + (b.paid ? b.amountPaid ?? b.amountDue : 0), 0);
+  function toggleUnit(unitId: string) {
+    setClosedUnits((prev) => {
+      const next = new Set(prev);
+      if (next.has(unitId)) next.delete(unitId); else next.add(unitId);
+      return next;
+    });
+  }
+
+  const totalDueCentavos = bills.reduce((s, b) => s + (b.paid ? 0 : billCentavos(b)), 0);
+  const totalPaidCentavos = bills.reduce((s, b) => s + billPaidCentavos(b), 0);
 
   async function togglePaid(bill: Bill) {
-    if (!canEdit) return;
+    if (!canTogglePaid) return;
     if (!bill.paid) {
       setReceiptFor(bill);
       return;
@@ -47,29 +69,46 @@ export function BillsPanel({ units, bills, canEdit, onChanged }: { units: Unit[]
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-[var(--line)] p-3"><div className="text-xl font-extrabold text-green">{peso(totalPaid)}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Paid</div></div>
-        <div className="rounded-xl border border-[var(--line)] p-3"><div className="text-xl font-extrabold text-rausch">{peso(totalDue)}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Unpaid</div></div>
-        <div className="rounded-xl border border-[var(--line)] p-3 col-span-2 sm:col-span-2"><div className="text-xl font-extrabold">{bills.length}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Bills this month</div></div>
-      </div>
+      {showMetrics && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-[var(--line)] p-3"><div className="text-xl font-extrabold text-green">{billAmountLabel(totalPaidCentavos)}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Paid</div></div>
+          <div className="rounded-xl border border-[var(--line)] p-3"><div className="text-xl font-extrabold text-rausch">{billAmountLabel(totalDueCentavos)}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Unpaid</div></div>
+          <div className="rounded-xl border border-[var(--line)] p-3 col-span-2 sm:col-span-2"><div className="text-xl font-extrabold">{bills.length}</div><div className="text-[11px] font-bold uppercase text-[var(--gray)]">Bills this month</div></div>
+        </div>
+      )}
 
-      {units.map((u) => {
-        const unitBills = bills.filter((b) => b.unitId === u.id);
+      {/* Shared/site-wide bills (no single unit — e.g. the shared Internet
+          line) get their own pseudo-group after the real units, so a null
+          unitId never gets silently dropped from the list. */}
+      {[...units.map((u) => ({ id: u.id, chip: `unit ${u.unitNumber}`, label: u.shortName, realUnit: u as Unit | null })), ...(bills.some((b) => !b.unitId) ? [{ id: "__shared__", chip: "shared", label: "All units", realUnit: null as Unit | null }] : [])].map((g) => {
+        const unitBills = bills.filter((b) => (g.realUnit ? b.unitId === g.id : !b.unitId));
         const allPaid = unitBills.length > 0 && unitBills.every((b) => b.paid);
+        const open = !collapsible || !closedUnits.has(g.id);
         return (
-          <div key={u.id} className="card mb-3 overflow-hidden">
+          <div key={g.id} className="card mb-3 overflow-hidden">
             <div className="flex items-center gap-2.5 border-b border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
-              <span className="rounded-md bg-rausch/10 px-2 py-0.5 text-[10px] font-extrabold uppercase text-rausch">unit {u.unitNumber}</span>
-              <span className="flex-1 text-[14px] font-extrabold">{u.shortName}</span>
+              {collapsible ? (
+                <button onClick={() => toggleUnit(g.id)} className="flex flex-1 items-center gap-2.5 text-left">
+                  <span className="rounded-md bg-rausch/10 px-2 py-0.5 text-[10px] font-extrabold uppercase text-rausch">{g.chip}</span>
+                  <span className="flex-1 text-[14px] font-extrabold">{g.label}</span>
+                  <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", open && "rotate-180")} />
+                </button>
+              ) : (
+                <>
+                  <span className="rounded-md bg-rausch/10 px-2 py-0.5 text-[10px] font-extrabold uppercase text-rausch">{g.chip}</span>
+                  <span className="flex-1 text-[14px] font-extrabold">{g.label}</span>
+                </>
+              )}
               {unitBills.length > 0 && (
                 <span className={cn("text-[12px] font-bold", allPaid ? "text-green" : "text-[var(--gray)]")}>{allPaid ? "All settled" : `${unitBills.filter((b) => !b.paid).length} unpaid`}</span>
               )}
-              {canEdit && (
-                <button onClick={() => setAddingFor(u)} className="grid h-7 w-7 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Add a bill">
+              {canEdit && g.realUnit && (
+                <button onClick={() => setAddingFor(g.realUnit)} className="grid h-7 w-7 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Add a bill">
                   <PlusIcon className="h-4 w-4" />
                 </button>
               )}
             </div>
+            {open && (
             <div className="px-4">
               {unitBills.length === 0 && <p className="py-3 text-[13px] text-[var(--gray)]">No bills yet.</p>}
               {unitBills.map((b) => {
@@ -80,8 +119,10 @@ export function BillsPanel({ units, bills, canEdit, onChanged }: { units: Unit[]
                     <div className="min-w-0 flex-1">
                       <div className="text-[13.5px] font-bold">{meta.label}</div>
                       <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--gray)]">
-                        <span className="font-extrabold text-green">{peso(b.amountDue)}</span>
+                        <span className="font-extrabold text-green">{billAmountLabel(billCentavos(b))}</span>
                         {b.dueDay && <span>· Due on the {b.dueDay}{b.dueDay === 1 ? "st" : b.dueDay === 2 ? "nd" : b.dueDay === 3 ? "rd" : "th"}</span>}
+                        {b.recurring && <span>· Recurring monthly</span>}
+                        {b.accountNumber && <span>· Acct {b.accountNumber}</span>}
                         {b.note && <span>· {b.note}</span>}
                       </div>
                     </div>
@@ -91,20 +132,21 @@ export function BillsPanel({ units, bills, canEdit, onChanged }: { units: Unit[]
                     {canEdit && (
                       <div className="flex flex-none gap-0.5">
                         <button onClick={() => setEditing(b)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Edit amount"><EditIcon className="h-4 w-4" /></button>
-                        {b.key === "custom" && (
-                          <button onClick={() => removeBill(b)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove bill"><TrashIcon className="h-4 w-4" /></button>
-                        )}
+                        <button onClick={() => removeBill(b)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove bill"><TrashIcon className="h-4 w-4" /></button>
                       </div>
                     )}
-                    <label className="relative inline-flex h-[26px] w-[46px] flex-none cursor-pointer items-center">
-                      <input type="checkbox" checked={b.paid} onChange={() => togglePaid(b)} disabled={!canEdit} className="peer sr-only" />
-                      <span className="absolute inset-0 rounded-full bg-[var(--line-2)] transition-colors peer-checked:bg-green" />
-                      <span className="absolute left-[3px] h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
-                    </label>
+                    {canTogglePaid && (
+                      <label className="relative inline-flex h-[26px] w-[46px] flex-none cursor-pointer items-center">
+                        <input type="checkbox" checked={b.paid} onChange={() => togglePaid(b)} className="peer sr-only" />
+                        <span className="absolute inset-0 rounded-full bg-[var(--line-2)] transition-colors peer-checked:bg-green" />
+                        <span className="absolute left-[3px] h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                      </label>
+                    )}
                   </div>
                 );
               })}
             </div>
+            )}
           </div>
         );
       })}
@@ -143,6 +185,7 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
   const [label, setLabel] = useState(bill.label ?? meta.label);
   const [amountDue, setAmountDue] = useState(bill.amountDue);
   const [dueDay, setDueDay] = useState<number | null>(bill.dueDay);
+  const [recurring, setRecurring] = useState(bill.recurring);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -151,7 +194,7 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
     if (dueDay !== null && (dueDay < 1 || dueDay > 31)) { toast("Due day must be between 1 and 31", true); return; }
     setSaving(true);
     const body: any = { amountDue, dueDay };
-    if (isCustom) body.label = label;
+    if (isCustom) { body.label = label; body.recurring = recurring; }
     const res = await fetch(`/api/housekeeping/bills/${bill.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -167,7 +210,7 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
       open
       onClose={onClose}
       title={`Edit ${meta.label}`}
-      sub={bill.unit.shortName}
+      sub={bill.unit?.shortName ?? "Shared"}
       maxWidth={380}
       footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={save} disabled={saving} className="btn-primary ml-auto">{saving ? "Saving…" : "Save"}</button></>}
     >
@@ -186,6 +229,12 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
           <label className="field-label">Due day of month (optional)</label>
           <input type="number" min={1} max={31} value={dueDay ?? ""} onChange={(e) => setDueDay(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 15" />
         </div>
+        {isCustom && (
+          <label className="flex items-center gap-2.5 rounded-xl border border-[var(--line)] px-3 py-2.5 text-[13.5px] font-semibold">
+            <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-rausch" />
+            Recurring — automatically add this bill again next month
+          </label>
+        )}
       </div>
     </Modal>
   );
@@ -196,6 +245,7 @@ function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => v
   const [label, setLabel] = useState("");
   const [amountDue, setAmountDue] = useState<number | null>(null);
   const [dueDay, setDueDay] = useState<number | null>(null);
+  const [recurring, setRecurring] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -208,7 +258,7 @@ function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => v
     const res = await fetch("/api/housekeeping/bills", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ unitId: unit.id, label, amountDue, month, dueDay }),
+      body: JSON.stringify({ unitId: unit.id, label, amountDue, month, dueDay, recurring }),
     });
     const j = await res.json().catch(() => ({}));
     setSaving(false);
@@ -238,6 +288,10 @@ function AddBillModal({ unit, onClose, onSaved }: { unit: Unit; onClose: () => v
           <label className="field-label">Due day of month (optional)</label>
           <input type="number" min={1} max={31} value={dueDay ?? ""} onChange={(e) => setDueDay(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 15" />
         </div>
+        <label className="flex items-center gap-2.5 rounded-xl border border-[var(--line)] px-3 py-2.5 text-[13.5px] font-semibold">
+          <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-rausch" />
+          Recurring — automatically add this bill again next month
+        </label>
       </div>
     </Modal>
   );
@@ -279,7 +333,7 @@ function ReceiptModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => v
       open
       onClose={onClose}
       title={`Mark ${meta.label} paid`}
-      sub={bill.unit.shortName}
+      sub={bill.unit?.shortName ?? "Shared"}
       maxWidth={420}
       footer={
         <>

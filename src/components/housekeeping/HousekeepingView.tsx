@@ -4,12 +4,24 @@ import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { ChevronDownIcon } from "@/components/ui/Icons";
+import { fmtDate, fmtTime, fmtTimeStr, unitLabel } from "@/lib/format";
+import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditHousekeeping } from "@/lib/rbac";
+import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
+
+// Business runs in Manila (UTC+8), but this component renders both on the
+// server (Vercel functions run in UTC) and the client (browser's local
+// time). Naive local-getter date comparisons (toDateString, getMonth, etc.)
+// would disagree between the two whenever it's a different calendar day in
+// UTC than in Manila, causing a hydration mismatch on first paint — bucket
+// by the Manila calendar date explicitly instead, everywhere.
+const dayOf = (d: Date) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
 type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked: boolean[][]; startedAt?: string | null; endedAt?: string | null };
@@ -18,9 +30,13 @@ type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
 type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
 type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
+type ScheduleBooking = {
+  id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; guests: string[];
+  unit: Unit; cleaner: { id: string; name: string } | null;
+};
 
 export function HousekeepingView({
-  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, checklistGroups,
+  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, checklistGroups, upcomingBookings = [],
 }: {
   role: string;
   units: Unit[];
@@ -31,6 +47,7 @@ export function HousekeepingView({
   initialShift: Shift;
   initialBills: Bill[];
   checklistGroups: ChecklistGroup[];
+  upcomingBookings?: ScheduleBooking[];
 }) {
   const { data: session } = useSession();
   const toast = useToast();
@@ -39,6 +56,8 @@ export function HousekeepingView({
   const [stocks, setStocks] = useState(initialStocks);
   const [bills, setBills] = useState(initialBills);
   const [shift, setShift] = useState(initialShift);
+  const [showLogs, setShowLogs] = useState(true);
+  const [scheduleTab, setScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   const canEdit = canEditHousekeeping(role as any);
   const userName = session?.user?.name ?? "";
 
@@ -84,21 +103,58 @@ export function HousekeepingView({
 
   const weekAgo = new Date(Date.now() - 7 * 86400000);
   const cleanedThisWeek = logs.filter((l) => new Date(l.startedAt) >= weekAgo).length;
-  const cleanedToday = logs.filter((l) => new Date(l.startedAt).toDateString() === new Date().toDateString()).length;
+  const todayIso = dayOf(new Date());
+  const cleanedToday = logs.filter((l) => dayOf(new Date(l.startedAt)) === todayIso).length;
   const todoCount = units.length - states.filter((s) => s.status === "clean").length;
   const cleaningCount = states.filter((s) => s.status === "cleaning").length;
 
   const weekChart = useMemo(() => {
+    // UTC-midnight representing "today" in Manila terms, then step backward
+    // in UTC days — deterministic regardless of the runtime's own timezone,
+    // unlike local getters (new Date().setDate(...)) which would disagree
+    // between a UTC server and a Manila client.
+    const todayManila = new Date(`${dayOf(new Date())}T00:00:00Z`);
     const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(); d.setDate(d.getDate() - (6 - i));
+      const d = new Date(todayManila);
+      d.setUTCDate(d.getUTCDate() - (6 - i));
       return d;
     });
     return days.map((d) => ({
-      label: d.toLocaleDateString("en-PH", { weekday: "short" }),
-      count: logs.filter((l) => new Date(l.startedAt).toDateString() === d.toDateString()).length,
+      label: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d),
+      count: logs.filter((l) => dayOf(new Date(l.startedAt)) === dayOf(d)).length,
     }));
   }, [logs]);
   const maxCount = Math.max(1, ...weekChart.map((d) => d.count));
+
+  const HK_STATUS_LABEL: Record<string, string> = { todo: "Pending", cleaning: "In progress", clean: "Completed" };
+  const HK_STATUS_COLOR: Record<string, string> = { todo: "var(--gray)", cleaning: "var(--amber)", clean: "var(--green)" };
+  function statusForUnit(unitId: string) {
+    return states.find((s) => s.unitId === unitId)?.status ?? "todo";
+  }
+
+  // A room needs cleaning the moment a guest checks out — so the schedule is
+  // driven by each booking's checkout day (checkOutDate for Night/Full,
+  // same-day for Daycation), not by check-in, bucketed into Today / Tomorrow
+  // / This week the same Manila-safe way every other date grouping on this
+  // page already works.
+  const schedule = useMemo(() => {
+    const withCheckout = upcomingBookings.map((b) => ({ ...b, checkoutIso: (b.checkOutDate ?? b.date).slice(0, 10) }));
+    const todayI = dayOf(new Date());
+    const tomorrowD = new Date(`${todayI}T00:00:00Z`); tomorrowD.setUTCDate(tomorrowD.getUTCDate() + 1);
+    const tomorrowI = dayOf(tomorrowD);
+    const weekEndD = new Date(`${todayI}T00:00:00Z`); weekEndD.setUTCDate(weekEndD.getUTCDate() + 6);
+    const weekEndI = dayOf(weekEndD);
+
+    const byTime = (a: (typeof withCheckout)[number], b: (typeof withCheckout)[number]) =>
+      a.checkoutIso.localeCompare(b.checkoutIso) || (a.checkOutTime ?? "99:99").localeCompare(b.checkOutTime ?? "99:99");
+
+    return {
+      today: withCheckout.filter((b) => b.checkoutIso === todayI).sort(byTime),
+      tomorrow: withCheckout.filter((b) => b.checkoutIso === tomorrowI).sort(byTime),
+      week: withCheckout.filter((b) => b.checkoutIso >= todayI && b.checkoutIso <= weekEndI).sort(byTime),
+    };
+  }, [upcomingBookings]);
+  const scheduleList = schedule[scheduleTab];
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
@@ -137,15 +193,77 @@ export function HousekeepingView({
           ))}
         </div>
         <div className="mt-5 border-t border-[var(--line)] pt-3">
-          <h3 className="mb-2 text-[13px] font-extrabold">Recent cleaning log</h3>
-          {logs.slice(0, 8).map((l) => (
-            <div key={l.id} className="flex items-center justify-between border-t border-[var(--line)] py-2.5 text-[13px] first:border-0">
-              <span className="font-bold">{l.unit.shortName}</span>
-              <span className="text-[var(--gray)]">{fmtDate(l.startedAt)} · {fmtTime(l.startedAt)}{l.endedAt ? `–${fmtTime(l.endedAt)}` : ""}</span>
-            </div>
-          ))}
-          {logs.length === 0 && <p className="text-sm text-[var(--gray)]">No cleaning logged yet.</p>}
+          <button onClick={() => setShowLogs((v) => !v)} className="flex w-full items-center gap-2.5 text-left">
+            <h3 className="text-[13px] font-extrabold">Recent cleaning log</h3>
+            <span className="ml-auto text-[12px] font-semibold text-[var(--gray)]">{logs.length}</span>
+            <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", showLogs && "rotate-180")} />
+          </button>
+          {showLogs && (
+            <>
+              {logs.slice(0, 8).map((l) => (
+                <div key={l.id} className="flex items-center justify-between border-t border-[var(--line)] py-2.5 text-[13px] first:border-0">
+                  <span className="font-bold">{l.unit.shortName}</span>
+                  <span className="text-[var(--gray)]">{fmtDate(l.startedAt)} · {fmtTime(l.startedAt)}{l.endedAt ? `–${fmtTime(l.endedAt)}` : ""}</span>
+                </div>
+              ))}
+              {logs.length === 0 && <p className="text-sm text-[var(--gray)]">No cleaning logged yet.</p>}
+            </>
+          )}
         </div>
+      </Accordion>
+
+      <Accordion title="Cleaning schedule" sub="by guest checkout">
+        <div className="mb-4 inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
+          {([["today", `Today (${schedule.today.length})`], ["tomorrow", `Tomorrow (${schedule.tomorrow.length})`], ["week", `This week (${schedule.week.length})`]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setScheduleTab(key)}
+              className={cn("rounded-full px-3.5 py-1.5 text-[13px] font-bold transition", scheduleTab === key ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {scheduleList.length === 0 ? (
+          <p className="text-[13px] text-[var(--gray)]">No checkouts {scheduleTab === "today" ? "today" : scheduleTab === "tomorrow" ? "tomorrow" : "this week"}.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {scheduleList.map((b) => {
+              const status = statusForUnit(b.unitId);
+              const stayMeta = STAY_TYPES[b.stayType as keyof typeof STAY_TYPES];
+              return (
+                <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--line)] p-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">unit {b.unit.unitNumber}</span>
+                      <span className="truncate text-[13.5px] font-extrabold">{b.unit.shortName}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-[12.5px] text-[var(--gray)]">{b.guests?.[0] ?? "Guest"} · {stayMeta?.label ?? b.stayType}</div>
+                  </div>
+                  <div className="flex-none text-right">
+                    <div className="text-[11px] font-bold text-[var(--gray)]">Checkout</div>
+                    <div className="text-[13px] font-extrabold">
+                      {scheduleTab === "week" ? fmtDate(b.checkoutIso, { month: "short", day: "numeric", timeZone: "UTC" }) : ""}
+                      {scheduleTab === "week" && b.checkOutTime ? " · " : ""}
+                      {b.checkOutTime ? fmtTimeStr(b.checkOutTime) : (scheduleTab !== "week" ? "—" : "")}
+                    </div>
+                  </div>
+                  <div className="flex-none text-right">
+                    <div className="text-[11px] font-bold text-[var(--gray)]">Housekeeper</div>
+                    <div className="text-[13px] font-extrabold">{b.cleaner?.name ?? "Unassigned"}</div>
+                  </div>
+                  <span
+                    className="flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                    style={{ background: `${HK_STATUS_COLOR[status]}1A`, color: HK_STATUS_COLOR[status] }}
+                  >
+                    {HK_STATUS_LABEL[status]}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Accordion>
 
       <Accordion title="Rooms" sub="tap a checklist item to tick it">
@@ -169,7 +287,7 @@ export function HousekeepingView({
       </Accordion>
 
       <Accordion title="💳 Bills tracker" sub="association dues, utilities & subscriptions">
-        <BillsPanel units={units} bills={bills} canEdit={canEdit} onChanged={refreshBills} />
+        <BillsPanel units={units} bills={bills} canEdit={false} canTogglePaid={canEdit} onChanged={refreshBills} />
       </Accordion>
     </div>
   );

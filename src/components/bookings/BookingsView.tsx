@@ -1,17 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { TeamIcon, EditIcon, TrashIcon, SearchIcon } from "@/components/ui/Icons";
+import { Pagination } from "@/components/ui/Pagination";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
+import { PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditBookings, isReadOnlyFinancials } from "@/lib/rbac";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
-import { TeamModal } from "./TeamModal";
+import { BookingImportModal } from "./BookingImportModal";
+import { AvailabilityChat } from "./AvailabilityChat";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate: number; owners?: { user: { name: string } }[] };
@@ -22,6 +25,7 @@ type Booking = {
   platform: string; platformOther: string | null;
   dpAmount: number | null; dpReceivedById: string | null; dpReceivedBy: Employee | null; dpMethod: string | null; dpProofUrl: string | null;
   amount: number; receivedById: string | null; receivedBy: Employee | null; method: string | null; proofUrl: string | null; paid: boolean;
+  source?: string; conflict?: boolean;
 };
 
 // Business runs in Manila (UTC+8). Using toISOString() (UTC) to bucket days
@@ -44,12 +48,24 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
-  const [teamOpen, setTeamOpen] = useState(false);
   const [editing, setEditing] = useState<Booking | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<"today" | "3days" | "week" | "month">("week");
+  const [importOpen, setImportOpen] = useState(false);
+  const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
+  const [logAccordionKey, setLogAccordionKey] = useState(0);
+
+  // Availability chat's "Log this booking" hands off unitId/date/stayType
+  // here — bumping the key forces the (uncontrolled) Accordion to remount
+  // open even if it was already open from a previous suggestion, and the
+  // BookingForm re-syncs from `initial` via its own effect either way.
+  function handlePrefillBooking(v: { unitId: string; date: string; stayType: string }) {
+    setBookingPrefill(v as Partial<BookingFormValue>);
+    setLogAccordionKey((k) => k + 1);
+    requestAnimationFrame(() => document.getElementById("log-new-booking-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   const canEdit = canEditBookings(role as any);
   const readOnly = isReadOnlyFinancials(role as any);
@@ -101,7 +117,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     const collected = bookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount ?? 0), 0);
     const unpaidList = bookings.filter((b) => !b.paid);
     const unpaid = unpaidList.reduce((s, b) => s + b.amount, 0);
-    const thisMonth = bookings.filter((b) => new Date(b.date).getMonth() === new Date().getMonth()).length;
+    const thisMonthIso = dayOf(new Date()).slice(0, 7);
+    const thisMonth = bookings.filter((b) => b.date.slice(0, 7) === thisMonthIso).length;
     return { total, thisMonth, collected, unpaid, unpaidCount: unpaidList.length };
   }, [bookings]);
 
@@ -121,28 +138,32 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   }, [bookings]);
 
   const dateRange = useMemo(() => {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    // UTC-midnight representing "today" in Manila terms (matching how
+    // Booking.date is stored) — deterministic regardless of the runtime's
+    // own timezone, unlike new Date().setHours(0,0,0,0), which would give a
+    // different instant on a UTC server than on a Manila-timezone client
+    // and break hydration.
+    const startOfToday = new Date(`${dayOf(new Date())}T00:00:00Z`);
     if (dateFilter === "today") {
       const end = new Date(startOfToday);
-      end.setDate(end.getDate() + 1);
+      end.setUTCDate(end.getUTCDate() + 1);
       return { start: startOfToday, end };
     }
     if (dateFilter === "3days") {
       const end = new Date(startOfToday);
-      end.setDate(end.getDate() + 3);
+      end.setUTCDate(end.getUTCDate() + 3);
       return { start: startOfToday, end };
     }
     if (dateFilter === "month") {
-      const start = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
-      const end = new Date(startOfToday.getFullYear(), startOfToday.getMonth() + 1, 1);
+      const start = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth(), 1));
+      const end = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth() + 1, 1));
       return { start, end };
     }
     // week: Sunday through Saturday of the current week
     const start = new Date(startOfToday);
-    start.setDate(start.getDate() - start.getDay());
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
     const end = new Date(start);
-    end.setDate(end.getDate() + 7);
+    end.setUTCDate(end.getUTCDate() + 7);
     return { start, end };
   }, [dateFilter]);
 
@@ -190,6 +211,12 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered]);
 
+  const AGENDA_PAGE_SIZE = 10;
+  const [agendaPage, setAgendaPage] = useState(1);
+  useEffect(() => setAgendaPage(1), [search, statusFilter, platformFilter, dateFilter]);
+  const agendaPageCount = Math.max(1, Math.ceil(agenda.length / AGENDA_PAGE_SIZE));
+  const pagedAgenda = agenda.slice((agendaPage - 1) * AGENDA_PAGE_SIZE, agendaPage * AGENDA_PAGE_SIZE);
+
   // Today's snapshot for every unit this user can see, independent of the
   // date-range filter above — always reflects the actual current day.
   const dailyReport = useMemo(() => {
@@ -229,18 +256,13 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           <h1 className="text-[28px] font-extrabold tracking-tight sm:text-[32px]">Bookings</h1>
           <p className="mt-1 text-[15px] text-[var(--gray)]">Log reservations, track who collected the money, and flag unpaid check-ins.</p>
         </div>
-        {canEdit && (
-          <button onClick={() => setTeamOpen(true)} className="btn">
-            <TeamIcon className="h-4 w-4" /> Manage team
-          </button>
-        )}
       </div>
 
       <div className="card mb-5 p-5">
         <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[16px] font-extrabold tracking-tight">Today&rsquo;s occupancy</h2>
           <p className="text-[13px] font-semibold text-[var(--gray)]">
-            {fmtDate(new Date(), { month: "long", day: "numeric" })} · {dailyReport.filter((r) => r.occupied).length} of {units.length} units occupied
+            {fmtDate(new Date(), { month: "long", day: "numeric", timeZone: "Asia/Manila" })} · {dailyReport.filter((r) => r.occupied).length} of {units.length} units occupied
           </p>
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -298,9 +320,24 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       </Accordion>
 
       {canEdit && (
-        <Accordion title="Log new booking" sub="tap to expand" defaultOpen={false}>
-          <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} />
-        </Accordion>
+        <>
+          <Accordion title="Check availability" sub="chat-style — ask before you log a booking">
+            <AvailabilityChat units={units} onPrefillBooking={handlePrefillBooking} />
+          </Accordion>
+          <div className="mb-3 flex justify-end">
+            <button onClick={() => setImportOpen(true)} className="btn btn-sm">
+              <UploadIcon className="h-3.5 w-3.5" /> Import bookings
+            </button>
+          </div>
+          <Accordion key={logAccordionKey} title="Log new booking" sub="tap to expand" defaultOpen={!!bookingPrefill}>
+            <div id="log-new-booking-anchor" />
+            <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} initial={bookingPrefill ?? undefined} />
+          </Accordion>
+        </>
+      )}
+
+      {importOpen && (
+        <BookingImportModal onClose={() => setImportOpen(false)} onImported={refresh} />
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
@@ -321,7 +358,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         </select>
         <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All platforms</option>
-          <option>Airbnb</option><option>Facebook</option><option>TikTok</option><option>Other</option>
+          {PLATFORMS.map((p) => <option key={p} value={p}>{PLATFORM_LABEL[p] ?? p}</option>)}
         </select>
       </div>
 
@@ -336,11 +373,11 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.reduce((s, b) => s + b.amount, 0))} total</span>
           </div>
           <div className="space-y-5">
-            {agenda.map(([iso, { checkins, checkouts, occupied }]) => (
+            {pagedAgenda.map(([iso, { checkins, checkouts, occupied }]) => (
               <div key={iso}>
                 <h3 className="mb-2 text-[13.5px] font-extrabold tracking-tight">
                   {fmtDate(iso, { month: "long", day: "numeric" })}
-                  <span className="ml-2 text-[12px] font-semibold text-[var(--gray)]">{new Date(iso).toLocaleDateString("en-PH", { weekday: "long" })}</span>
+                  <span className="ml-2 text-[12px] font-semibold text-[var(--gray)]">{new Date(iso).toLocaleDateString("en-PH", { weekday: "long", timeZone: "UTC" })}</span>
                 </h3>
                 <div className="card divide-y divide-[var(--line)] overflow-hidden">
                   {checkouts.length > 0 && (
@@ -377,10 +414,9 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
               </div>
             ))}
           </div>
+          <Pagination page={agendaPage} pageCount={agendaPageCount} onPageChange={setAgendaPage} totalLabel={`${agenda.length} day${agenda.length !== 1 ? "s" : ""} with activity`} />
         </>
       )}
-
-      <TeamModal open={teamOpen} onClose={() => setTeamOpen(false)} employees={emps} onChanged={refresh} />
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit booking" maxWidth={640}>
         {editing && (
@@ -389,6 +425,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             employees={emps}
             submitLabel="Save changes"
             initial={fromBooking(editing)}
+            bookingId={editing.id}
             onCancel={() => setEditing(null)}
             onSubmit={(v) => updateBooking(editing.id, v)}
           />
@@ -424,6 +461,8 @@ function BookingLine({
       </div>
 
       <div className="flex flex-none flex-col items-end gap-1.5">
+        {b.conflict && <Tag variant="unpaid">⚠️ Conflict</Tag>}
+        {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
         {b.paid ? <Tag variant="paid">Paid</Tag> : <Tag variant="unpaid">Unpaid</Tag>}
         <div className="text-right text-[12.5px] font-bold">
           <span className="text-[var(--gray)]">Balance </span>

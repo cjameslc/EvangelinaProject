@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/ui/StatCard";
 import { ArrowLeftIcon, ArrowRightIcon, EditIcon, TrashIcon, ChevronDownIcon } from "@/components/ui/Icons";
-import { peso, fmtDate, initials } from "@/lib/format";
-import { PLATFORMS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, ROLE_LABEL } from "@/lib/constants";
+import { peso, fmtDate, initials, manilaWeekRange } from "@/lib/format";
+import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, ROLE_LABEL } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
+import { computeTeamBreakdown, isPayrollRole, type PayrollRates } from "@/lib/payroll";
 
 type Person = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
@@ -29,15 +30,6 @@ const METHOD_COLOR: Record<string, string> = { Cash: "var(--ink)", GCash: "var(-
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
-function weekRange(offset: number) {
-  const todayIso = dayOf(new Date());
-  const start = new Date(todayIso);
-  start.setDate(start.getDate() - start.getDay() + offset * 7);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 7);
-  return { start, end };
-}
-
 function guestCount(b: Booking) {
   return b.pax ?? b.guests.length ?? 0;
 }
@@ -52,7 +44,7 @@ function methodBreakdown(bookings: Booking[]) {
 }
 
 export function WeeklyReport({
-  bookings, units, employees, initialExpenses, canEditExpenses, cleaningLogs,
+  bookings, units, employees, initialExpenses, canEditExpenses, cleaningLogs, payrollRates,
 }: {
   bookings: Booking[];
   units: Unit[];
@@ -60,10 +52,11 @@ export function WeeklyReport({
   initialExpenses: Expense[];
   canEditExpenses: boolean;
   cleaningLogs: CleaningLogRow[];
+  payrollRates: PayrollRates;
 }) {
   const [offset, setOffset] = useState(0);
   const [expenses, setExpenses] = useState(initialExpenses);
-  const { start, end } = useMemo(() => weekRange(offset), [offset]);
+  const { start, end } = useMemo(() => manilaWeekRange(offset), [offset]);
   const weekLabel = `${fmtDate(start, { month: "long", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })} to ${fmtDate(new Date(end.getTime() - 86400000), { month: "long", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}`;
 
   const weekBookings = useMemo(() => {
@@ -139,44 +132,29 @@ export function WeeklyReport({
     return map;
   }, [cleaningLogs, start, end]);
 
-  type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
-  function teamBreakdown(emp: Employee): { total: number; items: TeamLineItem[]; subtitle: string } {
-    const items: TeamLineItem[] = [];
-    let subtitle = "";
-    if (emp.role === "HOUSEKEEPING") {
-      const days = cleaningDaysByEmployee.get(emp.id)?.size ?? 0;
-      const regularPay = days * 700;
-      if (days > 0) items.push({ label: "Regular pay", detail: `₱700/day × ${days} day${days !== 1 ? "s" : ""}`, amount: regularPay });
-      const nightCleans = weekBookings.filter((b) => b.cleaner?.id === emp.id && b.stayType === "Night").length;
-      const bonus = nightCleans * 300;
-      if (nightCleans > 0) items.push({ label: "Night-clean bonus", detail: `₱300 × ${nightCleans} unit${nightCleans !== 1 ? "s" : ""}`, amount: bonus });
-      subtitle = "₱700/day + ₱300 per night clean";
-    } else if (emp.role === "BOOKER") {
-      const bookingsLogged = weekBookings.filter((b) => b.booker?.id === emp.id).length;
-      const commission = bookingsLogged * 100;
-      if (bookingsLogged > 0) items.push({ label: "Booking commission", detail: `₱100 × ${bookingsLogged} booking${bookingsLogged !== 1 ? "s" : ""}`, amount: commission });
-      subtitle = "₱100/booking + weekly salary + boost fees";
-    }
-
-    // Manual weekly expenses charged to this employee: the flat recurring
-    // "Salary" adds to what they're owed; everything else logged against
-    // them (ad boosts, etc.) is deducted from it.
-    const empExpenses = weekExpenses.filter((e) => e.targetEmployee?.id === emp.id);
-    const salary = empExpenses.filter((e) => e.note === "Salary").reduce((s, e) => s + e.amount, 0);
-    if (salary > 0) items.push({ label: "Weekly salary", detail: "flat rate", amount: salary });
-    empExpenses.filter((e) => e.note !== "Salary").forEach((e) => items.push({ label: e.note, detail: "deducted this week", amount: e.amount, deduction: true }));
-
-    const total = items.reduce((s, i) => s + (i.deduction ? -i.amount : i.amount), 0);
-    return { total, items, subtitle };
-  }
+  const normalizedWeekBookings = useMemo(
+    () => weekBookings.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, stayType: b.stayType })),
+    [weekBookings]
+  );
+  const normalizedWeekExpenses = useMemo(
+    () => weekExpenses.map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: e.targetEmployee?.id ?? null })),
+    [weekExpenses]
+  );
 
   const teamCalcs = useMemo(
     () =>
       employees
-        .filter((e) => e.role === "HOUSEKEEPING" || e.role === "BOOKER")
-        .map((e) => ({ employee: e, ...teamBreakdown(e) })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, weekBookings, weekExpenses, cleaningDaysByEmployee]
+        .filter((e) => isPayrollRole(e.role))
+        .map((e) => ({
+          employee: e,
+          ...computeTeamBreakdown(e, {
+            cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
+            weekBookings: normalizedWeekBookings,
+            weekExpenses: normalizedWeekExpenses,
+            rates: payrollRates,
+          }),
+        })),
+    [employees, normalizedWeekBookings, normalizedWeekExpenses, cleaningDaysByEmployee, payrollRates]
   );
   const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total, 0);
 
@@ -222,7 +200,7 @@ export function WeeklyReport({
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {byPlatform.map((p) => (
             <div key={p.platform} className="rounded-xl border border-[var(--line)] p-3.5">
-              <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{p.platform}</div>
+              <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{PLATFORM_LABEL[p.platform] ?? p.platform}</div>
               <div className="mt-0.5 text-[22px] font-extrabold leading-tight">{p.bookings}</div>
               <div className="mt-2 space-y-0.5 text-[11.5px] font-semibold">
                 {PAYMENT_METHODS.map((m) => (

@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+/** Airbnb has no day-use product — every Airbnb booking is a full 21-hour stay, never a Daycation or Night stay. Enforced here (server) and mirrored client-side in BookingForm's stay-type picker. */
+export function normalizeStayTypeForPlatform<T extends string>(platform: string, stayType: T): T | "Full" {
+  return platform === "Airbnb" ? "Full" : stayType;
+}
+
 export const bookingSchema = z.object({
   unitId: z.string().min(1),
   date: z.string().min(1),
@@ -12,7 +17,7 @@ export const bookingSchema = z.object({
   contactNumber: z.string().min(7),
   bookerId: z.string().nullable().optional(),
   cleanerId: z.string().nullable().optional(),
-  platform: z.enum(["Airbnb", "Facebook", "TikTok", "Other"]),
+  platform: z.enum(["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"]),
   platformOther: z.string().nullable().optional(),
   dpAmount: z.number().int().nonnegative().nullable().optional(),
   dpReceivedById: z.string().nullable().optional(),
@@ -32,14 +37,22 @@ export const unitSchema = z.object({
   location: z.string().optional(),
   nightlyRate: z.number().int().positive(),
   photoUrl: z.string().nullable().optional(),
+  rating: z.number().min(0).max(5).optional(),
   active: z.boolean().optional(),
   ownerUserIds: z.array(z.string()).optional(),
+  icalImportUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
 });
 
 export const employeeSchema = z.object({
   name: z.string().min(1),
   role: z.enum(["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"]),
   payRateNote: z.string().nullable().optional(),
+  // 0 = not yet set (the Prisma default for staff added before this field
+  // existed) — the UI requires a positive value for brand-new hires, but the
+  // API itself must accept 0 so saving one row doesn't fail on another.
+  monthlySalary: z.number().int().nonnegative().optional(),
+  salaryType: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).optional(),
+  salaryRate: z.number().int().nonnegative().optional(),
 });
 
 export const weeklyExpenseSchema = z.object({
@@ -60,15 +73,16 @@ export const calendarBlockSchema = z.object({
 
 export const profileSchema = z.object({
   name: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  email: z.union([z.string().email(), z.literal("")]).optional(),
   avatarColor: z.string().optional(),
+  avatarUrl: z.string().nullable().optional(),
   currentPassword: z.string().optional(),
   newPassword: z.string().min(6).optional(),
 });
 
 export const userSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  username: z.string().min(3).max(32).regex(/^[a-z0-9._]+$/, "Lowercase letters, numbers, dots and underscores only"),
   password: z.string().min(6).optional(),
   role: z.enum(["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"]),
   ownedUnitIds: z.array(z.string()).optional(),
@@ -83,6 +97,7 @@ export const billUpdateSchema = z.object({
   note: z.string().nullable().optional(),
   receiptUrl: z.string().nullable().optional(),
   dueDay: z.number().int().min(1).max(31).nullable().optional(),
+  recurring: z.boolean().optional(),
 });
 
 export const billCreateSchema = z.object({
@@ -91,6 +106,7 @@ export const billCreateSchema = z.object({
   amountDue: z.number().int().nonnegative(),
   month: z.string().min(1),
   dueDay: z.number().int().min(1).max(31).nullable().optional(),
+  recurring: z.boolean().optional(),
 });
 
 export const checklistGroupSchema = z.object({
@@ -105,6 +121,10 @@ export const settingsSchema = z.object({
   nightlyRate: z.number().int().positive(),
   dpFee: z.number().int().nonnegative(),
   checklistGroups: z.array(checklistGroupSchema).min(1).optional(),
+  housekeepingDayRate: z.number().int().nonnegative().optional(),
+  housekeepingNightBonus: z.number().int().nonnegative().optional(),
+  bookerCommission: z.number().int().nonnegative().optional(),
+  auditorWeeklyRate: z.number().int().nonnegative().optional(),
 });
 
 export const auditFindingCreateSchema = z.object({
