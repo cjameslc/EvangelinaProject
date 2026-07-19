@@ -134,12 +134,12 @@ export function AvailabilityChat({ units, onPrefillBooking }: { units: Unit[]; o
 
       <div className="border-t border-[var(--line)] bg-[var(--card)] p-3.5">
         {step === "date" && (
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:min-w-0 sm:flex-1">
               <CalendarIcon className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--gray)]" />
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field-input w-full py-2 pl-8 text-[13px]" />
             </div>
-            <button onClick={submitDate} className="btn-primary btn-sm flex-none">Next</button>
+            <button onClick={submitDate} className="btn-primary btn-sm w-full sm:w-auto sm:flex-none">Next</button>
           </div>
         )}
 
