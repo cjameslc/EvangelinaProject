@@ -246,7 +246,7 @@ export function HousekeepingView({
           ))}
         </div>
         <div className="mt-5 border-t border-[var(--line)] pt-3">
-          <button onClick={() => setShowLogs((v) => !v)} className="flex w-full items-center gap-2.5 text-left">
+          <button onClick={() => setShowLogs((v) => !v)} className="flex w-full items-center gap-2.5 py-2 text-left">
             <h3 className="text-[13px] font-extrabold">Recent cleaning log</h3>
             <span className="ml-auto text-[12px] font-semibold text-[var(--gray)]">{logs.length}</span>
             <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", showLogs && "rotate-180")} />
@@ -286,32 +286,38 @@ export function HousekeepingView({
               const status = statusForBooking(b);
               const stayMeta = STAY_TYPES[b.stayType as keyof typeof STAY_TYPES];
               return (
-                <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--line)] p-3.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-md bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">unit {b.unit.unitNumber}</span>
-                      <span className="truncate text-[13.5px] font-extrabold">{b.unit.shortName}</span>
+                <div key={b.id} className="rounded-2xl border border-[var(--line)] p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="flex-none rounded-md bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">unit {b.unit.unitNumber}</span>
+                    <span className="truncate text-[13.5px] font-extrabold">{b.unit.shortName}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[12.5px] text-[var(--gray)]">{b.guests?.[0] ?? "Guest"} · {stayMeta?.label ?? b.stayType}</div>
+
+                  {/* A full-width row above frees Checkout/Housekeeper/Status
+                      to wrap on their own line instead of squeezing the unit
+                      name and guest into an unreadably narrow sliver on
+                      small screens (min-w-0 + flex-1 shrinks instead of
+                      wrapping when there isn't room for everything). */}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div>
+                      <div className="text-[11px] font-bold text-[var(--gray)]">Checkout</div>
+                      <div className="text-[13px] font-extrabold">
+                        {scheduleTab === "week" ? fmtDate(b.checkoutIso, { month: "short", day: "numeric", timeZone: "UTC" }) : ""}
+                        {scheduleTab === "week" && b.checkOutTime ? " · " : ""}
+                        {b.checkOutTime ? fmtTimeStr(b.checkOutTime) : (scheduleTab !== "week" ? "—" : "")}
+                      </div>
                     </div>
-                    <div className="mt-0.5 truncate text-[12.5px] text-[var(--gray)]">{b.guests?.[0] ?? "Guest"} · {stayMeta?.label ?? b.stayType}</div>
-                  </div>
-                  <div className="flex-none text-right">
-                    <div className="text-[11px] font-bold text-[var(--gray)]">Checkout</div>
-                    <div className="text-[13px] font-extrabold">
-                      {scheduleTab === "week" ? fmtDate(b.checkoutIso, { month: "short", day: "numeric", timeZone: "UTC" }) : ""}
-                      {scheduleTab === "week" && b.checkOutTime ? " · " : ""}
-                      {b.checkOutTime ? fmtTimeStr(b.checkOutTime) : (scheduleTab !== "week" ? "—" : "")}
+                    <div>
+                      <div className="text-[11px] font-bold text-[var(--gray)]">Housekeeper</div>
+                      <div className="text-[13px] font-extrabold">{b.cleaner?.name ?? "Unassigned"}</div>
                     </div>
+                    <span
+                      className="ml-auto flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                      style={{ background: `${HK_STATUS_COLOR[status]}1A`, color: HK_STATUS_COLOR[status] }}
+                    >
+                      {HK_STATUS_LABEL[status]}
+                    </span>
                   </div>
-                  <div className="flex-none text-right">
-                    <div className="text-[11px] font-bold text-[var(--gray)]">Housekeeper</div>
-                    <div className="text-[13px] font-extrabold">{b.cleaner?.name ?? "Unassigned"}</div>
-                  </div>
-                  <span
-                    className="flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold"
-                    style={{ background: `${HK_STATUS_COLOR[status]}1A`, color: HK_STATUS_COLOR[status] }}
-                  >
-                    {HK_STATUS_LABEL[status]}
-                  </span>
                 </div>
               );
             })}
