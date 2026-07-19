@@ -76,7 +76,14 @@ export async function syncUnitFromAirbnb(unitId: string): Promise<IcalSyncResult
     return { ok: false, ...empty, error: msg };
   }
 
-  const activeEvents = events.filter((e) => !e.cancelled && e.uid);
+  // Airbnb's own export has no concept of stay "types" — every real
+  // reservation in the feed carries SUMMARY:Reservation. Anything else
+  // (e.g. "Airbnb (Not available)" for a host block, or another calendar's
+  // synced-in unavailable dates) is a blocked date, not a guest booking, and
+  // must never be imported as one — it has no guest, no revenue, and would
+  // otherwise inflate paid income and clutter the Bookings list with fake
+  // reservations.
+  const activeEvents = events.filter((e) => !e.cancelled && e.uid && e.summary.trim().toLowerCase() === "reservation");
   const feedUids = new Set(activeEvents.map((e) => e.uid));
 
   const [existingImported, others] = await Promise.all([
