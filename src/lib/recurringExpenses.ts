@@ -24,10 +24,10 @@ function daysInMonth(year: number, month0: number): number {
   return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
 }
 
-/** Resolves a template's due day to a concrete day-of-month for a specific month — a fixed dueDay is used as-is; "LAST_WEEK" lands within the last 7 days of whatever that month's length actually is. */
+/** Resolves a template's due day to a concrete day-of-month for a specific month — a fixed dueDay is used as-is; "LAST_WEEK" resolves to the month's final day, i.e. the end of that last-7-day window (not the start), so a Dashboard's exact-date `dueDate < today` overdue check doesn't fire prematurely on days still inside the window. */
 export function resolveDueDay(template: { dueDay: number | null; dueRule: string | null }, year: number, month0: number): number | null {
   if (template.dueDay != null) return template.dueDay;
-  if (template.dueRule === "LAST_WEEK") return daysInMonth(year, month0) - 6;
+  if (template.dueRule === "LAST_WEEK") return daysInMonth(year, month0);
   return null;
 }
 
