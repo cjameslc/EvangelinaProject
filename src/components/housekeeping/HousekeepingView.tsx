@@ -105,8 +105,6 @@ export function HousekeepingView({
   const cleanedThisWeek = logs.filter((l) => new Date(l.startedAt) >= weekAgo).length;
   const todayIso = dayOf(new Date());
   const cleanedToday = logs.filter((l) => dayOf(new Date(l.startedAt)) === todayIso).length;
-  const todoCount = units.length - states.filter((s) => s.status === "clean").length;
-  const cleaningCount = states.filter((s) => s.status === "cleaning").length;
 
   const weekChart = useMemo(() => {
     // UTC-midnight representing "today" in Manila terms, then step backward
@@ -128,9 +126,6 @@ export function HousekeepingView({
 
   const HK_STATUS_LABEL: Record<string, string> = { todo: "Pending", cleaning: "In progress", clean: "Completed" };
   const HK_STATUS_COLOR: Record<string, string> = { todo: "var(--gray)", cleaning: "var(--amber)", clean: "var(--green)" };
-  function statusForUnit(unitId: string) {
-    return states.find((s) => s.unitId === unitId)?.status ?? "todo";
-  }
 
   // A room needs cleaning the moment a guest checks out — so the schedule is
   // driven by each booking's checkout day (checkOutDate for Night/Full,
@@ -155,6 +150,18 @@ export function HousekeepingView({
     };
   }, [upcomingBookings]);
   const scheduleList = schedule[scheduleTab];
+
+  // A room defaults to Clean/ready — it only becomes "to clean" once a guest
+  // has actually checked out of it today. Without that, a raw "todo" status
+  // (e.g. a freshly-added unit that's never had a stored state) would
+  // otherwise misrepresent an untouched room as needing work.
+  const scheduledTodayUnitIds = useMemo(() => new Set(schedule.today.map((b) => b.unitId)), [schedule]);
+  function statusForUnit(unitId: string) {
+    const raw = states.find((s) => s.unitId === unitId)?.status ?? "todo";
+    return raw === "todo" && !scheduledTodayUnitIds.has(unitId) ? "clean" : raw;
+  }
+  const todoCount = units.filter((u) => statusForUnit(u.id) === "todo").length;
+  const cleaningCount = units.filter((u) => statusForUnit(u.id) === "cleaning").length;
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
@@ -277,6 +284,7 @@ export function HousekeepingView({
               currentUserName={userName}
               onChange={updateUnit}
               checklistGroups={checklistGroups}
+              hasSchedule={scheduledTodayUnitIds.has(u.id)}
             />
           ))}
         </div>

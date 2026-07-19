@@ -10,7 +10,7 @@ type HkState = { id?: string; unitId: string; status: string; byName: string | n
 type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
 
 export function RoomCard({
-  unit, state, canEdit, currentUserName, onChange, checklistGroups,
+  unit, state, canEdit, currentUserName, onChange, checklistGroups, hasSchedule,
 }: {
   unit: Unit;
   state: HkState | undefined;
@@ -18,10 +18,16 @@ export function RoomCard({
   currentUserName: string;
   onChange: (unitId: string, patch: any) => Promise<void>;
   checklistGroups: ChecklistGroup[];
+  /** Whether a guest is actually checking out of this unit today — with nothing scheduled, there's nothing to clean yet. */
+  hasSchedule: boolean;
 }) {
   const [openGroup, setOpenGroup] = useState<number | null>(0);
   const checked: boolean[][] = state?.checked?.length ? state.checked : checklistGroups.map((g) => g.items.map(() => false));
-  const status = state?.status ?? "todo";
+  const rawStatus = state?.status ?? "todo";
+  // Untouched + nothing scheduled today defaults to Clean, not To clean —
+  // a room only actually needs cleaning once a guest has checked out of it.
+  const isDefaultClean = rawStatus === "todo" && !hasSchedule;
+  const status = isDefaultClean ? "clean" : rawStatus;
 
   const required = checklistGroups.reduce((acc, g) => (g.optional ? acc : acc + g.items.length), 0);
   const done = checklistGroups.reduce((acc, g, gi) => (g.optional ? acc : acc + (checked[gi]?.filter(Boolean).length ?? 0)), 0);
@@ -62,7 +68,7 @@ export function RoomCard({
         <span className="mr-auto">{done}/{required} required steps</span>
         {canEdit && status === "todo" && <button onClick={start} className="btn-sm btn-primary">Start cleaning</button>}
         {canEdit && status === "cleaning" && <button onClick={finish} className="btn-sm" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
-        {canEdit && status === "clean" && <button onClick={reset} className="btn-sm btn-ghost">Reset</button>}
+        {canEdit && status === "clean" && !isDefaultClean && <button onClick={reset} className="btn-sm btn-ghost">Reset</button>}
       </div>
 
       <div className="flex flex-col gap-1.5">

@@ -7,7 +7,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -56,6 +56,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const [importOpen, setImportOpen] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
   const [logAccordionKey, setLogAccordionKey] = useState(0);
+  const [forceLogOpen, setForceLogOpen] = useState(false);
 
   // Availability chat's "Log this booking" hands off unitId/date/stayType
   // here — bumping the key forces the (uncontrolled) Accordion to remount
@@ -63,6 +64,17 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   // BookingForm re-syncs from `initial` via its own effect either way.
   function handlePrefillBooking(v: { unitId: string; date: string; stayType: string }) {
     setBookingPrefill(v as Partial<BookingFormValue>);
+    setLogAccordionKey((k) => k + 1);
+    requestAnimationFrame(() => document.getElementById("log-new-booking-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  // Always-visible "Add booking" entry point (same on mobile and desktop) —
+  // the "Log new booking" accordion itself lives further down the page
+  // below several other sections, which made it easy to miss on a small
+  // screen; this jumps straight to it and force-opens it regardless of how
+  // it was left before.
+  function openAddBooking() {
+    setForceLogOpen(true);
     setLogAccordionKey((k) => k + 1);
     requestAnimationFrame(() => document.getElementById("log-new-booking-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
@@ -256,6 +268,11 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           <h1 className="text-[28px] font-extrabold tracking-tight sm:text-[32px]">Bookings</h1>
           <p className="mt-1 text-[15px] text-[var(--gray)]">Log reservations, track who collected the money, and flag unpaid check-ins.</p>
         </div>
+        {canEdit && (
+          <button onClick={openAddBooking} className="btn-primary flex-none">
+            <PlusIcon className="h-4 w-4" /> Add booking
+          </button>
+        )}
       </div>
 
       <div className="card mb-5 p-5">
@@ -329,7 +346,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
               <UploadIcon className="h-3.5 w-3.5" /> Import bookings
             </button>
           </div>
-          <Accordion key={logAccordionKey} title="Log new booking" sub="tap to expand" defaultOpen={!!bookingPrefill}>
+          <Accordion key={logAccordionKey} title="Log new booking" sub="tap to expand" defaultOpen={!!bookingPrefill || forceLogOpen}>
             <div id="log-new-booking-anchor" />
             <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} initial={bookingPrefill ?? undefined} />
           </Accordion>
