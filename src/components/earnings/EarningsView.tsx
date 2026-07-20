@@ -68,9 +68,14 @@ type EarningsData = {
   expenseRequests: ExpenseRequestRow[];
 };
 type LeaderboardRow = { employeeId: string; name: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
+type LeaderboardMetric = "bookings" | "cleaningDays";
 type LeaderboardData =
-  | { scope: "all"; leaderboard: LeaderboardRow[] }
-  | { scope: "own"; rank: number | null; total: number; own: LeaderboardRow | null };
+  | { scope: "all"; metric: LeaderboardMetric; leaderboard: LeaderboardRow[] }
+  | { scope: "own"; metric: LeaderboardMetric; rank: number | null; total: number; own: LeaderboardRow | null };
+const LEADERBOARD_LABELS: Record<LeaderboardMetric, { person: string; personPlural: string; activity: string; activityPlural: string }> = {
+  bookings: { person: "booker", personPlural: "bookers", activity: "booking", activityPlural: "bookings" },
+  cleaningDays: { person: "cleaner", personPlural: "cleaners", activity: "cleaning day", activityPlural: "cleaning days" },
+};
 
 export function EarningsView({
   role, isAdminViewer, ownEmployeeId, employees,
@@ -116,11 +121,17 @@ export function EarningsView({
   }, [selectedEmployeeId]);
 
   useEffect(() => {
-    fetch("/api/leaderboard")
+    // Admin viewers see the board for whichever employee is currently
+    // selected (Booker or Housekeeping); a non-admin viewer's own board is
+    // inferred server-side from their own Employee record regardless of
+    // this param, so it's only meaningful for the admin case.
+    if (isOwnerSummary || !data?.employee) return;
+    const roleParam = isAdminViewer && data.employee.role === "HOUSEKEEPING" ? "?role=HOUSEKEEPING" : "";
+    fetch(`/api/leaderboard${roleParam}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j && setLeaderboard(j))
       .catch(() => {});
-  }, []);
+  }, [isOwnerSummary, isAdminViewer, data?.employee?.id, data?.employee?.role]);
 
   // Owner-only: the Owner Summary view's data (team salary, pending-approvals
   // queue, this week's payroll-given status) is company-wide, independent of
@@ -385,40 +396,45 @@ export function EarningsView({
         </Accordion>
       )}
 
-      <Accordion title="Leaderboard" sub={leaderboard?.scope === "all" ? "top bookers, this month" : "your ranking"}>
-        {!leaderboard && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
-        {leaderboard?.scope === "all" && (
-          <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
-            {leaderboard.leaderboard.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No bookers on file.</p>}
-            {leaderboard.leaderboard.map((r, i) => (
-              <div key={r.employeeId} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
-                <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-full text-[12px] font-extrabold", i === 0 ? "bg-amber text-white" : "bg-[var(--bg-2)] text-[var(--gray)]")}>{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-bold">{r.name}</div>
-                  <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} bookings this month</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
-                  <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
-                </div>
+      {(() => {
+        const l = LEADERBOARD_LABELS[leaderboard?.metric ?? "bookings"];
+        return (
+          <Accordion title="Leaderboard" sub={leaderboard?.scope === "all" ? `top ${l.personPlural}, this month` : "your ranking"}>
+            {!leaderboard && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
+            {leaderboard?.scope === "all" && (
+              <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+                {leaderboard.leaderboard.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No {l.personPlural} on file.</p>}
+                {leaderboard.leaderboard.map((r, i) => (
+                  <div key={r.employeeId} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+                    <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-full text-[12px] font-extrabold", i === 0 ? "bg-amber text-white" : "bg-[var(--bg-2)] text-[var(--gray)]")}>{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13.5px] font-bold">{r.name}</div>
+                      <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} {r.completedThisMonth === 1 ? l.activity : l.activityPlural} this month</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
+                      <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        {leaderboard?.scope === "own" && (
-          <div className="rounded-2xl border border-[var(--line)] p-5 text-center">
-            {leaderboard.rank ? (
-              <>
-                <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
-                <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} booker{leaderboard.total === 1 ? "" : "s"} this month</p>
-                {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed bookings</p>}
-              </>
-            ) : (
-              <p className="text-[13px] text-[var(--gray)]">Not ranked yet — no completed bookings this month.</p>
             )}
-          </div>
-        )}
-      </Accordion>
+            {leaderboard?.scope === "own" && (
+              <div className="rounded-2xl border border-[var(--line)] p-5 text-center">
+                {leaderboard.rank ? (
+                  <>
+                    <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
+                    <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} {leaderboard.total === 1 ? l.person : l.personPlural} this month</p>
+                    {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed {leaderboard.own.completedThisMonth === 1 ? l.activity : l.activityPlural}</p>}
+                  </>
+                ) : (
+                  <p className="text-[13px] text-[var(--gray)]">Not ranked yet — no completed {l.activityPlural} this month.</p>
+                )}
+              </div>
+            )}
+          </Accordion>
+        );
+      })()}
     </div>
   );
 }
