@@ -227,22 +227,25 @@ export function DashboardView({
     paidExpensesCentavos: billsPaidMonthCentavos,
     otherPaidCostsCentavos: realizedCostsCentavos,
   });
-  // Floored at ₱0 — not "clamped because negative," but because with zero
-  // completed revenue this period there's nothing real to compare accrued
-  // costs against yet, and a big negative number here reads as "we're
-  // losing money" when what's actually true is "no stays have finished
-  // yet." The moment a stay completes, this reflects real numbers again —
-  // including going genuinely negative if costs truly do outpace revenue.
-  // The cost breakdown stays visible in the caption below regardless.
-  const netProfit = completedMonthIncome > 0 ? Math.round(netProfitCents / 100) : 0;
-  const margin = marginPct(netProfitCents, completedMonthIncome * 100);
+  // Always floored at ₱0 for display — this business never wants to see a
+  // negative headline number here, whether that's because no stays have
+  // completed yet or because accrued costs genuinely outpaced revenue this
+  // period. The raw (possibly negative) figure still drives the amber
+  // "caution" styling below, so a real loss period is still visually
+  // flagged — it just never renders as a negative peso amount. The full
+  // cost breakdown stays visible in the caption underneath either way.
+  const netProfitRaw = Math.round(netProfitCents / 100);
+  const netProfit = Math.max(0, netProfitRaw);
+  const marginRaw = marginPct(netProfitCents, completedMonthIncome * 100);
+  const margin = Math.max(0, marginRaw);
   // Cash flow stays revenue-in-hand (DP + collected balances, same as
   // before) since it's about money that's actually moved, not which stays
   // are done — but it now deducts only accrued payroll too, for the same
-  // reason Realized profit does. Same zero-revenue floor, keyed off its own
-  // revenue basis (collected cash, not completed stays).
-  const cashFlowRaw = cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: realizedCostsCentavos });
-  const cashFlow = monthIncome > 0 ? Math.round(cashFlowRaw / 100) : 0;
+  // reason Realized profit does. Same always-floored display rule.
+  const cashFlowRaw = Math.round(
+    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: realizedCostsCentavos }) / 100
+  );
+  const cashFlow = Math.max(0, cashFlowRaw);
 
   // Forecast profit = what the rest of this month still owes/expects:
   // every booking's full value (whether collected yet or not) minus bills
@@ -1000,18 +1003,18 @@ export function DashboardView({
               below). A dip in a routine metric like these gets amber, a
               softer "worth a look," not an alarm. Occupancy/RevPAR/ADR/Payroll
               can't mathematically go negative, so they never get either. */}
-          <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfit < 0} tone="caution" />
+          <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution" />
           {/* Always amber, not just when negative — a projection, never mistaken for actual money. */}
           <StatCard label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" warn tone="caution" />
-          <StatCard label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={margin < 0} tone="caution" />
-          <StatCard label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlow < 0} tone="caution" />
+          <StatCard label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={marginRaw < 0} tone="caution" />
+          <StatCard label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution" />
           <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} />
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" />
           <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" />
           <StatCard label="Payroll" value={peso(payrollTotal)} sub={`${payroll.length} people`} />
         </div>
         <p className="mt-3 text-[11.5px] text-[var(--gray)]">
-          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. Shows <b>₱0</b>, not negative, until a stay actually completes this month — nothing to compare accrued costs against yet. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
+          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. Realized profit, Profit margin, and Cash flow always show <b>₱0</b> instead of a negative number — an amber border still flags a period where costs actually outpaced revenue, but the headline figure never goes below zero. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
         </p>
       </Accordion>
 
