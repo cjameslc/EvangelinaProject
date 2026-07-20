@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 type Employee = { id: string; name: string; role: string; monthlySalary: number; salaryType?: SalaryType; salaryRate?: number };
 type Person = { id: string } | null;
-type WeekBooking = { date: string; checkOutDate: string | null; checkOutTime: string | null; unitId: string; stayType: string; booker: Person; cleaner: Person };
+type WeekBooking = { date: string; checkOutDate: string | null; checkOutTime: string | null; unitId: string; stayType: string; paid: boolean; booker: Person; cleaner: Person };
 type WeekExpense = { date: string; amount: number; note: string; targetEmployee: { id: string } | null };
 type CleaningLogRow = { employeeId: string | null; startedAt: string };
 
@@ -42,7 +42,7 @@ export function StaffTab({
     const inWeek = (iso: string) => { const d = new Date(iso); return d >= start && d < end; };
     const bookingsThisWeek = weekBookings.filter((b) => inWeek(b.date));
     const expensesThisWeek = weekExpenses.filter((e) => inWeek(e.date));
-    const normalizedBookings = bookingsThisWeek.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, unitId: b.unitId, stayType: b.stayType, date: b.date, checkOutDate: b.checkOutDate, checkOutTime: b.checkOutTime }));
+    const normalizedBookings = bookingsThisWeek.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, unitId: b.unitId, stayType: b.stayType, date: b.date, checkOutDate: b.checkOutDate, checkOutTime: b.checkOutTime, paid: b.paid }));
     const normalizedExpenses = expensesThisWeek.map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: e.targetEmployee?.id ?? null }));
     const cleaningDaysByEmployee = new Map<string, Set<string>>();
     cleaningLogs.forEach((c) => {

@@ -145,7 +145,7 @@ export function WeeklyReport({
   }, [cleaningLogs, start, end]);
 
   const normalizedWeekBookings = useMemo(
-    () => weekBookings.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, unitId: b.unit.id, stayType: b.stayType, date: b.date, checkOutDate: b.checkOutDate, checkOutTime: b.checkOutTime })),
+    () => weekBookings.map((b) => ({ bookerId: b.booker?.id ?? null, cleanerId: b.cleaner?.id ?? null, unitId: b.unit.id, stayType: b.stayType, date: b.date, checkOutDate: b.checkOutDate, checkOutTime: b.checkOutTime, paid: b.paid })),
     [weekBookings]
   );
   const normalizedWeekExpenses = useMemo(

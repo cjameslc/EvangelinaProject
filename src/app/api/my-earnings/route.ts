@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
   const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
     prisma.booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
-      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true },
+      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true, paid: true },
       orderBy: { date: "desc" },
     }),
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
@@ -87,6 +87,10 @@ export async function GET(req: NextRequest) {
   const completedBookings = allBookingsForEmployee.filter((b) => isBookingCompleted(b, now));
   const bookedByThisEmployee = completedBookings.filter((b) => b.bookerId === employee!.id);
   const cleanedByThisEmployee = completedBookings.filter((b) => b.cleanerId === employee!.id);
+  // Commission-eligible: booked by this employee, fully paid, and the stay
+  // has checked out — same "paid & checked out" gate computeTeamBreakdown
+  // applies to the weekly/monthly figures below, used here for the lifetime total.
+  const commissionEligibleLifetime = bookedByThisEmployee.filter((b) => b.paid);
 
   // ---- This week (matches "Your team" / Admin Staff tab exactly) ----
   const weekStart = manilaWeekStart(0);
@@ -94,7 +98,7 @@ export async function GET(req: NextRequest) {
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
   const weekBookingsNormalized = allBookingsForEmployee
     .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; })
-    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime }));
+    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
   const cleaningDaysThisWeek = new Set(
     cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= weekStart && d < weekEnd; }).map((c) => dayOf(new Date(c.startedAt)))
   ).size;
@@ -119,7 +123,7 @@ export async function GET(req: NextRequest) {
   const monthExpensesNormalized = expenses
     .filter((e) => e.date.toISOString().slice(0, 7) === thisMonthIso)
     .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
-  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime }));
+  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
   const thisMonthActivity = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisMonth,
     weekBookings: monthBookingsNormalized,
@@ -147,12 +151,14 @@ export async function GET(req: NextRequest) {
     });
     const incentiveDays = [...eveningByUnitDay.values()].filter((n) => n >= 2).length;
     lifetimeActivity = allCleaningDays * rates.housekeepingDayRate + incentiveDays * rates.housekeepingNightBonus;
-  } else if (employee.role === "BOOKER") {
-    lifetimeActivity = bookedByThisEmployee.length * rates.bookerCommission;
   } else if (employee.role === "AUDITOR") {
     const weeksSinceCreated = Math.max(1, Math.round((now.getTime() - new Date(employee.createdAt).getTime()) / (7 * 86400000)));
     lifetimeActivity = weeksSinceCreated * rates.auditorWeeklyRate;
   }
+  // Booking commission — whoever booked it earns this once paid & checked
+  // out, regardless of role (see computeTeamBreakdown for the weekly/monthly
+  // version of the same rule).
+  lifetimeActivity += commissionEligibleLifetime.length * rates.bookerCommission;
   const lifetimeAdjustments = expenses.reduce((s, e) => s + (e.note === "Salary" ? e.amount : -e.amount), 0);
   const lifetimeBonusTotal = myAwards.reduce((s, a) => s + a.amount, 0);
 
@@ -250,7 +256,7 @@ export async function GET(req: NextRequest) {
     wEnd.setUTCDate(wEnd.getUTCDate() + 7);
     const wBookings = allBookingsForEmployee
       .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= wStart && d < wEnd; })
-      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime }));
+      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
     const wCleaningDays = new Set(
       cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= wStart && d < wEnd; }).map((c) => dayOf(new Date(c.startedAt)))
     ).size;
