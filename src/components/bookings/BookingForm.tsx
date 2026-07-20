@@ -114,12 +114,34 @@ export function BookingForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [extraCharge, setExtraCharge] = useState("");
+  // Whether the extension's payment came from the same person/method as the
+  // full payment above, or a different one (e.g. original paid GCash, guest
+  // hands over cash for the extra hours). "Different" overwrites Received
+  // by/Full Payment method above with whoever just took this payment — there's
+  // no separate itemized payment record, so the most recent collector is who
+  // the booking reflects going forward.
+  const [extraSamePayment, setExtraSamePayment] = useState(true);
+  const [extraReceivedById, setExtraReceivedById] = useState("");
+  const [extraMethod, setExtraMethod] = useState<BookingFormValue["method"]>("");
+  const [extraError, setExtraError] = useState("");
 
   function addExtraCharge() {
     const amt = Number(extraCharge);
-    if (!extraCharge || Number.isNaN(amt) || amt <= 0) return;
-    setV((s) => ({ ...s, totalAmount: (s.totalAmount ?? 0) + amt }));
+    if (!extraCharge || Number.isNaN(amt) || amt <= 0) { setExtraError("Enter a valid amount."); return; }
+    if (!extraSamePayment && (!extraReceivedById || !extraMethod)) {
+      setExtraError("Choose who received it and how.");
+      return;
+    }
+    setExtraError("");
+    setV((s) => ({
+      ...s,
+      totalAmount: (s.totalAmount ?? 0) + amt,
+      ...(extraSamePayment ? null : { receivedById: extraReceivedById, method: extraMethod }),
+    }));
     setExtraCharge("");
+    setExtraSamePayment(true);
+    setExtraReceivedById("");
+    setExtraMethod("");
   }
   // Once the guest hand-edits the checkout date/time, stop auto-suggesting
   // it on every check-in date/type change — their edit wins from then on.
@@ -467,27 +489,54 @@ export function BookingForm({
           <p className="mt-1 text-[12px] text-[var(--gray)]">
             Guest extending their hours or staying another day? Update the checkout date/time above, then add what they owe for the extension here — it goes straight onto the Total Amount above.
           </p>
-          <div className="mt-3 flex flex-wrap items-end gap-2">
-            <div className="min-w-[140px] flex-1">
-              <label className="field-label">Extra amount (₱)</label>
-              <input
-                type="number"
-                min={0}
-                value={extraCharge}
-                onChange={(e) => setExtraCharge(e.target.value)}
-                className="field-input mt-1.5"
-                placeholder="e.g. 500"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={addExtraCharge}
-              disabled={!extraCharge || Number(extraCharge) <= 0}
-              className="btn-sm btn-primary disabled:opacity-50"
-            >
-              Add to total
-            </button>
+          <div className="mt-3">
+            <label className="field-label">Extra amount (₱)</label>
+            <input
+              type="number"
+              min={0}
+              value={extraCharge}
+              onChange={(e) => setExtraCharge(e.target.value)}
+              className="field-input mt-1.5 max-w-[200px]"
+              placeholder="e.g. 500"
+            />
           </div>
+
+          <div className="mt-3">
+            <label className="field-label">Payment for this extra charge</label>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <Pill on={extraSamePayment} onClick={() => setExtraSamePayment(true)}>Same as full payment</Pill>
+              <Pill on={!extraSamePayment} onClick={() => setExtraSamePayment(false)}>Different</Pill>
+            </div>
+          </div>
+
+          {!extraSamePayment && (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="field-label">Received by</label>
+                <select value={extraReceivedById} onChange={(e) => setExtraReceivedById(e.target.value)} className="field-input mt-1.5">
+                  <option value="">— Select —</option>
+                  {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Payment method</label>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {PAYMENT_METHODS.map((m) => <Pill key={m} on={extraMethod === m} onClick={() => setExtraMethod(m)}>{PAYMENT_METHOD_LABEL[m]}</Pill>)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {extraError && <p className="mt-2 text-[12.5px] font-semibold text-rausch">{extraError}</p>}
+
+          <button
+            type="button"
+            onClick={addExtraCharge}
+            disabled={!extraCharge || Number(extraCharge) <= 0}
+            className="btn-sm btn-primary mt-3 disabled:opacity-50"
+          >
+            Add to total
+          </button>
         </div>
       )}
 
