@@ -37,9 +37,17 @@ const config: Config = {
       },
       keyframes: {
         "toast-in": { from: { opacity: "0", transform: "translate(-50%, 20px)" }, to: { opacity: "1", transform: "translate(-50%, 0)" } },
+        "pop-in": { "0%": { opacity: "0", transform: "scale(0.6) rotate(-6deg)" }, "60%": { opacity: "1", transform: "scale(1.08) rotate(2deg)" }, "100%": { transform: "scale(1) rotate(0deg)" } },
+        shimmer: { "0%": { backgroundPosition: "-200% 0" }, "100%": { backgroundPosition: "200% 0" } },
+        "glow-pulse": { "0%, 100%": { boxShadow: "0 0 0 0 rgba(255,56,92,.45)" }, "50%": { boxShadow: "0 0 0 8px rgba(255,56,92,0)" } },
+        float: { "0%, 100%": { transform: "translateY(0)" }, "50%": { transform: "translateY(-4px)" } },
       },
       animation: {
         "toast-in": "toast-in .25s ease forwards",
+        "pop-in": "pop-in .5s cubic-bezier(.34,1.56,.64,1) forwards",
+        shimmer: "shimmer 2.5s linear infinite",
+        "glow-pulse": "glow-pulse 1.8s ease-out infinite",
+        float: "float 2.4s ease-in-out infinite",
       },
     },
   },

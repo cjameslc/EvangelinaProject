@@ -149,6 +149,7 @@ model Employee {
   eliteBookerAwards   EliteBookerAward[]
   expenseRequests     ExpenseRequest[]
   payrollPayments     PayrollPayment[]
+  achievements        EmployeeAchievement[]
 
   @@index([active])
   @@map("employees")
@@ -270,6 +271,30 @@ model PayrollPayment {
 
   @@unique([employeeId, periodStart])
   @@map("payroll_payments")
+}
+
+// Owner-configurable per-employee achievement — replaces the old hardcoded
+// "First Booking / 10 Bookings / 25 Bookings" badges every employee shared
+// identically. `threshold` is a lifetime completed-activity count (bookings
+// for Bookers, cleaning days for Housekeeping — same count My Earnings
+// already tracks for the old badges); `unlocked` is never stored, always
+// derived live against real activity, same as before. `rewardAmount` (once
+// unlocked) adds to lifetime earnings, same treatment as an Elite Booker
+// Challenge bonus. `personalMessage` is only ever shown to the employee
+// once they've actually unlocked it — never revealed early.
+model EmployeeAchievement {
+  id              String   @id @default(cuid())
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  label           String
+  threshold       Int
+  rewardAmount    Int      @default(0)
+  personalMessage String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([employeeId])
+  @@map("employee_achievements")
 }
 
 model Booking {

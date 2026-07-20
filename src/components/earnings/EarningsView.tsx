@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
+import { playPop, playFanfare } from "@/lib/sound";
 
 type EmployeeLite = { id: string; name: string; role: string };
 type UnitLite = { id: string; name: string; shortName: string };
@@ -24,6 +25,7 @@ type ExpenseRequestRow = {
 type PendingRequestRow = ExpenseRequestRow & { employee: { id: string; name: string; role: string } };
 type FullEmployee = { id: string; name: string; role: string; monthlySalary: number; salaryType: SalaryType; salaryRate: number; active: boolean };
 type PayrollPaymentRow = { id: string; employeeId: string; amount: number; status: string; givenAt: string | null; markedBy: { id: string; name: string } | null };
+type AchievementDefRow = { id: string; label: string; threshold: number; rewardAmount: number; personalMessage: string | null };
 
 const EXPENSE_STATUS_BADGE: Record<string, string> = {
   PENDING: "bg-amber/15 text-amber",
@@ -44,7 +46,7 @@ type EliteChallenge = {
   slotsRemainingForNextTier: number; slotsTotalForNextTier: number;
   estimatedCommission: number; potentialBonus: number; tiers: EliteTierStatus[];
 };
-type Achievement = { id: string; label: string; unlocked: boolean };
+type Achievement = { id: string; label: string; unlocked: boolean; threshold?: number; rewardAmount?: number; personalMessage?: string | null };
 type PayrollHistoryRow = { weekStart: string; weekEnd: string; salary: number; activity: number; bookingCount: number; bonuses: number; total: number; status: string };
 type BonusAward = { id: string; month: string; tier: number; amount: number; slotRank: number; completedAt: string };
 type Adjustment = { id: string; date: string; amount: number; note: string; deduction: boolean };
@@ -303,75 +305,12 @@ export function EarningsView({
         </div>
       </Accordion>
 
-      {data.eliteChallenge && (
-        <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
-          <div className="mb-4 rounded-2xl border border-[var(--line)] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-[18px] font-extrabold">
-                  {data.eliteChallenge.currentBadge ? `${"⭐".repeat(data.eliteChallenge.currentStars)} ${data.eliteChallenge.currentBadge}` : "No tier yet this month"}
-                </div>
-                <div className="mt-0.5 text-[13px] text-[var(--gray)]">
-                  {data.eliteChallenge.completedThisMonth}{data.eliteChallenge.nextTier ? ` / ${data.eliteChallenge.nextTier}` : ""} bookings this month
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[13px] font-bold">Rank #{data.eliteChallenge.rank} of {data.eliteChallenge.totalBookers}</div>
-                <div className="text-[11.5px] text-[var(--gray)]">this month</div>
-              </div>
-            </div>
+      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} />}
 
-            <div className="mt-3 h-3 overflow-hidden rounded-full bg-[var(--bg-2)]">
-              <div className="h-full rounded-full bg-rausch transition-all" style={{ width: `${data.eliteChallenge.progressPct}%` }} />
-            </div>
-
-            {data.eliteChallenge.nextTier ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[13px] font-semibold text-[var(--gray)]">
-                  Only <b className="text-[var(--ink)]">{data.eliteChallenge.remaining} more booking{data.eliteChallenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(data.eliteChallenge.nextTierAmount ?? 0)}
-                </p>
-                <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-extrabold", data.eliteChallenge.slotsRemainingForNextTier > 0 ? "bg-teal/15 text-teal" : "bg-rausch/15 text-rausch")}>
-                  Reward Slots: {data.eliteChallenge.slotsRemainingForNextTier} of {data.eliteChallenge.slotsTotalForNextTier} Remaining
-                </span>
-              </div>
-            ) : (
-              <p className="mt-3 text-[13px] font-semibold text-green">👑 Maximum tier reached this month!</p>
-            )}
-
-            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3 sm:grid-cols-2">
-              <div>
-                <div className="text-[11px] font-bold uppercase text-[var(--gray)]">Estimated commission</div>
-                <div className="text-[15px] font-extrabold">{peso(data.eliteChallenge.estimatedCommission)}</div>
-              </div>
-              <div>
-                <div className="text-[11px] font-bold uppercase text-[var(--gray)]">Potential bonus</div>
-                <div className="text-[15px] font-extrabold">{peso(data.eliteChallenge.potentialBonus)}</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
-            {data.eliteChallenge.tiers.map((t) => (
-              <div key={t.tier} className={cn("rounded-xl border p-3 text-center", t.wonByMe ? "border-rausch/30 bg-rausch/5" : "border-[var(--line)]")}>
-                <div className="text-lg">{t.medal}</div>
-                <div className="mt-0.5 text-[11.5px] font-extrabold">{t.badge}</div>
-                <div className="text-[10.5px] text-[var(--gray)]">{t.tier} bookings · {peso(t.amount)}</div>
-                <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, t.slotsTotal - t.slotsTaken)} of {t.slotsTotal} slots left</div>
-              </div>
-            ))}
-          </div>
-        </Accordion>
-      )}
-
-      {data.employee.role === "BOOKER" && (
+      {(data.employee.role === "BOOKER" || data.employee.role === "HOUSEKEEPING") && (
         <Accordion title="Achievements">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {data.achievements.map((a) => (
-              <div key={a.id} className={cn("rounded-2xl border p-4 text-center", a.unlocked ? "border-rausch/30 bg-rausch/5" : "border-[var(--line)] opacity-50")}>
-                <div className="text-2xl">{a.unlocked ? "🏆" : "🔒"}</div>
-                <div className="mt-1.5 text-[12.5px] font-bold">{a.label}</div>
-              </div>
-            ))}
+            {data.achievements.map((a, i) => <AchievementBadgeCard key={a.id} a={a} index={i} />)}
           </div>
         </Accordion>
       )}
@@ -480,6 +419,115 @@ export function EarningsView({
         )}
       </Accordion>
     </div>
+  );
+}
+
+// A deliberately playful "skin" over the Elite Booker Challenge data — same
+// numbers as before, presented like a game quest screen instead of a plain
+// stat card: gradient hero banner, a shimmering progress bar, tier badges
+// that glow/float once won and sit grayscale-locked until then. Tapping a
+// tier plays a tiny synthesized chime (fanfare if won, a soft pop if not)
+// — sound only ever fires from a real click, never automatically.
+function EliteChallengeQuest({ challenge }: { challenge: EliteChallenge }) {
+  return (
+    <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
+      <div className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-br from-rausch via-rausch to-violet p-5 text-white">
+        <div className="pointer-events-none absolute -right-3 -top-3 animate-float text-6xl opacity-20">✨</div>
+        <div className="relative flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[19px] font-extrabold drop-shadow-sm">
+              {challenge.currentBadge ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block animate-float">{"⭐".repeat(challenge.currentStars)}</span> {challenge.currentBadge}
+                </span>
+              ) : "🎯 Quest started — no tier yet"}
+            </div>
+            <div className="mt-0.5 text-[13px] text-white/85">
+              {challenge.completedThisMonth}{challenge.nextTier ? ` / ${challenge.nextTier}` : ""} bookings this month
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/15 px-3 py-2 text-center backdrop-blur-sm">
+            <div className="text-[16px] font-extrabold">#{challenge.rank}</div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/80">of {challenge.totalBookers}</div>
+          </div>
+        </div>
+
+        <div className="relative mt-4 h-4 overflow-hidden rounded-full bg-white/20">
+          <div className="relative h-full rounded-full bg-white transition-all duration-700" style={{ width: `${Math.max(4, challenge.progressPct)}%` }}>
+            <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/60 to-transparent bg-[length:200%_100%]" />
+          </div>
+        </div>
+
+        {challenge.nextTier ? (
+          <div className="relative mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold text-white/90">
+              <b className="text-white">{challenge.remaining} more booking{challenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(challenge.nextTierAmount ?? 0)}
+            </p>
+            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", challenge.slotsRemainingForNextTier > 0 ? "bg-white/25" : "bg-black/25")}>
+              🎟️ {challenge.slotsRemainingForNextTier} of {challenge.slotsTotalForNextTier} slots left
+            </span>
+          </div>
+        ) : (
+          <p className="relative mt-3 text-[13px] font-extrabold">👑 Maximum tier reached this month — legendary!</p>
+        )}
+
+        <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">
+          <div>
+            <div className="text-[10.5px] font-bold uppercase text-white/70">Estimated commission</div>
+            <div className="text-[16px] font-extrabold">{peso(challenge.estimatedCommission)}</div>
+          </div>
+          <div>
+            <div className="text-[10.5px] font-bold uppercase text-white/70">Potential bonus</div>
+            <div className="text-[16px] font-extrabold">{peso(challenge.potentialBonus)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
+        {challenge.tiers.map((t, i) => (
+          <button
+            key={t.tier}
+            type="button"
+            onClick={() => (t.wonByMe ? playFanfare() : playPop())}
+            style={{ animationDelay: `${i * 60}ms` }}
+            className={cn(
+              "relative animate-pop-in rounded-xl border p-3 text-center transition-transform hover:-translate-y-0.5",
+              t.wonByMe ? "animate-glow-pulse border-rausch/40 bg-gradient-to-b from-rausch/10 to-transparent" : "border-[var(--line)] opacity-60 grayscale hover:opacity-90 hover:grayscale-0"
+            )}
+          >
+            <div className={cn("text-lg", t.wonByMe && "animate-float")}>{t.medal}</div>
+            <div className="mt-0.5 text-[11.5px] font-extrabold">{t.badge}</div>
+            <div className="text-[10.5px] text-[var(--gray)]">{t.tier} bookings · {peso(t.amount)}</div>
+            <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, t.slotsTotal - t.slotsTaken)} of {t.slotsTotal} slots left</div>
+            {!t.wonByMe && <div className="absolute right-1.5 top-1.5 text-[11px] opacity-40">🔒</div>}
+          </button>
+        ))}
+      </div>
+    </Accordion>
+  );
+}
+
+// Same playful treatment for the Achievements grid — pop-in on mount
+// (staggered per card), a shimmer sweep across unlocked badges, locked ones
+// grayscale until earned. Click plays a chime (fanfare if unlocked, a soft
+// pop otherwise).
+function AchievementBadgeCard({ a, index }: { a: Achievement; index: number }) {
+  return (
+    <button
+      type="button"
+      onClick={() => (a.unlocked ? playFanfare() : playPop())}
+      style={{ animationDelay: `${index * 70}ms` }}
+      className={cn(
+        "relative animate-pop-in overflow-hidden rounded-2xl border p-4 text-center transition-transform hover:-translate-y-0.5",
+        a.unlocked ? "border-rausch/30 bg-gradient-to-b from-rausch/10 via-amber/5 to-transparent" : "border-[var(--line)] opacity-50 grayscale hover:opacity-80 hover:grayscale-0"
+      )}
+    >
+      {a.unlocked && <div className="pointer-events-none absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/40 to-transparent bg-[length:200%_100%]" />}
+      <div className={cn("relative text-2xl", a.unlocked && "animate-float")}>{a.unlocked ? "🏆" : "🔒"}</div>
+      <div className="relative mt-1.5 text-[12.5px] font-bold">{a.label}</div>
+      {a.unlocked && !!a.rewardAmount && <div className="relative mt-0.5 text-[12px] font-bold text-green">🪙 {peso(a.rewardAmount)}</div>}
+      {a.unlocked && a.personalMessage && <div className="relative mt-1 text-[11px] italic text-[var(--gray)]">&ldquo;{a.personalMessage}&rdquo;</div>}
+    </button>
   );
 }
 
@@ -927,6 +975,162 @@ function OwnerSummarySection({
           <span className="text-[12px] font-semibold text-[var(--gray)]">{pendingRequests.length} pending</span>
         </div>
         <ExpenseApprovalsPanel requests={pendingRequests} onChanged={onRequestsChanged} />
+      </div>
+
+      <div className="card p-5">
+        <h2 className="text-[15px] font-extrabold">Achievements & Rewards</h2>
+        <p className="mt-0.5 mb-3 text-[12px] text-[var(--gray)]">Set what unlocks a badge, the ₱ reward, and a personal message shown once they hit it.</p>
+        <AchievementsRewardsPanel employees={teamEmployees.filter((e) => isPayrollRole(e.role))} />
+      </div>
+    </div>
+  );
+}
+
+const NEW_ACHIEVEMENT = { label: "", threshold: "", rewardAmount: "", personalMessage: "" };
+
+function AchievementsRewardsPanel({ employees }: { employees: FullEmployee[] }) {
+  const toast = useToast();
+  const [selectedEmpId, setSelectedEmpId] = useState<string>(employees[0]?.id ?? "");
+  const [achievements, setAchievements] = useState<AchievementDefRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(NEW_ACHIEVEMENT);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function load(empId: string) {
+    if (!empId) { setAchievements([]); return; }
+    setLoading(true);
+    const res = await fetch(`/api/employee-achievements?employeeId=${empId}`);
+    setAchievements(res.ok ? await res.json() : []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load(selectedEmpId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEmpId]);
+
+  function startEdit(a: AchievementDefRow) {
+    setEditingId(a.id);
+    setAdding(false);
+    setForm({ label: a.label, threshold: String(a.threshold), rewardAmount: String(a.rewardAmount), personalMessage: a.personalMessage ?? "" });
+  }
+
+  function validate() {
+    if (!form.label.trim()) { toast("Enter a badge name", true); return false; }
+    if (!form.threshold || Number.isNaN(Number(form.threshold)) || Number(form.threshold) <= 0) { toast("Enter how many completed bookings/cleanings unlock it", true); return false; }
+    if (form.rewardAmount && (Number.isNaN(Number(form.rewardAmount)) || Number(form.rewardAmount) < 0)) { toast("Enter a valid reward amount", true); return false; }
+    return true;
+  }
+
+  async function save() {
+    if (!validate()) return;
+    setSaving(true);
+    const payload = { label: form.label.trim(), threshold: Number(form.threshold), rewardAmount: Number(form.rewardAmount || 0), personalMessage: form.personalMessage.trim() || null };
+    const res = editingId
+      ? await fetch(`/api/employee-achievements/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      : await fetch("/api/employee-achievements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, employeeId: selectedEmpId }) });
+    setSaving(false);
+    if (!res.ok) { toast("Couldn't save", true); return; }
+    toast(editingId ? "Updated ✓" : "Added ✓");
+    setEditingId(null);
+    setAdding(false);
+    setForm(NEW_ACHIEVEMENT);
+    load(selectedEmpId);
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Remove this achievement?")) return;
+    await fetch(`/api/employee-achievements/${id}`, { method: "DELETE" });
+    if (editingId === id) { setEditingId(null); setForm(NEW_ACHIEVEMENT); }
+    load(selectedEmpId);
+  }
+
+  return (
+    <div>
+      <select
+        value={selectedEmpId}
+        onChange={(e) => { setSelectedEmpId(e.target.value); setEditingId(null); setAdding(false); setForm(NEW_ACHIEVEMENT); }}
+        className="field-input mb-3 w-auto"
+      >
+        {employees.length === 0 && <option value="">No payroll staff yet</option>}
+        {employees.map((e) => <option key={e.id} value={e.id}>{e.name} · {ROLE_LABEL[e.role] ?? e.role}</option>)}
+      </select>
+
+      {loading && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
+
+      {!loading && (
+        <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+          {achievements.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No achievements set for this person yet.</p>}
+          {achievements.map((a) => (
+            <div key={a.id} className="border-t border-[var(--line)] first:border-0">
+              <div className="flex flex-wrap items-center gap-3 p-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-bold">{a.label}</div>
+                  <div className="text-[11.5px] text-[var(--gray)]">
+                    unlock at {a.threshold} · {a.rewardAmount > 0 ? peso(a.rewardAmount) : "no ₱ reward"}{a.personalMessage ? ` · "${a.personalMessage}"` : ""}
+                  </div>
+                </div>
+                <button onClick={() => startEdit(a)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Edit"><EditIcon className="h-4 w-4" /></button>
+                <button onClick={() => remove(a.id)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+              {editingId === a.id && (
+                <AchievementForm form={form} setForm={setForm} onSave={save} onCancel={() => { setEditingId(null); setForm(NEW_ACHIEVEMENT); }} saving={saving} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!adding && !editingId && selectedEmpId && (
+        <button onClick={() => { setAdding(true); setForm(NEW_ACHIEVEMENT); }} className="btn btn-sm mt-3">
+          <PlusIcon className="h-3.5 w-3.5" /> Add achievement
+        </button>
+      )}
+      {adding && (
+        <div className="mt-3 rounded-2xl border border-[var(--line)] p-3.5">
+          <AchievementForm form={form} setForm={setForm} onSave={save} onCancel={() => { setAdding(false); setForm(NEW_ACHIEVEMENT); }} saving={saving} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AchievementForm({
+  form, setForm, onSave, onCancel, saving,
+}: {
+  form: typeof NEW_ACHIEVEMENT;
+  setForm: (f: typeof NEW_ACHIEVEMENT) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="space-y-2.5 border-t border-[var(--line)] bg-[var(--bg-2)] p-3.5">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        <div>
+          <label className="field-label">Badge name</label>
+          <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} className="field-input mt-1.5" placeholder="e.g. 50 Bookings" />
+        </div>
+        <div>
+          <label className="field-label">Unlock at (completed bookings/cleanings)</label>
+          <input type="number" min={1} value={form.threshold} onChange={(e) => setForm({ ...form, threshold: e.target.value })} className="field-input mt-1.5" placeholder="e.g. 50" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        <div>
+          <label className="field-label">Reward (₱, optional)</label>
+          <input type="number" min={0} value={form.rewardAmount} onChange={(e) => setForm({ ...form, rewardAmount: e.target.value })} className="field-input mt-1.5" placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label className="field-label">Personal message (optional)</label>
+          <input value={form.personalMessage} onChange={(e) => setForm({ ...form, personalMessage: e.target.value })} className="field-input mt-1.5" placeholder="shown once they unlock it" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button onClick={onSave} disabled={saving} className="btn-primary">{saving ? "Saving…" : "Save"}</button>
+        <button onClick={onCancel} className="btn-ghost">Cancel</button>
       </div>
     </div>
   );

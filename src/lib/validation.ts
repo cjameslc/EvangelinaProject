@@ -86,6 +86,14 @@ export const payrollPaymentSchema = z.object({
   status: z.enum(["PENDING", "GIVEN"]),
 });
 
+export const employeeAchievementSchema = z.object({
+  employeeId: z.string().min(1),
+  label: z.string().min(1),
+  threshold: z.number().int().positive(),
+  rewardAmount: z.number().int().nonnegative().optional(),
+  personalMessage: z.string().nullable().optional(),
+});
+
 export const calendarBlockSchema = z.object({
   unitId: z.string().min(1),
   type: z.enum(["Daycation", "Night", "Full", "Cleaning", "Maintenance"]),

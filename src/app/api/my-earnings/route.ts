@@ -15,10 +15,14 @@ function manilaWeekStart(offsetWeeks: number) {
   return start;
 }
 
-const ACHIEVEMENT_DEFS = [
-  { id: "first-booking", label: "First Booking", min: 1 },
-  { id: "ten-bookings", label: "10 Bookings", min: 10 },
-  { id: "twentyfive-bookings", label: "25 Bookings", min: 25 },
+// Seeded once per employee, on their first My Earnings fetch, if they have
+// no EmployeeAchievement rows yet — preserves the original default badges
+// as a starting point the owner can then edit/add to/delete from Owner
+// Summary's Achievements & Rewards panel.
+const DEFAULT_ACHIEVEMENTS = [
+  { label: "First Booking", threshold: 1 },
+  { label: "10 Bookings", threshold: 10 },
+  { label: "25 Bookings", threshold: 25 },
 ] as const;
 
 // Every My Earnings figure is a *derived* view over Booking/CleaningLog/
@@ -150,7 +154,6 @@ export async function GET(req: NextRequest) {
   }
   const lifetimeAdjustments = expenses.reduce((s, e) => s + (e.note === "Salary" ? e.amount : -e.amount), 0);
   const lifetimeBonusTotal = myAwards.reduce((s, a) => s + a.amount, 0);
-  const lifetimeEarnings = lifetimeActivity + lifetimeAdjustments + lifetimeBonusTotal;
 
   // ---- Monthly Elite Booker Challenge progress (Booker only) ----
   let eliteChallenge: any = null;
@@ -211,14 +214,29 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  // ---- Achievements (derived, not persisted; tier badges are lifetime —
-  // once earned in any month, they're kept, per "historical achievements
-  // ... are retained"). ----
+  // ---- Achievements (owner-configurable per employee; "unlocked" is
+  // derived live against real lifetime activity, never stored — same as
+  // the Elite tier badges below. A reward, once unlocked, adds to lifetime
+  // earnings; the personal message is only ever revealed once actually
+  // unlocked, never spoiled early.) ----
   const lifetimeCompletedCount = employee.role === "HOUSEKEEPING" ? cleanedByThisEmployee.length : bookedByThisEmployee.length;
+  let employeeAchievementDefs = await prisma.employeeAchievement.findMany({ where: { employeeId: employee.id }, orderBy: { threshold: "asc" } });
+  if (employeeAchievementDefs.length === 0) {
+    for (const def of DEFAULT_ACHIEVEMENTS) {
+      await prisma.employeeAchievement.create({ data: { employeeId: employee.id, label: def.label, threshold: def.threshold } });
+    }
+    employeeAchievementDefs = await prisma.employeeAchievement.findMany({ where: { employeeId: employee.id }, orderBy: { threshold: "asc" } });
+  }
+  const achievementResults = employeeAchievementDefs.map((a) => {
+    const unlocked = lifetimeCompletedCount >= a.threshold;
+    return { id: a.id, label: a.label, threshold: a.threshold, rewardAmount: a.rewardAmount, unlocked, personalMessage: unlocked ? a.personalMessage : null };
+  });
+  const unlockedAchievementRewardTotal = achievementResults.filter((a) => a.unlocked).reduce((s, a) => s + a.rewardAmount, 0);
   const achievements = [
-    ...ACHIEVEMENT_DEFS.map((a) => ({ id: a.id, label: a.label, unlocked: lifetimeCompletedCount >= a.min })),
+    ...achievementResults,
     ...ELITE_TIERS.map((t) => ({ id: `tier-${t.tier}`, label: `${t.medal} ${t.badge}`, unlocked: myAwards.some((a) => a.tier === t.tier) })),
   ];
+  const lifetimeEarnings = lifetimeActivity + lifetimeAdjustments + lifetimeBonusTotal + unlockedAchievementRewardTotal;
 
   // ---- Payroll history: last 12 weeks ----
   const payrollHistory = [];
