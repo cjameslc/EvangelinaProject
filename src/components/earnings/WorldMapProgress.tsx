@@ -17,19 +17,33 @@ type EliteChallenge = {
 
 // Original fantasy-kingdom world map — an entirely custom progression path
 // (CSS/SVG/emoji, no licensed art of any kind) laid over the same Elite
-// Booker Challenge data the plain stat card used to show. Village and
-// Forest are free waypoints along the road (no reward, just a fun sense of
-// distance); the five castles/mountains/etc. after that are the real
-// tiers, unchanged from before.
+// Booker Challenge data the plain stat card used to show. Cubao Village and
+// Araneta Forest are free waypoints along the road (no reward, just a fun
+// sense of distance); the five castles/mountains/etc. after that are the
+// real tiers, unchanged from before — each one named after one of the
+// business's own real listings, so the journey is recognizably *this*
+// staycation business's world, not a generic fantasy skin. Evangelina's
+// Kingdom, the finale, makes the brand itself the legendary destination.
 const WORLD_NODES = [
-  { key: "village", threshold: 0, icon: "🏘️", label: "Village", from: "#7ED957", to: "#4FC3F7" },
-  { key: "forest", threshold: 25, icon: "🌲", label: "Forest", from: "#3FA34D", to: "#2E7D32" },
-  { key: "bronze", threshold: 50, icon: "🏰", label: "Bronze Castle", from: "#C97A3D", to: "#8D5524" },
-  { key: "silver", threshold: 100, icon: "⛰️", label: "Silver Mountain", from: "#8EA9C1", to: "#5C7A99" },
-  { key: "gold", threshold: 150, icon: "🌋", label: "Gold Volcano", from: "#FF7A45", to: "#B71C1C" },
-  { key: "platinum", threshold: 200, icon: "☁️", label: "Platinum Sky", from: "#B3E5FC", to: "#7C9EFF" },
-  { key: "legend", threshold: 250, icon: "👑", label: "Legend Kingdom", from: "#B983FF", to: "#6C5CE7" },
+  { key: "village", threshold: 0, icon: "🏘️", label: "Cubao Village", from: "#7ED957", to: "#4FC3F7" },
+  { key: "forest", threshold: 25, icon: "🌲", label: "Araneta Forest", from: "#3FA34D", to: "#2E7D32" },
+  { key: "bronze", threshold: 50, icon: "🏰", label: "Comfort Castle", from: "#C97A3D", to: "#8D5524" },
+  { key: "silver", threshold: 100, icon: "⛰️", label: "Cozy Peak", from: "#8EA9C1", to: "#5C7A99" },
+  { key: "gold", threshold: 150, icon: "🌋", label: "Relax Volcano", from: "#FF7A45", to: "#B71C1C" },
+  { key: "platinum", threshold: 200, icon: "☁️", label: "Signature Sky", from: "#B3E5FC", to: "#7C9EFF" },
+  { key: "legend", threshold: 250, icon: "👑", label: "Evangelina's Kingdom", from: "#B983FF", to: "#6C5CE7" },
 ] as const;
+
+// A few in-character tips/encouragements the mascot hands out from the
+// Mystery Reward Box — flavor only, no mechanical effect.
+const MYSTERY_MESSAGES = [
+  "A warm welcome message turns a first-time guest into a repeat one. 🏡",
+  "Every completed booking is a room with a five-star story waiting to happen. ⭐",
+  "Cubao Village remembers every host who keeps their word on check-in time. 🕒",
+  "The road to Evangelina's Kingdom is paved one happy guest at a time. 👑",
+  "Quick replies win bookings — the fastest host in the village gets the gold. ⚡",
+  "A tidy handover is worth more than any coin chest. 🧹✨",
+];
 
 function useCountUp(target: number, durationMs = 900) {
   const [value, setValue] = useState(0);
@@ -139,6 +153,13 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
         <svg viewBox="0 0 700 40" className="absolute left-0 top-[18px] h-[3px] w-full opacity-70" preserveAspectRatio="none">
           <line x1="0" y1="20" x2="700" y2="20" stroke="white" strokeWidth="3" strokeDasharray="2 10" strokeLinecap="round" />
         </svg>
+        {/* Welcome-door check-in points between each world — this business's
+            own spin on a "warp gate," since every world here is a stay. */}
+        <div className="absolute left-0 top-[13px] flex w-full justify-between px-[calc(50%/7)]">
+          {WORLD_NODES.slice(0, -1).map((n, i) => (
+            <span key={n.key} className={cn("text-[13px] opacity-0 sm:opacity-100", completed >= WORLD_NODES[i + 1].threshold ? "grayscale-0" : "grayscale opacity-40")}>🚪</span>
+          ))}
+        </div>
         <div className="relative flex justify-between">
           {WORLD_NODES.map((n) => {
             const reached = completed >= n.threshold;
@@ -160,16 +181,19 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
             );
           })}
         </div>
-        {/* Traveler marker */}
+        {/* Traveler marker — an original mascot, not a licensed character */}
         <motion.div
-          className="absolute -top-2 text-xl"
+          className="absolute -top-3 z-10"
           initial={false}
-          animate={{ left: `calc(${overallPct}% - 12px)` }}
+          animate={{ left: `calc(${overallPct}% - 14px)` }}
           transition={{ type: "spring", stiffness: 90, damping: 18 }}
           style={{ willChange: "left" }}
         >
-          <motion.span className="inline-block" animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.9, ease: "easeInOut" }}>🏃</motion.span>
+          <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.9, ease: "easeInOut" }}>
+            <StaySprite />
+          </motion.div>
         </motion.div>
+        <MysteryBox pct={overallPct} />
       </div>
 
       {/* XP bar */}
@@ -194,7 +218,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
           </span>
         </div>
       ) : (
-        <p className="relative mt-3 text-[13px] font-extrabold">👑 Maximum tier reached this month — legendary!</p>
+        <p className="relative mt-3 text-[13px] font-extrabold">👑 You've reached Evangelina's Kingdom this month — legendary!</p>
       )}
 
       <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">
@@ -320,6 +344,72 @@ export function EliteBadgeButton({ tier, index }: { tier: EliteTierStatus; index
       <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, tier.slotsTotal - tier.slotsTaken)} of {tier.slotsTotal} slots left</div>
       {!tier.wonByMe && <div className="absolute right-1.5 top-1.5 text-[11px] opacity-40">🔒</div>}
     </button>
+  );
+}
+
+/**
+ * "Via" — an entirely original bellhop mascot built from plain SVG shapes:
+ * round head, pillbox bellhop cap, a vest in the brand's own rausch red
+ * with gold buttons, holding a little brass key. No resemblance to any
+ * licensed character is intended — different silhouette, different colors,
+ * different props, drawn from scratch for this app.
+ */
+function StaySprite() {
+  return (
+    <svg width="28" height="34" viewBox="0 0 28 34" aria-hidden>
+      <ellipse cx="14" cy="32" rx="9" ry="2" fill="black" opacity="0.15" />
+      <rect x="8.5" y="23" width="3.5" height="7" rx="1.5" fill="#3D2B1F" />
+      <rect x="16" y="23" width="3.5" height="7" rx="1.5" fill="#3D2B1F" />
+      <rect x="6" y="13" width="16" height="12" rx="5" fill="#FF385C" />
+      <circle cx="14" cy="17" r="1.1" fill="#FFD54F" />
+      <circle cx="14" cy="21" r="1.1" fill="#FFD54F" />
+      <rect x="1.5" y="14" width="5.5" height="4.2" rx="2.1" fill="#FF385C" />
+      <rect x="21" y="14" width="5.5" height="4.2" rx="2.1" fill="#FF385C" />
+      <circle cx="25.5" cy="18" r="2.3" fill="#FFD54F" stroke="#B7891F" strokeWidth="0.6" />
+      <circle cx="14" cy="8" r="6.6" fill="#FFD9B3" />
+      <path d="M7.6 8a6.4 6.4 0 0 1 12.8 0z" fill="#B7123A" />
+      <rect x="7.6" y="6.6" width="12.8" height="2" rx="1" fill="#8E0E2E" />
+      <circle cx="14" cy="4.4" r="1.1" fill="#FFD54F" />
+    </svg>
+  );
+}
+
+/** A small clickable "?" waypoint marker in the brand's own gold/rausch —
+ * taps hand out an in-character hospitality tip, purely for flavor. */
+function MysteryBox({ pct }: { pct: number }) {
+  const [open, setOpen] = useState<string | null>(null);
+  function tap() {
+    playCoin();
+    setOpen(MYSTERY_MESSAGES[Math.floor(Math.random() * MYSTERY_MESSAGES.length)]);
+    setTimeout(() => setOpen(null), 3200);
+  }
+  return (
+    <div className="absolute top-[46px]" style={{ left: `calc(${Math.min(92, pct + 6)}% - 11px)` }}>
+      <motion.button
+        type="button"
+        onClick={tap}
+        whileTap={{ scale: 0.85, rotate: -8 }}
+        animate={{ y: [0, -3, 0] }}
+        transition={{ y: { repeat: Infinity, duration: 1.6, ease: "easeInOut" } }}
+        className="grid h-[22px] w-[22px] place-items-center rounded-md border border-amber/60 bg-amber text-[11px] font-extrabold text-white shadow"
+        aria-label="Mystery reward"
+        title="?"
+      >
+        ?
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.9 }}
+            className="absolute left-1/2 top-[28px] z-20 w-[190px] -translate-x-1/2 rounded-xl bg-white/95 p-2.5 text-center text-[11px] font-semibold text-[var(--ink)] shadow-xl"
+          >
+            {open}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
