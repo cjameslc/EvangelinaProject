@@ -14,9 +14,7 @@ import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
-import { playPop, playQuestComplete } from "@/lib/sound";
-import { WorldMapProgress, EliteBadgeButton } from "@/components/earnings/WorldMapProgress";
-import { motion, AnimatePresence } from "framer-motion";
+import { WorldMapProgress, EliteBadgeButton, AchievementBadgeCard } from "@/components/earnings/WorldMapProgress";
 
 type EmployeeLite = { id: string; name: string; role: string };
 type UnitLite = { id: string; name: string; shortName: string };
@@ -42,6 +40,7 @@ const OWNER_SUMMARY_VALUE = "__owner_summary__";
 type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
 type EliteChallenge = {
+  metric: "bookings" | "cleaningDays";
   completedThisMonth: number; rank: number; totalBookers: number;
   currentTier: number | null; currentStars: number; currentBadge: string | null;
   nextTier: number | null; nextTierAmount: number | null; remaining: number; progressPct: number;
@@ -429,71 +428,16 @@ export function EarningsView({
 // presented as a journey through seven original waypoints instead of a
 // plain stat card. No licensed art/characters/music of any kind.
 function EliteChallengeQuest({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
+  const isCleaning = challenge.metric === "cleaningDays";
   return (
-    <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
+    <Accordion title={`Monthly Elite ${isCleaning ? "Housekeeper" : "Booker"} Challenge`} sub="resets on the 1st of every month">
       <div className="mb-4">
         <WorldMapProgress challenge={challenge} employeeId={employeeId} />
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
-        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} />)}
+        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} metric={challenge.metric} />)}
       </div>
     </Accordion>
-  );
-}
-
-// Same playful treatment for the Achievements grid — pop-in on mount
-// (staggered per card), a shimmer sweep across unlocked badges, locked ones
-// grayscale until earned. Click plays a chime (fanfare if unlocked, a soft
-// pop otherwise).
-function AchievementBadgeCard({ a, index }: { a: Achievement; index: number }) {
-  const [sparkling, setSparkling] = useState(false);
-
-  function onTap() {
-    if (a.unlocked) {
-      playQuestComplete();
-      setSparkling(true);
-      setTimeout(() => setSparkling(false), 900);
-    } else {
-      playPop();
-    }
-  }
-
-  return (
-    <motion.button
-      type="button"
-      onClick={onTap}
-      whileTap={{ scale: 0.94 }}
-      style={{ animationDelay: `${index * 70}ms` }}
-      className={cn(
-        "relative animate-pop-in overflow-hidden rounded-2xl border p-4 text-center transition-transform hover:-translate-y-0.5",
-        a.unlocked ? "border-rausch/30 bg-gradient-to-b from-rausch/10 via-amber/5 to-transparent" : "border-[var(--line)] opacity-50 grayscale hover:opacity-80 hover:grayscale-0"
-      )}
-    >
-      {a.unlocked && <div className="pointer-events-none absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/40 to-transparent bg-[length:200%_100%]" />}
-      <div className={cn("relative text-2xl", a.unlocked && "animate-float")}>{a.unlocked ? "🏆" : "🔒"}</div>
-      <div className="relative mt-1.5 text-[12.5px] font-bold">{a.label}</div>
-      {a.unlocked && !!a.rewardAmount && <div className="relative mt-0.5 text-[12px] font-bold text-green">🪙 {peso(a.rewardAmount)}</div>}
-      {a.unlocked && a.personalMessage && <div className="relative mt-1 text-[11px] italic text-[var(--gray)]">&ldquo;{a.personalMessage}&rdquo;</div>}
-      <AnimatePresence>
-        {sparkling && (
-          <div className="pointer-events-none absolute inset-0">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <motion.span
-                key={i}
-                className="absolute text-sm"
-                style={{ left: `${20 + i * 12}%`, top: "50%" }}
-                initial={{ opacity: 0, scale: 0.4, y: 0 }}
-                animate={{ opacity: [0, 1, 0], scale: 1, y: -30 - (i % 3) * 10, x: (i - 3) * 8 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.8, delay: i * 0.04, ease: "easeOut" }}
-              >
-                ✨
-              </motion.span>
-            ))}
-          </div>
-        )}
-      </AnimatePresence>
-    </motion.button>
   );
 }
 

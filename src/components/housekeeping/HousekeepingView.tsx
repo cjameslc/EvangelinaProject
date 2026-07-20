@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
+import { HousekeepingChallengeCard } from "./HousekeepingChallengeCard";
 
 // Business runs in Manila (UTC+8), but this component renders both on the
 // server (Vercel functions run in UTC) and the client (browser's local
@@ -226,6 +227,8 @@ export function HousekeepingView({
           {canEdit && (shift ? <button onClick={clockOut} className="btn">Clock out</button> : <button onClick={clockIn} className="btn" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Clock in</button>)}
         </div>
       </div>
+
+      {role === "HOUSEKEEPING" && <HousekeepingChallengeCard />}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Cleaned this week" value={cleanedThisWeek} sub="last 7 days" />

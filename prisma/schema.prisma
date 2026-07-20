@@ -147,6 +147,7 @@ model Employee {
   targetedExpenses    WeeklyExpense[]
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
+  eliteCleanerAwards  EliteCleanerAward[]
   expenseRequests     ExpenseRequest[]
   payrollPayments     PayrollPayment[]
   achievements        EmployeeAchievement[]
@@ -177,6 +178,26 @@ model EliteBookerAward {
 
   @@unique([employeeId, month, tier])
   @@map("elite_booker_awards")
+}
+
+// Monthly Elite Housekeeper Challenge — the same company-wide, limited-slot
+// milestone system as EliteBookerAward above, but keyed off distinct
+// cleaning days this month (5/10/15/20/25) instead of completed bookings.
+// Same reward amounts, slot counts, and "paid once, never reassigned"
+// guarantee — see EliteBookerAward's comment for the full rationale.
+model EliteCleanerAward {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month       DateTime // first-of-month marker, matching Bill.month's convention
+  tier        Int // 5 | 10 | 15 | 20 | 25 (distinct cleaning days)
+  amount      Int // 500 | 1500 | 2500 | 3500 | 5000
+  slotRank    Int // 1st or 2nd employee to reach this tier that month (always 1 for Platinum/Legend)
+  completedAt DateTime // when the tier-crossing day's first cleaning session started — the tiebreaker
+  createdAt   DateTime @default(now())
+
+  @@unique([employeeId, month, tier])
+  @@map("elite_cleaner_awards")
 }
 
 // Append-only log of monthlySalary changes, so a report for a past period
