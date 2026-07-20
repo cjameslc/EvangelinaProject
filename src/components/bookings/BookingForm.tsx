@@ -66,7 +66,7 @@ function addUtcDays(iso: string, days: number) {
 }
 
 export function BookingForm({
-  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking",
+  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null,
 }: {
   units: Unit[];
   employees: Employee[];
@@ -77,8 +77,20 @@ export function BookingForm({
   onSubmit: (v: BookingFormValue) => Promise<void> | void;
   onCancel?: () => void;
   submitLabel?: string;
+  /** The logged-in user's own Employee id. When creating a brand-new
+   * booking (no bookingId) and this is set, the Booker field auto-fills to
+   * it and is locked — whoever logs the booking is the booker, not a
+   * pickable field. Editing an existing booking is unaffected. */
+  ownEmployeeId?: string | null;
 }) {
-  const [v, setV] = useState<BookingFormValue>({ ...EMPTY, dpAmount: defaultDpFee ?? EMPTY.dpAmount, ...initial });
+  const isCreate = !bookingId;
+  const lockBooker = isCreate && !!ownEmployeeId;
+
+  function makeInitialValue(base?: Partial<BookingFormValue>): BookingFormValue {
+    return { ...EMPTY, dpAmount: defaultDpFee ?? EMPTY.dpAmount, ...base, ...(lockBooker ? { bookerId: ownEmployeeId! } : null) };
+  }
+
+  const [v, setV] = useState<BookingFormValue>(() => makeInitialValue(initial));
   const [guestInput, setGuestInput] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -89,8 +101,9 @@ export function BookingForm({
   const [checkingConflict, setCheckingConflict] = useState(false);
 
   useEffect(() => {
-    setV({ ...EMPTY, dpAmount: defaultDpFee ?? EMPTY.dpAmount, ...initial });
+    setV(makeInitialValue(initial));
     setCheckOutTouched(!!initial?.checkOutDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, defaultDpFee]);
 
   function selectStayType(type: BookingFormValue["stayType"]) {
@@ -201,7 +214,7 @@ export function BookingForm({
     setSaving(true);
     try {
       await onSubmit(v);
-      setV(EMPTY);
+      setV(makeInitialValue());
     } finally {
       setSaving(false);
     }
@@ -354,15 +367,26 @@ export function BookingForm({
 
         <div className="sm:col-span-2">
           <label className="field-label">Booker <span className="text-rausch">*</span></label>
-          <select value={v.bookerId} onChange={(e) => set("bookerId", e.target.value)} className="field-input mt-1.5">
-            <option value="">— Select —</option>
-            {/* Staff whose Admin-assigned role is Booker or Housekeeping —
-                plus the currently selected person even if their role no
-                longer matches, so editing an older booking never silently
-                drops its booker. */}
-            {employees.filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          {err("bookerId")}
+          {lockBooker ? (
+            <>
+              <div className="field-input mt-1.5 flex items-center bg-[var(--bg-2)] font-semibold">
+                {employees.find((e) => e.id === v.bookerId)?.name ?? "You"}
+              </div>
+              <p className="mt-1 text-[12px] text-[var(--gray)]">Automatically set to you — whoever logs a booking is its booker.</p>
+            </>
+          ) : (
+            <>
+              <select value={v.bookerId} onChange={(e) => set("bookerId", e.target.value)} className="field-input mt-1.5">
+                <option value="">— Select —</option>
+                {/* Staff whose Admin-assigned role is Booker or Housekeeping —
+                    plus the currently selected person even if their role no
+                    longer matches, so editing an older booking never silently
+                    drops its booker. */}
+                {employees.filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+              {err("bookerId")}
+            </>
+          )}
         </div>
 
         <div className="sm:col-span-2">

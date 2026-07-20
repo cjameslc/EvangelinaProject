@@ -11,7 +11,7 @@ export default async function BookingsPage() {
   if (!canSeeBookings(user.role)) redirect("/");
 
   const where = unitWhere(user);
-  const [units, employees, bookings, settings] = await Promise.all([
+  const [units, employees, bookings, settings, ownEmployee] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prismaPool[2].booking.findMany({
@@ -26,6 +26,7 @@ export default async function BookingsPage() {
       },
     }),
     prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[4].employee.findUnique({ where: { userId: user.id }, select: { id: true } }),
   ]);
 
   return (
@@ -35,6 +36,7 @@ export default async function BookingsPage() {
       employees={JSON.parse(JSON.stringify(employees))}
       initialBookings={JSON.parse(JSON.stringify(bookings))}
       defaultDpFee={settings.dpFee}
+      ownEmployeeId={ownEmployee?.id ?? null}
     />
   );
 }

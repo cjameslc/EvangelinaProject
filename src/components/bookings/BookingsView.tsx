@@ -44,7 +44,7 @@ function effectiveRange(b: Booking) {
   return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
 }
 
-export function BookingsView({ role, units, employees, initialBookings, defaultDpFee }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number }) {
+export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null }) {
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
@@ -370,7 +370,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           </div>
           <Accordion key={logAccordionKey} title="Log new booking" sub="tap to expand" defaultOpen={!!bookingPrefill || forceLogOpen}>
             <div id="log-new-booking-anchor" />
-            <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} initial={bookingPrefill ?? undefined} />
+            <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} initial={bookingPrefill ?? undefined} ownEmployeeId={ownEmployeeId} />
           </Accordion>
         </>
       )}
