@@ -7,12 +7,10 @@ import autoTable from "jspdf-autotable";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
-import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon, PlusIcon, EditIcon, TrashIcon } from "@/components/ui/Icons";
+import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
@@ -87,7 +85,7 @@ export function DashboardView({
   bills,
   hkStates,
   earningsBookings,
-  weeklyExpenses: initialWeeklyExpenses,
+  weeklyExpenses,
   attentionFindings,
   stocks,
   salaryHistory,
@@ -107,11 +105,6 @@ export function DashboardView({
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
-  const [weeklyExpenses, setWeeklyExpenses] = useState(initialWeeklyExpenses);
-  async function refreshWeeklyExpenses() {
-    const res = await fetch("/api/weekly-expenses");
-    if (res.ok) setWeeklyExpenses(await res.json());
-  }
 
   // Only count the remaining-balance amount once it's actually paid — an
   // unpaid balance isn't collected revenue yet, same convention already
@@ -185,22 +178,16 @@ export function DashboardView({
   );
   const upcomingStaffSalary = Math.max(0, monthlyStaffSalary - accruedStaffSalary);
 
-  // TikTok Ads is a pure operational expense — deducted from Net Profit
+  // TikTok Ads is a pure operational expense — deducted from Realized profit
   // like a paid bill, but never touches anyone's payroll (it's always
-  // untargeted, enforced server-side too).
+  // untargeted, enforced server-side too). Logged/edited from Admin's
+  // Weekly report tab now, not here — this is just the month total still
+  // needed for the profit calc below.
   const thisMonthIsoForAds = dayOf(new Date()).slice(0, 7);
-  const tikTokAdsThisMonth = useMemo(
-    () => weeklyExpenses.filter((e) => e.category === "TIKTOK_ADS" && e.date.slice(0, 7) === thisMonthIsoForAds),
+  const tikTokAdsMonthTotal = useMemo(
+    () => weeklyExpenses.filter((e) => e.category === "TIKTOK_ADS" && e.date.slice(0, 7) === thisMonthIsoForAds).reduce((s, e) => s + e.amount, 0),
     [weeklyExpenses, thisMonthIsoForAds]
   );
-  const tikTokAdsMonthTotal = tikTokAdsThisMonth.reduce((s, e) => s + e.amount, 0);
-  const tikTokAdsWeekTotal = useMemo(() => {
-    const { start, end } = periodRangeFor("weekly", 0);
-    return weeklyExpenses
-      .filter((e) => e.category === "TIKTOK_ADS")
-      .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= start && d < end; })
-      .reduce((s, e) => s + e.amount, 0);
-  }, [weeklyExpenses]);
 
   // Realized vs Forecast — the two figures replace the old single "Net
   // profit," which mixed money already earned/spent with money that was
@@ -922,17 +909,21 @@ export function DashboardView({
               softer "worth a look," not an alarm. Occupancy/RevPAR/ADR
               can't mathematically go negative, so they never get either. */}
           <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution" />
-          {/* Always amber, not just when negative — a projection, never mistaken for actual money. */}
-          <StatCard label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" warn tone="caution" />
+          <StatCard label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" projected />
           <StatCard label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={marginRaw < 0} tone="caution" />
           <StatCard label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution" />
           <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} />
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" />
           <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" />
         </div>
-        <p className="mt-3 text-[11.5px] text-[var(--gray)]">
-          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. Realized profit, Profit margin, and Cash flow always show <b>₱0</b> instead of a negative number — an amber border still flags a period where costs actually outpaced revenue, but the headline figure never goes below zero. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
-        </p>
+        <div className="mt-3 space-y-1.5 text-[11.5px] text-[var(--gray)]">
+          <p>
+            <b>Realized profit</b> counts completed stays, <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}), and payroll accrued so far ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — not pending/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) or the {peso(upcomingStaffSalary)} of payroll still to come.
+          </p>
+          <p>
+            Realized profit, Profit margin, and Cash flow always show <b>₱0</b> instead of negative — an amber border still flags a period where costs outpaced revenue. <b>Forecast profit</b> projects every booking&rsquo;s full value against those same not-yet-real costs — for planning, not money in hand.
+          </p>
+        </div>
       </Accordion>
 
       <Accordion title="Stay mix" sub={`${stayTotal} bookings`}>
@@ -1073,139 +1064,6 @@ export function DashboardView({
           </div>
         </div>
       </Accordion>
-
-      <Accordion title="TikTok Ads" sub="operational expense — not payroll">
-        <TikTokAdsWidget
-          entries={[...tikTokAdsThisMonth].sort((a, b) => b.date.localeCompare(a.date))}
-          weekTotal={tikTokAdsWeekTotal}
-          monthTotal={tikTokAdsMonthTotal}
-          canEdit={role === "OWNER_ADMIN"}
-          onChanged={refreshWeeklyExpenses}
-        />
-      </Accordion>
     </div>
-  );
-}
-
-type TikTokAdEntry = { id: string; date: string; amount: number; note: string; addedBy: { id: string; name: string } | null };
-
-function TikTokAdsWidget({
-  entries, weekTotal, monthTotal, canEdit, onChanged,
-}: {
-  entries: TikTokAdEntry[];
-  weekTotal: number;
-  monthTotal: number;
-  canEdit: boolean;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<TikTokAdEntry | null>(null);
-
-  async function removeEntry(id: string) {
-    if (!confirm("Remove this TikTok Ads expense entry?")) return;
-    const res = await fetch(`/api/weekly-expenses/${id}`, { method: "DELETE" });
-    if (!res.ok) { toast("Couldn't remove entry", true); return; }
-    toast("Removed");
-    onChanged();
-  }
-
-  return (
-    <div>
-      <p className="mb-3 text-[12.5px] text-[var(--gray)]">Manual weekly ad spend — deducted from Net Profit as an operational expense, never from anyone&rsquo;s payroll.</p>
-      <div className="mb-3 grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-[var(--line)] p-3 text-center">
-          <div className="text-lg font-extrabold">{peso(weekTotal)}</div>
-          <div className="text-[10.5px] font-bold uppercase text-[var(--gray)]">This week</div>
-        </div>
-        <div className="rounded-xl border border-[var(--line)] p-3 text-center">
-          <div className="text-lg font-extrabold">{peso(monthTotal)}</div>
-          <div className="text-[10.5px] font-bold uppercase text-[var(--gray)]">This month</div>
-        </div>
-      </div>
-
-      {canEdit && (
-        <button onClick={() => setAdding(true)} className="btn btn-sm mb-3">
-          <PlusIcon className="h-3.5 w-3.5" /> Log ad spend
-        </button>
-      )}
-
-      <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
-        {entries.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No TikTok Ads spend logged this month.</p>}
-        {entries.map((e) => (
-          <div key={e.id} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
-            <div className="min-w-0 flex-1">
-              <div className="text-[13.5px] font-bold">{peso(e.amount)}</div>
-              <div className="truncate text-[11.5px] text-[var(--gray)]">
-                {fmtDate(e.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}
-                {e.note && e.note !== "TikTok Ads" && ` · ${e.note}`}
-                {e.addedBy && ` · added by ${e.addedBy.name}`}
-              </div>
-            </div>
-            {canEdit && (
-              <div className="flex flex-none gap-0.5">
-                <button onClick={() => setEditing(e)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Edit"><EditIcon className="h-4 w-4" /></button>
-                <button onClick={() => removeEntry(e.id)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove"><TrashIcon className="h-4 w-4" /></button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {(adding || editing) && (
-        <TikTokAdModal
-          initial={editing}
-          onClose={() => { setAdding(false); setEditing(null); }}
-          onSaved={() => { setAdding(false); setEditing(null); onChanged(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function TikTokAdModal({ initial, onClose, onSaved }: { initial: TikTokAdEntry | null; onClose: () => void; onSaved: () => void }) {
-  const toast = useToast();
-  const [date, setDate] = useState(initial ? initial.date.slice(0, 10) : new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState<number | null>(initial?.amount ?? null);
-  const [notes, setNotes] = useState(initial && initial.note !== "TikTok Ads" ? initial.note : "");
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    if (!amount || amount <= 0) { toast("Enter an amount", true); return; }
-    setSaving(true);
-    const body = { date, amount, note: notes.trim() || "TikTok Ads", category: "TIKTOK_ADS" as const };
-    const res = await fetch(initial ? `/api/weekly-expenses/${initial.id}` : "/api/weekly-expenses", {
-      method: initial ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setSaving(false);
-    if (!res.ok) { toast("Couldn't save", true); return; }
-    onSaved();
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={initial ? "Edit TikTok ad spend" : "Log TikTok ad spend"}
-      maxWidth={360}
-      footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={save} disabled={saving} className="btn-primary ml-auto">{saving ? "Saving…" : "Save"}</button></>}
-    >
-      <div className="space-y-4">
-        <div>
-          <label className="field-label">Week (date)</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1.5" />
-        </div>
-        <div>
-          <label className="field-label">Amount (₱)</label>
-          <input type="number" value={amount ?? ""} onChange={(e) => setAmount(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 500" />
-        </div>
-        <div>
-          <label className="field-label">Notes (optional)</label>
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field-input mt-1.5" placeholder="e.g. boosted post campaign" />
-        </div>
-      </div>
-    </Modal>
   );
 }

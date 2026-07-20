@@ -56,7 +56,14 @@ export default async function AdminPage() {
       },
     }),
     prismaPool[5].employee.findMany({ where: { active: true } }),
-    prismaPool[6].weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } } } }),
+    prismaPool[6].weeklyExpense.findMany({
+      orderBy: { date: "desc" },
+      take: 300,
+      include: {
+        targetEmployee: { select: { id: true, name: true, role: true } },
+        addedBy: { select: { id: true, name: true } },
+      },
+    }),
     prismaPool[7].cleaningLog.findMany({ orderBy: { startedAt: "desc" }, take: 500, select: { id: true, employeeId: true, unitId: true, startedAt: true } }),
     // Feeds the "Bills" tab — same shape BillsPanel already expects from Housekeeping.
     prismaPool[8].bill.findMany({ where: { month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/ui/StatCard";
-import { ArrowLeftIcon, ArrowRightIcon, EditIcon, TrashIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { Modal } from "@/components/ui/Modal";
+import { ArrowLeftIcon, ArrowRightIcon, EditIcon, TrashIcon, ChevronDownIcon, PlusIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, initials, manilaWeekRange } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, ROLE_LABEL } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -18,7 +19,7 @@ type Booking = {
   booker: Person | null; receivedBy: Person | null; dpReceivedBy: Person | null; cleaner: Person | null;
 };
 type Employee = { id: string; name: string; role: string };
-type Expense = { id: string; date: string; amount: number; note: string; targetEmployee: Employee | null };
+type Expense = { id: string; date: string; amount: number; note: string; category?: string; targetEmployee: Employee | null; addedBy?: { id: string; name: string } | null };
 type CleaningLogRow = { id: string; employeeId: string | null; startedAt: string };
 
 const AVATAR_COLORS = ["bg-rausch", "bg-teal", "bg-violet", "bg-amber", "bg-blue", "bg-green"];
@@ -66,12 +67,23 @@ export function WeeklyReport({
     });
   }, [bookings, start, end]);
 
+  // TikTok Ads is a separate operational expense bucket (never payroll,
+  // never counted in "Manual weekly expenses"/"Adjusted paid" below) — kept
+  // out of weekExpenses here and shown in its own card further down.
   const weekExpenses = useMemo(() => {
     return expenses.filter((e) => {
+      if (e.category === "TIKTOK_ADS") return false;
       const d = new Date(dayOf(new Date(e.date)));
       return d >= start && d < end;
     });
   }, [expenses, start, end]);
+
+  const tikTokWeekExpenses = useMemo(() => {
+    return expenses
+      .filter((e) => e.category === "TIKTOK_ADS")
+      .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= start && d < end; });
+  }, [expenses, start, end]);
+  const tikTokWeekTotal = tikTokWeekExpenses.reduce((s, e) => s + e.amount, 0);
 
   const totalGuests = weekBookings.reduce((s, b) => s + guestCount(b), 0);
   const totalRevenue = weekBookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount ?? 0), 0);
@@ -263,6 +275,11 @@ export function WeeklyReport({
         onChanged={refreshExpenses}
       />
 
+      <div className="card p-5">
+        <h2 className="text-[15px] font-extrabold">TikTok Ads</h2>
+        <TikTokAdsCard entries={tikTokWeekExpenses} weekTotal={tikTokWeekTotal} canEdit={canEditExpenses} onChanged={refreshExpenses} />
+      </div>
+
       <div className="card overflow-hidden p-0">
         <div className="flex items-center justify-between p-5 pb-0">
           <h2 className="text-[15px] font-extrabold">Your team</h2>
@@ -451,5 +468,126 @@ function WeeklyExpensesCard({
         </div>
       )}
     </div>
+  );
+}
+
+type TikTokAdEntry = { id: string; date: string; amount: number; note: string; addedBy?: { id: string; name: string } | null };
+
+// Moved here from the Dashboard, which used to be the only place to log/edit/
+// remove TikTok ad spend — this is now that place. Still a pure operational
+// expense (never payroll), deducted from Realized profit on the Dashboard.
+function TikTokAdsCard({
+  entries, weekTotal, canEdit, onChanged,
+}: {
+  entries: TikTokAdEntry[];
+  weekTotal: number;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<TikTokAdEntry | null>(null);
+  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+
+  async function removeEntry(id: string) {
+    if (!confirm("Remove this TikTok Ads expense entry?")) return;
+    const res = await fetch(`/api/weekly-expenses/${id}`, { method: "DELETE" });
+    if (!res.ok) { toast("Couldn't remove entry", true); return; }
+    toast("Removed");
+    onChanged();
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-[12.5px] text-[var(--gray)]">Manual ad spend — deducted from Realized profit as an operational expense, never from anyone&rsquo;s payroll.</p>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="rounded-xl border border-[var(--line)] p-3 text-center">
+          <div className="text-lg font-extrabold">{peso(weekTotal)}</div>
+          <div className="text-[10.5px] font-bold uppercase text-[var(--gray)]">This week</div>
+        </div>
+        {canEdit && (
+          <button onClick={() => setAdding(true)} className="btn btn-sm">
+            <PlusIcon className="h-3.5 w-3.5" /> Log ad spend
+          </button>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+        {sorted.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No TikTok Ads spend logged this week.</p>}
+        {sorted.map((e) => (
+          <div key={e.id} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-bold">{peso(e.amount)}</div>
+              <div className="truncate text-[11.5px] text-[var(--gray)]">
+                {fmtDate(e.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}
+                {e.note && e.note !== "TikTok Ads" && ` · ${e.note}`}
+                {e.addedBy && ` · added by ${e.addedBy.name}`}
+              </div>
+            </div>
+            {canEdit && (
+              <div className="flex flex-none gap-0.5">
+                <button onClick={() => setEditing(e)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]" aria-label="Edit"><EditIcon className="h-4 w-4" /></button>
+                <button onClick={() => removeEntry(e.id)} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Remove"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {(adding || editing) && (
+        <TikTokAdModal
+          initial={editing}
+          onClose={() => { setAdding(false); setEditing(null); }}
+          onSaved={() => { setAdding(false); setEditing(null); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TikTokAdModal({ initial, onClose, onSaved }: { initial: TikTokAdEntry | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [date, setDate] = useState(initial ? initial.date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState<number | null>(initial?.amount ?? null);
+  const [notes, setNotes] = useState(initial && initial.note !== "TikTok Ads" ? initial.note : "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!amount || amount <= 0) { toast("Enter an amount", true); return; }
+    setSaving(true);
+    const body = { date, amount, note: notes.trim() || "TikTok Ads", category: "TIKTOK_ADS" as const };
+    const res = await fetch(initial ? `/api/weekly-expenses/${initial.id}` : "/api/weekly-expenses", {
+      method: initial ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setSaving(false);
+    if (!res.ok) { toast("Couldn't save", true); return; }
+    onSaved();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={initial ? "Edit TikTok ad spend" : "Log TikTok ad spend"}
+      maxWidth={360}
+      footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={save} disabled={saving} className="btn-primary ml-auto">{saving ? "Saving…" : "Save"}</button></>}
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="field-label">Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1.5" />
+        </div>
+        <div>
+          <label className="field-label">Amount (₱)</label>
+          <input type="number" value={amount ?? ""} onChange={(e) => setAmount(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label className="field-label">Notes (optional)</label>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field-input mt-1.5" placeholder="e.g. boosted post campaign" />
+        </div>
+      </div>
+    </Modal>
   );
 }
