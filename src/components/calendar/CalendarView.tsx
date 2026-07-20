@@ -30,6 +30,16 @@ const TYPE_META: Record<string, { label: string; color: string; icon: string; te
   Maintenance: { label: "Maintenance", color: "#C87D00", icon: "🔧" },
 };
 
+// A Cleaning block starts open-ended (endDate: null) while housekeeping is
+// actively working, then gets closed off with an endDate the moment they
+// mark the unit clean (see closeCleaningCalendarBlock in calendarMirror.ts)
+// — surfaced here as a distinct color/icon so "still cleaning" vs "done"
+// is obvious on the grid at a glance, not just in the tile's tooltip text.
+const CLEANING_DONE = { label: "Cleaned", color: "#008A05", icon: "✅" };
+function cleaningVisual(b: { type: string; endDate: string | null }) {
+  return b.type === "Cleaning" && b.endDate ? CLEANING_DONE : null;
+}
+
 const PLATFORM_ICON: Record<string, string> = { Airbnb: "🏠", TikTok: "🎵", Facebook: "📘", WalkIn: "🚶", Direct: "📞", Other: "🌐" };
 
 // Airbnb bookings get their own dedicated tile color — rausch, the app's
@@ -414,6 +424,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         {Object.entries(TYPE_META).map(([k, m]) => (
           <span key={k} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: m.color }} />{m.icon} {m.label}</span>
         ))}
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: CLEANING_DONE.color }} />{CLEANING_DONE.icon} {CLEANING_DONE.label}</span>
         <span className="h-4 w-px bg-[var(--line)]" />
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: AIRBNB_COLOR }} />🏠 Airbnb (always 21-Hour)</span>
         <span className="h-4 w-px bg-[var(--line)]" />
@@ -479,7 +490,8 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                         const b = bar.block;
                         const meta = TYPE_META[b.type];
                         const isAirbnb = b.booking?.platform === "Airbnb";
-                        const tileColor = isAirbnb ? AIRBNB_COLOR : meta?.color ?? "#999";
+                        const done = cleaningVisual(b);
+                        const tileColor = isAirbnb ? AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999";
                         const isDaycation = b.type === "Daycation";
                         const isHalf = bar.half !== "full";
                         const nights = b.booking && !isDaycation ? nightsFor(b.type, new Date(b.date), b.endDate ? new Date(b.endDate) : null) : 0;
@@ -490,8 +502,8 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                             key={b.id}
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setSelected(b); }}
-                            title={`${b.guest ?? meta?.label ?? b.type}${b.note ? ` — ${b.note}` : ""}${b.booking ? ` — ${b.booking.paid ? "Paid" : "Unpaid"}` : ""} — click for details`}
-                            aria-label={`${b.guest ?? meta?.label ?? b.type}, ${meta?.label ?? b.type}${b.booking ? `, ${b.booking.paid ? "paid" : "unpaid"}` : ""}, click for details`}
+                            title={`${b.guest ?? done?.label ?? meta?.label ?? b.type}${b.note ? ` — ${b.note}` : ""}${b.booking ? ` — ${b.booking.paid ? "Paid" : "Unpaid"}` : ""} — click for details`}
+                            aria-label={`${b.guest ?? done?.label ?? meta?.label ?? b.type}, ${done?.label ?? meta?.label ?? b.type}${b.booking ? `, ${b.booking.paid ? "paid" : "unpaid"}` : ""}, click for details`}
                             className={cn(
                               "pointer-events-auto absolute flex cursor-pointer flex-col justify-center gap-px overflow-hidden px-1.5 text-left text-white shadow-s transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)]",
                               bar.isTrueStart && "rounded-l-md",
@@ -512,7 +524,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                               />
                             )}
                             <div className={cn("flex w-full items-center gap-1 truncate font-extrabold leading-tight", isHalf ? "text-[9.5px]" : "text-[11px]")}>
-                              <span className="flex-none">{meta?.icon}</span>
+                              <span className="flex-none">{done?.icon ?? meta?.icon}</span>
                               {b.booking && !isHalf && <span className="flex-none">{PLATFORM_ICON[b.booking.platform]}</span>}
                               <span className="truncate">{b.guest || meta?.label || b.type}</span>
                             </div>
@@ -575,15 +587,16 @@ function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () =
   const meta = TYPE_META[b.type];
   const isAirbnb = b.booking?.platform === "Airbnb";
   const isDaycation = b.type === "Daycation";
+  const done = cleaningVisual(b);
   const nights = !isDaycation ? nightsFor(b.type, new Date(b.date), b.endDate ? new Date(b.endDate) : null) : 0;
   const bk = b.booking;
 
   return (
-    <Modal open onClose={onClose} title={b.guest ?? meta?.label ?? b.type} sub={unitLabel(b.unit)} maxWidth={440}>
+    <Modal open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={unitLabel(b.unit)} maxWidth={440}>
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? AIRBNB_COLOR : meta?.color ?? "#999" }}>
-            {meta?.icon} {meta?.label ?? b.type}
+          <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999" }}>
+            {done?.icon ?? meta?.icon} {done?.label ?? meta?.label ?? b.type}
           </span>
           {bk && (
             <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", isAirbnb ? "text-white" : "bg-[var(--bg-2)]")} style={isAirbnb ? { background: AIRBNB_COLOR } : undefined}>
