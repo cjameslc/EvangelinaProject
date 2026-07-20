@@ -59,6 +59,16 @@ function smartSchedule(type: BookingFormValue["stayType"], checkInDate: string) 
   return { checkInTime: "", checkOutTime: "", checkOutDate: "" };
 }
 
+/** Formats a guest name as Title Case (first letter of every space-separated
+ * word capitalized) so entries stay consistent regardless of how staff type
+ * them in — "juan dela cruz" / "JUAN DELA CRUZ" both become "Juan Dela Cruz". */
+function titleCase(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+
 function addUtcDays(iso: string, days: number) {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -186,7 +196,7 @@ export function BookingForm({
   }
 
   function addGuest() {
-    const name = guestInput.trim().replace(/,$/, "");
+    const name = titleCase(guestInput.trim().replace(/,$/, ""));
     if (!name) return;
     set("guests", [...v.guests, name]);
     setGuestInput("");
