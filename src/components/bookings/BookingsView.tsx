@@ -24,8 +24,8 @@ type Booking = {
   checkInTime: string | null; checkOutTime: string | null; guests: string[]; pax: number | null;
   contactNumber: string; bookerId: string | null; booker: Employee | null; cleanerId: string | null; cleaner: Employee | null;
   platform: string; platformOther: string | null;
-  dpAmount: number | null; dpReceivedById: string | null; dpReceivedBy: Employee | null; dpMethod: string | null; dpProofUrl: string | null;
-  amount: number; receivedById: string | null; receivedBy: Employee | null; method: string | null; proofUrl: string | null; paid: boolean;
+  dpAmount: number | null; dpReceivedById: string | null; dpReceivedBy: Employee | null; dpMethod: string | null;
+  amount: number; receivedById: string | null; receivedBy: Employee | null; method: string | null; paid: boolean;
   source?: string; conflict?: boolean;
 };
 

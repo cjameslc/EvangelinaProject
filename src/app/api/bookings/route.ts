@@ -9,10 +9,17 @@ export async function GET(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
 
+  // Explicit select — same fix as the initial page load (src/app/bookings/page.tsx):
+  // this is what BookingsView's refresh() re-fetches after every create/edit/
+  // delete, so leaving proofUrl/dpProofUrl out here matters just as much.
   const bookings = await prisma.booking.findMany({
     where: unitWhere(user),
     orderBy: { date: "desc" },
-    include: {
+    select: {
+      id: true, unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true,
+      guests: true, pax: true, contactNumber: true, bookerId: true, cleanerId: true, platform: true, platformOther: true,
+      dpAmount: true, dpReceivedById: true, dpMethod: true, amount: true, receivedById: true, method: true, paid: true,
+      source: true, conflict: true,
       unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },
       booker: { select: { id: true, name: true } },
       cleaner: { select: { id: true, name: true } },

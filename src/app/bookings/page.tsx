@@ -14,10 +14,20 @@ export default async function BookingsPage() {
   const [units, employees, bookings, settings, ownEmployee] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    // Explicit select — BookingsView never reads proofUrl/dpProofUrl (the
+    // base64-encoded receipt images, only ever uploaded via the edit form
+    // and never displayed back), yet `include` was pulling them for every
+    // booking on every page load. With real receipts attached this alone
+    // was 6MB+ for a business with a literal handful of bookings — same fix
+    // already applied to the Dashboard and Admin's booking reads.
     prismaPool[2].booking.findMany({
       where,
       orderBy: { date: "desc" },
-      include: {
+      select: {
+        id: true, unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true,
+        guests: true, pax: true, contactNumber: true, bookerId: true, cleanerId: true, platform: true, platformOther: true,
+        dpAmount: true, dpReceivedById: true, dpMethod: true, amount: true, receivedById: true, method: true, paid: true,
+        source: true, conflict: true,
         unit: { select: { id: true, name: true, unitNumber: true, shortName: true, nightlyRate: true, owners: { include: { user: { select: { name: true } } } } } },
         booker: { select: { id: true, name: true } },
         cleaner: { select: { id: true, name: true } },
