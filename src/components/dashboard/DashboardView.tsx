@@ -19,7 +19,7 @@ type Unit = { id: string; name: string; shortName: string; unitNumber: string; n
 type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
-type HkState = { unitId: string; status: string; unit: Unit };
+type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };
 type WeeklyExpenseRow = { id: string; date: string; createdAt?: string; amount: number; note: string; category?: "GENERAL" | "TIKTOK_ADS"; targetEmployee: Employee | null; addedBy: { id: string; name: string } | null };
 
 // "Needs your attention" card — a lightweight cross-section of open Auditor
@@ -392,8 +392,50 @@ export function DashboardView({
   });
   const lowStock = stocks.filter((s) => s.count <= LOW_STOCK_THRESHOLD);
 
+  // Late cleaning — a unit whose most recent checkout hasn't been cleaned
+  // yet AND already has a future guest booked in, so whoever arrives next
+  // is the one who'll notice if it slips. Checked against cleanedBookingIds
+  // (not the coarse HousekeepingUnitState.status alone) — same rule the
+  // Housekeeping page itself uses, since a same-day second checkout can
+  // leave status reading "clean" from an earlier, already-finished one.
+  // "Not yet started" excludes status "cleaning" — staff already on it
+  // isn't late, just in progress.
+  const lateCleaningUnits = useMemo(() => {
+    const now = Date.now();
+    const results: { unit: Unit; checkoutAt: Date; nextCheckInAt: Date }[] = [];
+    for (const unit of units) {
+      const unitBookings = bookingsWeek.filter((b) => b.unitId === unit.id);
+      const hk = hkStates.find((h) => h.unitId === unit.id);
+      const cleanedIds = hk?.cleanedBookingIds ?? [];
+      const pendingCheckout = unitBookings
+        .filter((b) => new Date(b.checkOutDate ?? b.date).getTime() <= now && !cleanedIds.includes(b.id))
+        .sort((a, b) => +new Date(a.checkOutDate ?? a.date) - +new Date(b.checkOutDate ?? b.date))[0];
+      if (!pendingCheckout || hk?.status === "cleaning") continue;
+      const nextCheckIn = unitBookings
+        .filter((b) => new Date(b.date).getTime() > now)
+        .sort((a, b) => +new Date(a.date) - +new Date(b.date))[0];
+      if (!nextCheckIn) continue;
+      results.push({ unit, checkoutAt: new Date(pendingCheckout.checkOutDate ?? pendingCheckout.date), nextCheckInAt: new Date(nextCheckIn.date) });
+    }
+    return results;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [units, bookingsWeek, hkStates]);
+
   const attentionItems = useMemo(() => {
     const items: { id: string; dot: string; title: string; desc: string; tag: string }[] = [];
+
+    if (lateCleaningUnits.length > 0) {
+      const desc = lateCleaningUnits
+        .map((u) => `${u.unit.shortName} — checked out ${fmtDate(u.checkoutAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}, next guest ${fmtDate(u.nextCheckInAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}`)
+        .join("; ");
+      items.push({
+        id: "attn-late-cleaning",
+        dot: "bg-rausch",
+        title: `${lateCleaningUnits.length} unit${lateCleaningUnits.length === 1 ? "" : "s"} ${lateCleaningUnits.length === 1 ? "needs" : "need"} cleaning before the next guest`,
+        desc,
+        tag: "Housekeeping",
+      });
+    }
 
     attentionFindings.forEach((f) => {
       items.push({
@@ -422,7 +464,7 @@ export function DashboardView({
 
     return items.slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attentionFindings, overdueBillsForAttention, lowStock]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
