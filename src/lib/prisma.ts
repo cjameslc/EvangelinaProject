@@ -4,7 +4,10 @@ import { createClient } from "@libsql/client";
 
 // Reuse the client (and the underlying libSQL connection) across hot
 // reloads in dev so we don't open a fresh connection on every file save.
-const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof makePrismaClient> };
+const globalForPrisma = globalThis as unknown as {
+  prisma?: ReturnType<typeof makePrismaClient>;
+  prismaPool?: ReturnType<typeof makePrismaClient>[];
+};
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;
@@ -112,4 +115,19 @@ function makePrismaClient() {
 
 export const prisma = globalForPrisma.prisma ?? makePrismaClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// @prisma/adapter-libsql serializes every query issued on a given client
+// behind an internal mutex — so Promise.all-ing many independent reads
+// through the single `prisma` client above still runs them one network
+// round-trip at a time (measured ~2-3x slower, and up to 8x for larger fan
+// -outs, vs spreading the same reads across separate client instances).
+// Pages that fan out many independent reads in one Promise.all (Dashboard,
+// Admin, Bookings) should pull from this pool instead — prismaPool[i %
+// prismaPool.length] per query — to get real concurrency. Keep using
+// `prisma` for everything else (writes, single reads, transactions).
+const READ_POOL_SIZE = 13;
+export const prismaPool: ReturnType<typeof makePrismaClient>[] = globalForPrisma.prismaPool ?? Array.from({ length: READ_POOL_SIZE }, () => makePrismaClient());
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+  globalForPrisma.prismaPool = prismaPool;
+}

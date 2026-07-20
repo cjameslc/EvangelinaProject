@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { dashboardUnitWhere, dashboardUnitIdWhere } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
@@ -42,22 +42,22 @@ export default async function DashboardPage() {
     const findingsWhere = unitFilter ? { OR: [{ unitId: unitFilter }, { unitId: null }] } : {};
 
     const res = await Promise.all([
-      prisma.unit.findMany({ where: dashboardUnitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
-      prisma.booking.findMany({ where: { ...where, date: { gte: weekAgo } }, include: { unit: true } }),
-      prisma.booking.findMany({ where: { ...where, date: { gte: monthStart, lt: nextMonthStart } } }),
-      prisma.employee.findMany({ where: { active: true } }),
-      prisma.bill.findMany({ where: { ...where, month: monthStart }, include: { unit: true } }),
-      prisma.housekeepingUnitState.findMany({ where, include: { unit: true } }),
+      prismaPool[0].unit.findMany({ where: dashboardUnitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
+      prismaPool[1].booking.findMany({ where: { ...where, date: { gte: weekAgo } }, include: { unit: true } }),
+      prismaPool[2].booking.findMany({ where: { ...where, date: { gte: monthStart, lt: nextMonthStart } } }),
+      prismaPool[3].employee.findMany({ where: { active: true } }),
+      prismaPool[4].bill.findMany({ where: { ...where, month: monthStart }, include: { unit: true } }),
+      prismaPool[5].housekeepingUnitState.findMany({ where, include: { unit: true } }),
       // A broad, unwindowed set so the Earnings card can filter by an
       // arbitrary Weekly/Monthly/Yearly period client-side instead of only
       // the fixed last-7-days/month-to-date slices above.
-      prisma.booking.findMany({ where, orderBy: { date: "desc" }, take: 500 }),
+      prismaPool[6].booking.findMany({ where, orderBy: { date: "desc" }, take: 500 }),
       // Weekly expenses aren't tied to a unit (salaries, ad spend, etc.) — used
       // for the Earnings "Salary" line. The full manual-entry editor now
       // lives on the Admin page's Weekly report tab.
-      prisma.weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } }, addedBy: { select: { id: true, name: true } } } }),
+      prismaPool[7].weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } }, addedBy: { select: { id: true, name: true } } } }),
       // Feeds the "Needs your attention" card — open Critical/Warning findings only.
-      prisma.auditFinding.findMany({
+      prismaPool[8].auditFinding.findMany({
         where: { ...findingsWhere, resolved: false, severity: { in: ["Critical", "Warning"] } },
         orderBy: { createdAt: "desc" },
         take: 20,
@@ -66,18 +66,18 @@ export default async function DashboardPage() {
           employee: { select: { name: true } },
         },
       }),
-      prisma.stock.findMany({ where }),
+      prismaPool[9].stock.findMany({ where }),
       // Feeds the "Your team" salary summary — days worked by housekeeping.
       // Unwindowed (like earningsBookings/weeklyExpenses below) so "Your
       // team" can be recomputed for whatever period the Earnings card's
       // filter selects (This week/This month/This year/Custom), not just
       // the last 7 days.
-      prisma.cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 2000, select: { id: true, employeeId: true, unitId: true, startedAt: true } }),
-      prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+      prismaPool[10].cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 2000, select: { id: true, employeeId: true, unitId: true, startedAt: true } }),
+      prismaPool[11].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
       // Point-in-time salary rates — lets the Earnings card look up whatever
       // rate was effective at the start of any past period, not just the
       // employee's current one, so a later raise/cut never rewrites history.
-      prisma.salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+      prismaPool[12].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
     ]);
     [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs] = res as any;
     const settings = res[11] as any;

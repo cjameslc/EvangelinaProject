@@ -145,6 +145,7 @@ model Employee {
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
 
+  @@index([active])
   @@map("employees")
 }
 
@@ -268,6 +269,7 @@ model Booking {
 
   @@unique([unitId, externalUid])
   @@index([unitId, date])
+  @@index([date])
   @@map("bookings")
 }
 
@@ -331,6 +333,8 @@ model CleaningLog {
   startedAt  DateTime
   endedAt    DateTime?
 
+  @@index([unitId, startedAt])
+  @@index([employeeId])
   @@map("cleaning_logs")
 }
 
@@ -488,5 +492,6 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
+  @@index([action, createdAt])
   @@map("audit_log")
 }
