@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { ExpenseCategory } from "@prisma/client";
+import type { ExpenseCategory } from "@/lib/prisma-enums";
 
 /** Maps a template's category to the underlying Bill.key so existing bill-key-based UI (icons, filters) keeps working without a rewrite. */
 export const CATEGORY_TO_BILL_KEY: Record<ExpenseCategory, string> = {
@@ -56,7 +56,7 @@ export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
     await prisma.bill.create({
       data: {
         unitId: t.unitId,
-        key: CATEGORY_TO_BILL_KEY[t.category] as any,
+        key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
         label: t.description,
         month,
         dueDay: resolveDueDay(t, year, month0),

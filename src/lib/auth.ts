@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import type { Role } from "@/lib/prisma-enums";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -44,7 +45,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           username: user.username,
           email: user.email,
-          role: user.role,
+          role: user.role as Role,
           ownedUnitIds: user.ownedUnits.map((o) => o.unitId),
           avatarColor: user.avatarColor,
           mustChangePassword: user.mustChangePassword,

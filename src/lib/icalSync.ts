@@ -172,7 +172,7 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
         date: ev.start,
         checkOutDate: ev.end,
         stayType: "Full",
-        guests: ["Airbnb guest"],
+        guests: ["Airbnb guest"] as any,
         contactNumber: "",
         platform: "Airbnb",
         amount: airbnbRevenue(ev.start, ev.end),

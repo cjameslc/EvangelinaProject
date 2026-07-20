@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import type { Role } from "@/lib/prisma-enums";
 
 /** Roles that can see every unit, regardless of ownership. */
 export const GLOBAL_ROLES: Role[] = ["OWNER_ADMIN", "AUDITOR", "HOUSEKEEPING"];

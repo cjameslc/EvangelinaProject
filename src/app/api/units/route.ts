@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       ["Toiletry kits", 5], ["Trash bags", 10], ["Coffee/creamer sachets", 12],
     ].map(([name, count]) => ({ unitId: unit.id, name: name as string, count: count as number })),
   });
-  await prisma.housekeepingUnitState.create({ data: { unitId: unit.id, checked: [] } });
+  await prisma.housekeepingUnitState.create({ data: { unitId: unit.id, checked: [] as any } });
   await logAudit(user.id, "unit.create", "Unit", unit.id, { name: unit.name });
   return NextResponse.json(unit, { status: 201 });
 }

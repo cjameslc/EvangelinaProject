@@ -39,11 +39,14 @@ export async function GET(req: NextRequest) {
     ...(dateFrom || dateTo
       ? { startedAt: { ...(dateFrom ? { gte: new Date(dateFrom) } : {}), ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999Z`) } : {}) } }
       : {}),
+    // SQLite/libSQL's `contains` filter has no case-insensitive `mode`
+    // option (that's Postgres-only in Prisma) — search is case-sensitive
+    // here now. Low-stakes: this is an admin-only sync-log search box.
     ...(search
       ? {
           OR: [
-            { error: { contains: search, mode: "insensitive" } },
-            { unit: { is: { OR: [{ shortName: { contains: search, mode: "insensitive" } }, { unitNumber: { contains: search, mode: "insensitive" } }] } } },
+            { error: { contains: search } },
+            { unit: { is: { OR: [{ shortName: { contains: search } }, { unitNumber: { contains: search } }] } } },
           ],
         }
       : {}),

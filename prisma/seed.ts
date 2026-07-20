@@ -35,7 +35,7 @@ async function main() {
     await prisma.housekeepingUnitState.upsert({
       where: { unitId: unit.id },
       update: {},
-      create: { unitId: unit.id, status: "todo", checked: [] },
+      create: { unitId: unit.id, status: "todo", checked: [] as any },
     });
   }
 
@@ -55,7 +55,7 @@ async function main() {
   });
   await prisma.employee.upsert({ where: { userId: admin.id }, update: {}, create: { name: admin.name, role: "OWNER_ADMIN", userId: admin.id } });
 
-  await prisma.auditLog.create({ data: { actorUserId: admin.id, action: "system.fresh_start", entity: "System", meta: { units: UNIT_DEFS.length } } });
+  await prisma.auditLog.create({ data: { actorUserId: admin.id, action: "system.fresh_start", entity: "System", meta: { units: UNIT_DEFS.length } as any } });
 
   console.log("\nClean production state ready.");
   console.log(`  Admin login: ${admin.email} / username: ${admin.username}`);

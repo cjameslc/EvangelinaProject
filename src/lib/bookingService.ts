@@ -45,7 +45,7 @@ export async function createBookingRecord(userId: string, body: BookingInput): P
       stayType,
       checkInTime: body.checkInTime || null,
       checkOutTime: body.checkOutTime || null,
-      guests: body.guests,
+      guests: body.guests as any,
       pax: body.pax ?? null,
       contactNumber: body.contactNumber,
       bookerId: body.bookerId || null,

@@ -1,14 +1,14 @@
 // Evangelina's Staycation — Prisma schema
-// Target: Neon (serverless Postgres)
+// Target: Turso (libSQL) via Prisma's driver-adapter mode — see src/lib/prisma.ts
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ── Roles ──────────────────────────────────────────────
@@ -17,84 +17,13 @@ datasource db {
 // HOUSEKEEPING — sees every feature except the main financial Dashboard
 // BOOKER       — logs bookings, uses Calendar; no housekeeping/admin/dashboard
 // AUDITOR      — read-only access to the Auditor trail (bookings, payments, housekeeping, bills)
-enum Role {
-  OWNER_ADMIN
-  CO_OWNER
-  HOUSEKEEPING
-  BOOKER
-  AUDITOR
-}
-
-enum SalaryType {
-  DAILY
-  WEEKLY
-  MONTHLY
-}
-
-enum StayType {
-  Daycation
-  Night
-  Full
-  Cleaning
-  Maintenance
-}
-
-enum BookingSource {
-  MANUAL
-  AIRBNB
-  WEBSITE
-  ADMIN
-}
-
-enum Platform {
-  Airbnb
-  TikTok
-  Facebook
-  WalkIn // displayed as "Walk-in" — PLATFORM_LABEL in src/lib/constants.ts
-  Direct
-  Other
-}
-
-enum PaymentMethod {
-  Cash
-  GCash
-  BankTransfer
-}
-
-enum BillKey {
-  assoc
-  water
-  elec
-  net
-  stream
-  amort
-  custom
-}
-
-enum FindingCategory {
-  Cleaning
-  Laundry
-  Booking
-  Irregularity
-  Comms
-  GuestExp
-  Improvement
-}
-
-enum FindingSeverity {
-  Critical
-  Warning
-  Minor
-  Positive
-}
-
 model User {
   id                 String   @id @default(cuid())
   name               String
   username           String   @unique
   email              String?  @unique
   passwordHash       String
-  role               Role     @default(BOOKER)
+  role               String     @default("BOOKER")
   avatarColor        String   @default("#FF385C")
   avatarUrl          String?  // profile picture, data-URL — kept out of the NextAuth session/JWT (would blow the cookie size limit), fetched fresh from the DB wherever it's shown
   active             Boolean  @default(true)
@@ -159,11 +88,6 @@ model Unit {
   @@map("units")
 }
 
-enum IcalSyncType {
-  AUTOMATIC
-  MANUAL
-}
-
 // One row per per-unit Airbnb sync attempt (both the daily cron and the
 // Calendar page's manual "Sync Airbnb" button write here) — powers the
 // Calendar page's Sync History panel.
@@ -171,7 +95,7 @@ model IcalSyncLog {
   id         String       @id @default(cuid())
   unitId     String
   unit       Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  syncType   IcalSyncType
+  syncType   String
   startedAt  DateTime     @default(now())
   durationMs Int
   imported   Int          @default(0)
@@ -191,7 +115,7 @@ model IcalSyncLog {
 model Employee {
   id           String   @id @default(cuid())
   name         String
-  role         Role     @default(BOOKER)
+  role         String     @default("BOOKER")
   payRateNote  String?
   userId       String?  @unique
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -201,7 +125,7 @@ model Employee {
   // What's actually entered/edited in Admin — a rate at whichever cadence
   // fits how that person is paid (e.g. ₱700/day for housekeeping, ₱1,000/week
   // for a booker, ₱15,000/month for salaried staff).
-  salaryType    SalaryType @default(MONTHLY)
+  salaryType    String @default("MONTHLY")
   salaryRate    Int        @default(0)
   // Derived monthly-equivalent of salaryType+salaryRate — the source of
   // truth every period-scaled payroll figure (weekly/daily/yearly/custom)
@@ -265,11 +189,6 @@ model SalaryHistory {
 
 // A manually-logged cost (e.g. ads, supplies) that can optionally be charged
 // against a specific staff member's collected total on the weekly report.
-enum WeeklyExpenseCategory {
-  GENERAL
-  TIKTOK_ADS
-}
-
 model WeeklyExpense {
   id               String                @id @default(cuid())
   date             DateTime
@@ -281,7 +200,7 @@ model WeeklyExpense {
   // pre-existing "Salary"/deduction behavior). TIKTOK_ADS is always
   // untargeted — an operational expense that deducts from Net Profit but
   // must never touch anyone's payroll.
-  category         WeeklyExpenseCategory @default(GENERAL)
+  category         String @default("GENERAL")
   addedById        String?
   addedBy          User?                 @relation(fields: [addedById], references: [id], onDelete: SetNull)
   createdAt        DateTime              @default(now())
@@ -302,10 +221,15 @@ model Booking {
   unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Restrict)
   date            DateTime
   checkOutDate    DateTime?
-  stayType        StayType
+  stayType        String
   checkInTime     String?
   checkOutTime    String?
-  guests          String[]
+  // SQLite/libSQL supports neither a native array column nor Prisma's Json
+  // type under the driver-adapters preview — stored as a JSON-encoded
+  // string instead. A Prisma Client Extension (src/lib/prisma.ts)
+  // transparently parses/stringifies this on every query, so application
+  // code still reads and writes it as a plain string[].
+  guests          String        @default("[]")
   pax             Int?
   contactNumber   String
 
@@ -314,26 +238,26 @@ model Booking {
   cleanerId       String?
   cleaner         Employee?     @relation("CleanerRel", fields: [cleanerId], references: [id])
 
-  platform        Platform
+  platform        String
   platformOther   String?
 
   // Downpayment (reservation fee)
   dpAmount        Int?
   dpReceivedById  String?
   dpReceivedBy    Employee?     @relation("DpReceiverRel", fields: [dpReceivedById], references: [id])
-  dpMethod        PaymentMethod?
+  dpMethod        String?
   dpProofUrl      String?
 
   // Full / remaining balance payment
   amount          Int
   receivedById    String?
   receivedBy      Employee?     @relation("ReceiverRel", fields: [receivedById], references: [id])
-  method          PaymentMethod?
+  method          String?
   proofUrl        String?
   paid            Boolean       @default(false)
 
   // Airbnb iCal sync
-  source          BookingSource @default(MANUAL)
+  source          String @default("MANUAL")
   externalUid     String?       // iCal UID from the imported VEVENT (source = AIRBNB)
   conflict        Boolean       @default(false) // imported booking overlaps an existing confirmed one — flagged, not auto-overwritten
 
@@ -352,7 +276,7 @@ model CalendarBlock {
   id         String   @id @default(cuid())
   unitId     String
   unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  type       StayType
+  type       String
   date       DateTime
   endDate    DateTime?
   guest      String?
@@ -380,7 +304,7 @@ model HousekeepingUnitState {
   byName    String?
   startedAt DateTime?
   endedAt   DateTime?
-  checked   Json     @default("[]")
+  checked   String   @default("[]") // JSON-encoded boolean[][] — see src/lib/prisma.ts extension
   // Every Booking id whose checkout has been cleaned for, accumulated (not
   // overwritten) — a unit can have more than one checkout in a day (e.g. a
   // Daycation guest leaving in the evening AND a separate Night booking
@@ -389,7 +313,7 @@ model HousekeepingUnitState {
   // otherwise silently forget the first one was ever cleaned, wrongly
   // marking it "to clean" again. Not a relation (no onDelete concern) since
   // a deleted booking simply stops being referenced — nothing to cascade.
-  cleanedBookingIds Json @default("[]")
+  cleanedBookingIds String @default("[]") // JSON-encoded string[] — see src/lib/prisma.ts extension
   updatedAt DateTime @updatedAt
 
   @@map("housekeeping_unit_state")
@@ -438,7 +362,7 @@ model Bill {
   // Restrict — a unit with real bill/payment history must never be
   // deletable out from under that history. See Booking.unit above.
   unit       Unit?         @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  key        BillKey
+  key        String
   label      String?       // display name for a custom bill (key = "custom")
   month      DateTime      // first day of the billing month
   dueDay     Int?          // day-of-month (1-31) this bill is due; null = no set due date
@@ -474,15 +398,6 @@ model Bill {
   @@map("bills")
 }
 
-enum ExpenseCategory {
-  Amortization
-  Utilities
-  Water
-  Internet
-  AssociationDues
-  Streaming
-}
-
 // The source of truth for a recurring monthly operating expense — Admin
 // configures these once, and the monthly Bill-generation pass (see
 // generateBillsForMonth in src/lib/recurringExpenses.ts) creates exactly one
@@ -491,7 +406,7 @@ enum ExpenseCategory {
 // already-generated bills (paid or not) are untouched, preserving history.
 model RecurringExpenseTemplate {
   id             String    @id @default(cuid())
-  category       ExpenseCategory
+  category       String
   unitId         String?   // null = shared/site-wide (e.g. Internet)
   unit           Unit?     @relation(fields: [unitId], references: [id], onDelete: Cascade)
   description    String
@@ -520,8 +435,8 @@ model AuditFinding {
   unit              Unit?           @relation(fields: [unitId], references: [id], onDelete: SetNull)
   employeeId        String?
   employee          Employee?       @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-  category          FindingCategory
-  severity          FindingSeverity
+  category          String
+  severity          String
   title             String
   notes             String?
   recommendedAction String?
@@ -547,7 +462,7 @@ model Settings {
   nightlyRate   Int      @default(1799)
   dpFee         Int      @default(500)
   currency      String   @default("PHP")
-  checklistGroups Json?
+  checklistGroups String? // JSON-encoded ChecklistGroup[] — see src/lib/prisma.ts extension
 
   // Payroll rates — the "Your team" formula on Dashboard/Admin reads these
   // instead of hardcoding them, so Admin can tune pay without a code change.
@@ -569,7 +484,7 @@ model AuditLog {
   action     String   // e.g. "booking.create", "bill.mark_paid", "unit.create"
   entity     String   // e.g. "Booking", "Unit"
   entityId   String?
-  meta       Json?
+  meta       String? // JSON-encoded arbitrary object — see src/lib/prisma.ts extension
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
