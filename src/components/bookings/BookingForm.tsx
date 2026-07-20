@@ -7,6 +7,15 @@ import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr, unitLabel, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+
+// Airbnb bookings only ever enter the system automatically (iCal import —
+// see syncCalendarMirror), never manually, so it's excluded from what staff
+// can pick here. "Direct" is excluded too — same real-world thing as
+// "Walk-in" for this business, and offering both as separate choices just
+// invited inconsistent logging. Both remain valid values elsewhere (the
+// Bookings/Calendar platform filters, revenue-by-platform reports) since
+// existing bookings already carry them.
+const MANUAL_PLATFORMS = PLATFORMS.filter((p) => p !== "Airbnb" && p !== "Direct");
 import { cn } from "@/lib/utils";
 
 type Employee = { id: string; name: string; role: string };
@@ -406,7 +415,13 @@ export function BookingForm({
         <div className="sm:col-span-2">
           <label className="field-label">Platform <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {PLATFORMS.map((p) => <Pill key={p} on={v.platform === p} onClick={() => selectPlatform(p)}>{PLATFORM_LABEL[p] ?? p}</Pill>)}
+            {/* Editing an older booking already logged as Airbnb or Direct
+                still shows its actual value here, even though neither is
+                offered as a fresh pick — its value only changes if staff
+                deliberately pick something else. */}
+            {(MANUAL_PLATFORMS.includes(v.platform as any) || !v.platform ? MANUAL_PLATFORMS : [...MANUAL_PLATFORMS, v.platform]).map((p) => (
+              <Pill key={p} on={v.platform === p} onClick={() => selectPlatform(p)}>{PLATFORM_LABEL[p] ?? p}</Pill>
+            ))}
           </div>
           {err("platform")}
         </div>
