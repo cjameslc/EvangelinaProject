@@ -135,6 +135,27 @@ export function DashboardView({
     () => bookingsMonth.reduce((sum, b) => sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0),
     [bookingsMonth]
   );
+  // A booking's stay counts as "completed" once its checkout has passed —
+  // same rule the Elite Booker Challenge uses (src/lib/gamification.ts,
+  // duplicated here rather than imported since that module pulls in the
+  // server-only Prisma client). Realized profit below only ever counts
+  // revenue from stays that have actually happened, not future reservations
+  // just because a downpayment came in.
+  const isCompletedStay = (b: Booking) => {
+    const end = new Date(b.checkOutDate ?? b.date);
+    return end.getTime() <= Date.now();
+  };
+  const completedMonthIncome = useMemo(
+    () => bookingsMonth.filter(isCompletedStay).reduce((sum, b) => sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0),
+    [bookingsMonth]
+  );
+  // Full booked value of every reservation this month, completed or not —
+  // "if everything gets collected as booked," the ceiling Forecast profit
+  // measures against.
+  const expectedMonthIncome = useMemo(
+    () => bookingsMonth.reduce((sum, b) => sum + b.amount, 0),
+    [bookingsMonth]
+  );
   // Centavo-precise (recurring-expense templates carry real cents, e.g.
   // ₱18,300.26) — summed here, then only rounded to whole pesos at the very
   // end for display, so the cents aren't lost partway through Net
@@ -158,6 +179,20 @@ export function DashboardView({
     () => totalSalaryPayroll(employees, salaryHistory, "monthly", thisMonthStart),
     [employees, salaryHistory, thisMonthStart]
   );
+  // Payroll has no separate "marked paid" flag (unlike Bills) — instead it's
+  // treated as accrued day by day through the month, same as how a salary
+  // actually earns out. Deducting the FULL month's salary from day 1 (the
+  // previous behavior) is what made Net Profit look deeply negative at the
+  // start of every month even though most of that salary hadn't been earned
+  // yet. accruedStaffSalary is what's actually owed for the days elapsed so
+  // far; upcomingStaffSalary is the rest of the month's obligation, not yet
+  // due.
+  const daysElapsedThisMonth = useMemo(() => Number(dayOf(new Date()).slice(8, 10)), []);
+  const accruedStaffSalary = useMemo(
+    () => totalSalaryPayroll(employees, salaryHistory, "custom", thisMonthStart, daysElapsedThisMonth),
+    [employees, salaryHistory, thisMonthStart, daysElapsedThisMonth]
+  );
+  const upcomingStaffSalary = Math.max(0, monthlyStaffSalary - accruedStaffSalary);
 
   // TikTok Ads is a pure operational expense — deducted from Net Profit
   // like a paid bill, but never touches anyone's payroll (it's always
@@ -176,25 +211,43 @@ export function DashboardView({
       .reduce((s, e) => s + e.amount, 0);
   }, [weeklyExpenses]);
 
-  // Cash-based accounting: only expenses actually marked Paid ever reduce
-  // Net Profit, Margin, or Cash Flow — a bill that's merely Pending,
-  // Scheduled, Due, or Overdue is excluded (billsDueMonthCentavos above is
-  // never an input here). Staff salary has no separate "paid" flag in this
-  // app, so it's always treated as an already-incurred cost, same as
-  // before. All in centavos through the subtraction itself, so a recurring
-  // expense's cents are actually reflected in the result — only the final
-  // StatCard values below round to whole pesos.
-  const otherPaidCostsCentavos = monthlyStaffSalary * 100 + tikTokAdsMonthTotal * 100;
+  // Realized vs Forecast — the two figures replace the old single "Net
+  // profit," which mixed money already earned/spent with money that was
+  // merely expected/upcoming and could look deeply negative for no real
+  // reason early in a month.
+  //
+  // Realized profit = revenue from stays that actually happened, minus
+  // expenses actually paid, minus payroll actually accrued to date. Only
+  // ever reflects money that has genuinely moved. All in centavos through
+  // the subtraction itself, so a recurring expense's cents are actually
+  // reflected — only the final StatCard values round to whole pesos.
+  const realizedCostsCentavos = accruedStaffSalary * 100 + tikTokAdsMonthTotal * 100;
   const netProfitCents = computeNetProfitCentavos({
-    revenueCentavos: monthIncome * 100,
+    revenueCentavos: completedMonthIncome * 100,
     paidExpensesCentavos: billsPaidMonthCentavos,
-    otherPaidCostsCentavos,
+    otherPaidCostsCentavos: realizedCostsCentavos,
   });
   const netProfit = Math.round(netProfitCents / 100);
-  const margin = marginPct(netProfitCents, monthIncome * 100);
+  const margin = marginPct(netProfitCents, completedMonthIncome * 100);
+  // Cash flow stays revenue-in-hand (DP + collected balances, same as
+  // before) since it's about money that's actually moved, not which stays
+  // are done — but it now deducts only accrued payroll too, for the same
+  // reason Realized profit does.
   const cashFlow = Math.round(
-    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos }) / 100
+    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: realizedCostsCentavos }) / 100
   );
+
+  // Forecast profit = what the rest of this month still owes/expects:
+  // every booking's full value (whether collected yet or not) minus bills
+  // still outstanding minus payroll not yet accrued. A projection, not
+  // actual money — shown with its own distinct styling so it's never
+  // mistaken for Realized profit.
+  const forecastProfitCents = computeNetProfitCentavos({
+    revenueCentavos: expectedMonthIncome * 100,
+    paidExpensesCentavos: billsDueMonthCentavos,
+    otherPaidCostsCentavos: upcomingStaffSalary * 100,
+  });
+  const forecastProfit = Math.round(forecastProfitCents / 100);
 
   const occupiedNights = bookingsWeek.length;
   const availableNights = units.length * 7;
@@ -483,12 +536,15 @@ export function DashboardView({
     return {
       monthLabel: reportMonthLabel,
       summary: [
-        ["Income", p(monthIncome)],
+        ["Income (collected)", p(monthIncome)],
+        ["Expected revenue (all bookings, full value)", p(expectedMonthIncome)],
         ["Paid expenses", pc(billsPaidMonthCentavos)],
         ["Pending expenses (not deducted)", pc(billsDueMonthCentavos)],
         ["Overdue expenses", pc(overdueCentavos)],
-        ["Staff salaries", p(monthlyStaffSalary)],
-        ["Net profit", p(netProfit)],
+        ["Staff salaries (accrued to date)", p(accruedStaffSalary)],
+        ["Staff salaries (upcoming this month)", p(upcomingStaffSalary)],
+        ["Realized profit", p(netProfit)],
+        ["Forecast profit", p(forecastProfit)],
         ["Profit margin", `${margin}%`],
         ["Cash flow", p(cashFlow)],
         ["Occupancy", `${monthlyOccupancy}%`],
@@ -937,15 +993,19 @@ export function DashboardView({
               below). A dip in a routine metric like these gets amber, a
               softer "worth a look," not an alarm. Occupancy/RevPAR/ADR/Payroll
               can't mathematically go negative, so they never get either. */}
-          <StatCard label="Net profit" value={peso(netProfit)} sub="after all costs" warn={netProfit < 0} tone="caution" />
-          <StatCard label="Profit margin" value={`${margin}%`} sub="income kept as profit" warn={margin < 0} tone="caution" />
-          <StatCard label="Cash flow" value={peso(cashFlow)} sub="paid − bills paid − salaries" warn={cashFlow < 0} tone="caution" />
+          <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfit < 0} tone="caution" />
+          {/* Always amber, not just when negative — a projection, never mistaken for actual money. */}
+          <StatCard label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" warn tone="caution" />
+          <StatCard label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={margin < 0} tone="caution" />
+          <StatCard label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlow < 0} tone="caution" />
           <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} />
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" />
           <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" />
           <StatCard label="Payroll" value={peso(payrollTotal)} sub={`${payroll.length} people`} />
         </div>
-        <p className="mt-3 text-[11.5px] text-[var(--gray)]">Net profit and Cash flow deduct only <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus this month&rsquo;s staff salaries ({peso(monthlyStaffSalary)}) — pending, due, and overdue bills ({pesoCentavos(billsDueMonthCentavos)}) aren&rsquo;t deducted until marked paid.</p>
+        <p className="mt-3 text-[11.5px] text-[var(--gray)]">
+          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
+        </p>
       </Accordion>
 
       <Accordion title="Stay mix" sub={`${stayTotal} bookings`}>
