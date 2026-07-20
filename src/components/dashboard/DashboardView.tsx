@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -15,8 +16,8 @@ import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
 
-type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[] };
-type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null };
+type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[]; icalLastSyncError?: string | null };
+type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };
@@ -392,6 +393,40 @@ export function DashboardView({
   });
   const lowStock = stocks.filter((s) => s.count <= LOW_STOCK_THRESHOLD);
 
+  // bookingsWeek already covers "the last 7 days through any future date"
+  // (no upper bound — see dashboard/page.tsx); bookingsMonth adds back the
+  // earlier part of the current calendar month bookingsWeek would otherwise
+  // miss. Deduped by id since a booking dated this month and within the
+  // last 7 days appears in both. Feeds the conflict/unpaid-balance checks
+  // below — a broader, still-cheap window than bookingsWeek alone, with no
+  // extra query since both arrays are already fetched for other cards.
+  const combinedRecentBookings = useMemo(() => {
+    const map = new Map<string, Booking>();
+    [...bookingsWeek, ...bookingsMonth].forEach((b) => map.set(b.id, b));
+    return [...map.values()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingsWeek, bookingsMonth]);
+
+  // An imported Airbnb booking that overlapped an existing manual one —
+  // flagged, never auto-overwritten (see Booking.conflict's schema
+  // comment). Today only a small "⚠️ Conflict" tag on the Bookings page
+  // itself; easy to miss unless you're already looking at that exact row.
+  const bookingConflicts = useMemo(() => combinedRecentBookings.filter((b) => b.conflict), [combinedRecentBookings]);
+
+  // A unit whose Airbnb calendar sync last failed (Unit.icalLastSyncError
+  // is cleared to null on the next successful sync, so this is always
+  // "currently broken," never stale history) — today only visible by
+  // opening Calendar's Sync History panel.
+  const failedSyncUnits = useMemo(() => units.filter((u) => u.icalLastSyncError), [units]);
+
+  // A completed stay whose remaining balance was never marked paid —
+  // revenue that's stuck, not currently flagged anywhere.
+  const unpaidAfterCheckout = useMemo(
+    () => combinedRecentBookings.filter((b) => isCompletedStay(b) && !b.paid && b.amount > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [combinedRecentBookings]
+  );
+
   // Late cleaning — a unit whose most recent checkout hasn't been cleaned
   // yet AND already has a future guest booked in, so whoever arrives next
   // is the one who'll notice if it slips. Checked against cleanedBookingIds
@@ -421,8 +456,26 @@ export function DashboardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [units, bookingsWeek, hkStates]);
 
+  // Dashboard booking reads never include the `unit` relation (see
+  // dashboard/page.tsx) — every place that needs a unit name off a booking
+  // resolves it through the separately-fetched `units` array instead.
+  const unitShortName = (unitId: string) => units.find((u) => u.id === unitId)?.shortName ?? "Unit";
+
   const attentionItems = useMemo(() => {
-    const items: { id: string; dot: string; title: string; desc: string; tag: string }[] = [];
+    const items: { id: string; dot: string; title: string; desc: string; tag: string; href?: string }[] = [];
+
+    // Auditor findings first — a real, human-flagged quality/safety concern
+    // outranks the automated checks below.
+    attentionFindings.forEach((f) => {
+      items.push({
+        id: f.id,
+        dot: f.severity === "Critical" ? "bg-rausch" : "bg-amber",
+        title: f.title,
+        desc: f.notes || f.recommendedAction || `${f.unit?.shortName ?? "All units"}${f.employee ? ` · ${f.employee.name}` : ""}`,
+        tag: "Auditor",
+        href: "/auditor",
+      });
+    });
 
     if (lateCleaningUnits.length > 0) {
       const desc = lateCleaningUnits
@@ -434,18 +487,50 @@ export function DashboardView({
         title: `${lateCleaningUnits.length} unit${lateCleaningUnits.length === 1 ? "" : "s"} ${lateCleaningUnits.length === 1 ? "needs" : "need"} cleaning before the next guest`,
         desc,
         tag: "Housekeeping",
+        href: "/housekeeping",
       });
     }
 
-    attentionFindings.forEach((f) => {
+    if (bookingConflicts.length > 0) {
+      const desc = bookingConflicts
+        .map((b) => `${unitShortName(b.unitId)} (${fmtDate(b.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })})`)
+        .join(", ");
       items.push({
-        id: f.id,
-        dot: f.severity === "Critical" ? "bg-rausch" : "bg-amber",
-        title: f.title,
-        desc: f.notes || f.recommendedAction || `${f.unit?.shortName ?? "All units"}${f.employee ? ` · ${f.employee.name}` : ""}`,
-        tag: "Auditor",
+        id: "attn-conflicts",
+        dot: "bg-rausch",
+        title: `${bookingConflicts.length} booking conflict${bookingConflicts.length === 1 ? "" : "s"} need${bookingConflicts.length === 1 ? "s" : ""} review`,
+        desc: `An imported Airbnb booking overlaps an existing one: ${desc}.`,
+        tag: "Bookings",
+        href: "/bookings",
       });
-    });
+    }
+
+    if (unpaidAfterCheckout.length > 0) {
+      const total = unpaidAfterCheckout.reduce((s, b) => s + b.amount, 0);
+      const desc = unpaidAfterCheckout
+        .map((b) => `${unitShortName(b.unitId)} (${fmtDate(b.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })})`)
+        .join(", ");
+      items.push({
+        id: "attn-unpaid",
+        dot: "bg-amber",
+        title: `${peso(total)} unpaid after checkout`,
+        desc: `Stay finished but the balance was never marked paid: ${desc}.`,
+        tag: "Bookings",
+        href: "/bookings",
+      });
+    }
+
+    if (failedSyncUnits.length > 0) {
+      const desc = failedSyncUnits.map((u) => u.shortName).join(", ");
+      items.push({
+        id: "attn-sync",
+        dot: "bg-amber",
+        title: `${failedSyncUnits.length} unit${failedSyncUnits.length === 1 ? "" : "s"} failed to sync with Airbnb`,
+        desc: `${desc}. Retry the sync from the Calendar page.`,
+        tag: "Calendar",
+        href: "/calendar",
+      });
+    }
 
     if (overdueBillsForAttention.length > 0) {
       const totalCentavos = overdueBillsForAttention.reduce((s, b) => s + billCentavos(b), 0);
@@ -459,12 +544,12 @@ export function DashboardView({
     }
 
     if (lowStock.length > 0) {
-      items.push({ id: "attn-stock", dot: "bg-amber", title: "Supplies below minimum", desc: `${lowStock.map((s) => s.name).join(", ")} need restocking.`, tag: "Stock" });
+      items.push({ id: "attn-stock", dot: "bg-amber", title: "Supplies below minimum", desc: `${lowStock.map((s) => s.name).join(", ")} need restocking.`, tag: "Stock", href: "/housekeeping" });
     }
 
     return items.slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, unpaidAfterCheckout, failedSyncUnits]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
@@ -1010,16 +1095,28 @@ export function DashboardView({
           <p className="text-sm text-[var(--gray)]">Nothing needs your attention right now. 🎉</p>
         ) : (
           <div className="divide-y divide-[var(--line)]">
-            {attentionItems.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                <span className={cn("mt-1.5 h-2.5 w-2.5 flex-none rounded-full", item.dot)} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-bold">{item.title}</div>
-                  <div className="mt-0.5 text-[12px] text-[var(--gray)]">{item.desc}</div>
+            {attentionItems.map((item) => {
+              const content = (
+                <>
+                  <span className={cn("mt-1.5 h-2.5 w-2.5 flex-none rounded-full", item.dot)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px] font-bold">{item.title}</div>
+                    <div className="mt-0.5 text-[12px] text-[var(--gray)]">{item.desc}</div>
+                  </div>
+                  <span className="flex-none rounded-full border border-[var(--line)] px-3 py-1 text-[12px] font-bold text-[var(--gray)]">{item.tag}</span>
+                  {item.href && <ArrowRightIcon className="h-3.5 w-3.5 flex-none text-[var(--gray)]" />}
+                </>
+              );
+              return item.href ? (
+                <Link key={item.id} href={item.href} className="flex items-start gap-3 rounded-lg py-3 -mx-2 px-2 first:pt-3 last:pb-3 transition hover:bg-[var(--bg-2)]">
+                  {content}
+                </Link>
+              ) : (
+                <div key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  {content}
                 </div>
-                <span className="flex-none rounded-full border border-[var(--line)] px-3 py-1 text-[12px] font-bold text-[var(--gray)]">{item.tag}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Accordion>
