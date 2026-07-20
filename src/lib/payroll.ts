@@ -2,7 +2,7 @@
 // Dashboard's read-only summary and the Admin Weekly Report's full editor —
 // previously duplicated near-verbatim in both places with hardcoded rates.
 
-import { isBookingCompleted } from "@/lib/gamification";
+import { isBookingCompleted } from "@/lib/bookingStatus";
 
 export type PayrollRates = {
   housekeepingDayRate: number;

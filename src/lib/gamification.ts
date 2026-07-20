@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { isBookingCompleted } from "@/lib/bookingStatus";
+
+export { isBookingCompleted };
 
 /** Monthly Elite Booker Challenge tiers — company-wide, limited reward slots.
  * Shared as-is by Housekeeping staff too: several employees do both jobs, so
@@ -15,12 +18,6 @@ export const ELITE_TIERS = [
 /** Roles eligible for the Elite Booker Challenge — anyone who can be
  * assigned as a booking's booker, regardless of their primary role. */
 export const ELITE_CHALLENGE_ROLES = ["BOOKER", "HOUSEKEEPING"] as const;
-
-/** A booking counts toward commission/gamification once its stay has actually finished. */
-export function isBookingCompleted(booking: { date: Date | string; checkOutDate: Date | string | null }, now: Date = new Date()): boolean {
-  const end = booking.checkOutDate ? new Date(booking.checkOutDate) : new Date(booking.date);
-  return end.getTime() <= now.getTime();
-}
 
 /**
  * Ensures every tier that's been legitimately reached this month has its
