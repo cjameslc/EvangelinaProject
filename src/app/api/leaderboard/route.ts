@@ -24,7 +24,10 @@ const getRankedLeaderboard = unstable_cache(
 
     const [settings, bookers] = await Promise.all([
       prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
-      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true, name: true, userId: true } }),
+      prisma.employee.findMany({
+        where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true },
+        select: { id: true, name: true, userId: true, user: { select: { avatarUrl: true, avatarColor: true } } },
+      }),
     ]);
     const bookerIds = bookers.map((b) => b.id);
     const [bookings, bonusAwards] = await Promise.all([
@@ -44,7 +47,15 @@ const getRankedLeaderboard = unstable_cache(
         const bonusThisMonth = bonusAwards
           .filter((a) => a.employeeId === b.id)
           .reduce((s, a) => s + a.amount, 0);
-        return { employeeId: b.id, name: b.name, completedThisMonth, commissionThisMonth, bonusThisMonth };
+        return {
+          employeeId: b.id,
+          name: b.name,
+          avatarUrl: b.user?.avatarUrl ?? null,
+          avatarColor: b.user?.avatarColor ?? "#FF385C",
+          completedThisMonth,
+          commissionThisMonth,
+          bonusThisMonth,
+        };
       })
       .sort((a, b) => b.completedThisMonth - a.completedThisMonth);
   },

@@ -17,14 +17,15 @@ export default async function AdminPage() {
 
   const [units, users, settings, loginLogs, weeklyReportBookings, employees, weeklyExpenses, cleaningLogs, bills, stocks] = await Promise.all([
     prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
-    // Explicit select — UsersTab never reads avatarUrl (a base64-encoded
-    // profile photo, only used on the owning user's own Navbar/Profile
-    // page) or passwordHash, yet both used to be fetched for every account
-    // here. One seeded test account's avatarUrl alone was 3.4MB.
+    // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
+    // profile photo) IS fetched here now so Users & roles shows each
+    // person's real photo, not just initials — this business has a handful
+    // of accounts, so the payload cost is small in practice even though a
+    // single photo can run into the low single-digit MB.
     prismaPool[1].user.findMany({
       orderBy: { createdAt: "asc" },
       select: {
-        id: true, name: true, username: true, email: true, role: true, avatarColor: true,
+        id: true, name: true, username: true, email: true, role: true, avatarColor: true, avatarUrl: true,
         active: true, mustChangePassword: true, createdAt: true,
         ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
       },

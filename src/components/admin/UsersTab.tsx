@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; shortName: string };
-type UserRow = { id: string; name: string; username: string; role: string; active: boolean; mustChangePassword: boolean; ownedUnits: { unit: Unit }[] };
+type UserRow = { id: string; name: string; username: string; role: string; active: boolean; mustChangePassword: boolean; avatarUrl: string | null; avatarColor: string; ownedUnits: { unit: Unit }[] };
 
 const EMPTY = { name: "", username: "", password: "", role: "BOOKER", ownedUnitIds: [] as string[] };
 const PAGE_SIZE = 10;
@@ -79,7 +79,12 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
       <div className="card divide-y divide-[var(--line)] overflow-hidden">
         {pagedActiveUsers.map((u) => (
           <div key={u.id} className="flex flex-wrap items-center gap-3 p-4">
-            <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-gradient-to-br from-rausch to-[#C13584] text-[13px] font-bold text-white">{initials(u.name)}</span>
+            {u.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={u.avatarUrl} alt={u.name} className="h-10 w-10 flex-none rounded-full object-cover" />
+            ) : (
+              <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-gradient-to-br from-rausch to-[#C13584] text-[13px] font-bold text-white">{initials(u.name)}</span>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-[14px] font-bold">{u.name}</span>
@@ -116,7 +121,12 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
               <div className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
                 {pagedArchivedUsers.map((u) => (
                   <div key={u.id} className="flex flex-wrap items-center gap-3 p-4 opacity-70">
-                    <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-[var(--bg-2)] text-[13px] font-bold text-[var(--gray)]">{initials(u.name)}</span>
+                    {u.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={u.avatarUrl} alt={u.name} className="h-10 w-10 flex-none rounded-full object-cover grayscale" />
+                    ) : (
+                      <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-[var(--bg-2)] text-[13px] font-bold text-[var(--gray)]">{initials(u.name)}</span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[14px] font-bold">{u.name}</span>

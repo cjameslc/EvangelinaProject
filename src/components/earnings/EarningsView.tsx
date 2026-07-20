@@ -8,7 +8,7 @@ import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { peso, fmtDate, manilaWeekRange } from "@/lib/format";
+import { peso, fmtDate, manilaWeekRange, initials } from "@/lib/format";
 import { ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
@@ -76,7 +76,7 @@ type EarningsData = {
   adjustments: Adjustment[];
   expenseRequests: ExpenseRequestRow[];
 };
-type LeaderboardRow = { employeeId: string; name: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
+type LeaderboardRow = { employeeId: string; name: string; avatarUrl: string | null; avatarColor: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
 type LeaderboardData =
   | { scope: "all"; leaderboard: LeaderboardRow[] }
   | { scope: "own"; rank: number | null; total: number; own: LeaderboardRow | null };
@@ -413,14 +413,27 @@ export function EarningsView({
                     style && style.card
                   )}
                 >
-                  <span
-                    className={cn(
-                      "grid h-9 w-9 flex-none place-items-center rounded-full text-[15px] font-extrabold",
-                      style ? cn("animate-glow-pulse text-white shadow-md", style.ring) : "bg-[var(--bg-2)] text-[12px] text-[var(--gray)]"
+                  <span className={cn("relative h-9 w-9 flex-none rounded-full", style && cn("animate-glow-pulse shadow-md", style.ring))}>
+                    {r.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.avatarUrl} alt={r.name} className="h-9 w-9 rounded-full object-cover" />
+                    ) : (
+                      <span
+                        className="grid h-9 w-9 place-items-center rounded-full text-[13px] font-bold text-white"
+                        style={{ background: r.avatarColor }}
+                      >
+                        {initials(r.name)}
+                      </span>
                     )}
-                    style={style ? { background: style.badgeBg } : undefined}
-                  >
-                    {style ? style.medal : rank}
+                    <span
+                      className={cn(
+                        "absolute -bottom-1 -right-1 grid h-[18px] w-[18px] place-items-center rounded-full text-[9.5px] font-extrabold ring-2 ring-[var(--card)]",
+                        style ? "text-white" : "bg-[var(--bg-2)] text-[var(--gray)]"
+                      )}
+                      style={style ? { background: style.badgeBg } : undefined}
+                    >
+                      {style ? style.medal : rank}
+                    </span>
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className={cn("text-[13.5px] font-bold", rank === 1 && "text-amber")}>{r.name}</div>
@@ -444,6 +457,21 @@ export function EarningsView({
           >
             {leaderboard.rank ? (
               <>
+                {leaderboard.own && (
+                  <div className="mx-auto mb-1 h-14 w-14">
+                    {leaderboard.own.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={leaderboard.own.avatarUrl} alt={leaderboard.own.name} className="h-14 w-14 rounded-full object-cover" />
+                    ) : (
+                      <span
+                        className="grid h-14 w-14 place-items-center rounded-full text-[18px] font-bold text-white"
+                        style={{ background: leaderboard.own.avatarColor }}
+                      >
+                        {initials(leaderboard.own.name)}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {RANK_STYLE[leaderboard.rank] && <div className="animate-float text-4xl">{RANK_STYLE[leaderboard.rank].medal}</div>}
                 <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
                 <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} booker{leaderboard.total === 1 ? "" : "s"} this month</p>
