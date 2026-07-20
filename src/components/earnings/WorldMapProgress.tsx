@@ -118,7 +118,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl p-5 text-white transition-colors duration-1000"
+      className="relative overflow-hidden rounded-2xl p-5 text-white transition-colors duration-1000 [text-shadow:0_1px_5px_rgba(0,0,0,0.55)]"
       style={{ background: `linear-gradient(160deg, ${zone.from}, ${zone.to})` }}
     >
       <SkyLayer isNight={isNight} />
@@ -269,11 +269,11 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
               animate={{ scale: 1, rotate: 0, opacity: 1 }}
               exit={{ scale: 0.6, opacity: 0 }}
               transition={{ type: "spring", stiffness: 200, damping: 12 }}
-              className="rounded-2xl bg-white/95 px-6 py-5 text-center text-[var(--ink)] shadow-2xl"
+              className="rounded-2xl bg-white px-6 py-5 text-center text-gray-900 shadow-2xl"
             >
               <div className="text-4xl">🎁</div>
-              <div className="mt-1.5 text-[15px] font-extrabold">Welcome to {celebrating.label}!</div>
-              <div className="text-[12px] text-[var(--gray)]">New world unlocked</div>
+              <div className="mt-1.5 text-[15px] font-extrabold text-gray-900">Welcome to {celebrating.label}!</div>
+              <div className="text-[12px] text-gray-500">New world unlocked</div>
             </motion.div>
             {Array.from({ length: 14 }).map((_, i) => (
               <motion.span
@@ -405,7 +405,7 @@ function MysteryBox({ pct }: { pct: number }) {
             initial={{ opacity: 0, y: 6, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.9 }}
-            className="absolute left-1/2 top-[28px] z-20 w-[190px] -translate-x-1/2 rounded-xl bg-white/95 p-2.5 text-center text-[11px] font-semibold text-[var(--ink)] shadow-xl"
+            className="absolute left-1/2 top-[28px] z-20 w-[190px] -translate-x-1/2 rounded-xl bg-white p-2.5 text-center text-[11px] font-semibold text-gray-900 shadow-xl"
           >
             {open}
           </motion.div>
