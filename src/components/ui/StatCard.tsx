@@ -15,8 +15,8 @@ export function StatCard({
 }) {
   return (
     <div className={cn("stat-card", projected ? "border-dashed border-amber/50 bg-amber/5" : warn && (tone === "caution" ? "border-amber/40" : "border-rausch/40"))}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[12px] font-bold uppercase tracking-wide text-[var(--gray)]">{label}</div>
+      <div className="flex min-h-[32px] items-center justify-between gap-2">
+        <div className="text-[12px] font-bold uppercase leading-tight tracking-wide text-[var(--gray)]">{label}</div>
         {projected && (
           <span className="flex-none rounded-full bg-amber/15 px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-wide text-amber whitespace-nowrap">Est.</span>
         )}
