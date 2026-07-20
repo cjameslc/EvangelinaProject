@@ -71,31 +71,17 @@ const getDashboardData = unstable_cache(
         },
       }),
       prismaPool[9].stock.findMany({ where }),
-      // Feeds the "Your team" salary summary — days worked by housekeeping.
-      // Unwindowed (like earningsBookings/weeklyExpenses below) so "Your
-      // team" can be recomputed for whatever period the Earnings card's
-      // filter selects (This week/This month/This year/Custom), not just
-      // the last 7 days.
-      prismaPool[10].cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 2000, select: { id: true, employeeId: true, unitId: true, startedAt: true } }),
-      prismaPool[11].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
-      // Point-in-time salary rates — lets the Earnings card look up whatever
-      // rate was effective at the start of any past period, not just the
-      // employee's current one, so a later raise/cut never rewrites history.
-      prismaPool[12].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+      // Point-in-time salary rates — lets accrued/upcoming payroll (Realized
+      // vs Forecast profit) look up whatever rate was effective at the start
+      // of the month, not just the employee's current one, so a later
+      // raise/cut never rewrites history.
+      prismaPool[10].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs] = res as any[];
-    const settings = res[11] as any;
-    const salaryHistory = res[12] as any;
-    const payrollRates = {
-      housekeepingDayRate: settings.housekeepingDayRate,
-      housekeepingNightBonus: settings.housekeepingNightBonus,
-      bookerCommission: settings.bookerCommission,
-      auditorWeeklyRate: settings.auditorWeeklyRate,
-    };
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
-      weeklyExpenses, attentionFindings, stocks, cleaningLogs, salaryHistory, payrollRates,
+      weeklyExpenses, attentionFindings, stocks, salaryHistory,
     }));
   },
   ["dashboard-data"],
@@ -125,13 +111,11 @@ export default async function DashboardPage() {
   let weeklyExpenses: any[] = [];
   let attentionFindings: any[] = [];
   let stocks: any[] = [];
-  let cleaningLogs: any[] = [];
   let salaryHistory: any[] = [];
-  let payrollRates = { housekeepingDayRate: 700, housekeepingNightBonus: 300, bookerCommission: 100, auditorWeeklyRate: 0 };
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs, salaryHistory, payrollRates } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -148,7 +132,6 @@ export default async function DashboardPage() {
     weeklyExpenses = [];
     attentionFindings = [];
     stocks = [];
-    cleaningLogs = [];
     salaryHistory = [];
   }
 
@@ -165,8 +148,6 @@ export default async function DashboardPage() {
       weeklyExpenses={JSON.parse(JSON.stringify(weeklyExpenses))}
       attentionFindings={JSON.parse(JSON.stringify(attentionFindings))}
       stocks={JSON.parse(JSON.stringify(stocks))}
-      cleaningLogs={JSON.parse(JSON.stringify(cleaningLogs))}
-      payrollRates={payrollRates}
       salaryHistory={JSON.parse(JSON.stringify(salaryHistory))}
     />
   );

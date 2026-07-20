@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -10,15 +9,12 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { peso, fmtDate, initials, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
-import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, ROLE_LABEL, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
+import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
+import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon, PlusIcon, EditIcon, TrashIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
-import {
-  computeTeamBreakdown, isPayrollRole, totalSalaryPayroll, weeklySalaryFor,
-  type PayrollRates, type DashboardPeriodType, type SalaryHistoryEntry,
-} from "@/lib/payroll";
+import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[] };
@@ -36,7 +32,6 @@ type AttentionFinding = {
   category: string; severity: "Critical" | "Warning"; unit: { shortName: string } | null; employee: { name: string } | null;
 };
 type Stock = { id: string; unitId: string; name: string; count: number };
-type CleaningLogRow = { id: string; employeeId: string | null; unitId: string; startedAt: string };
 
 // Business runs in Manila (UTC+8) — always bucket "today"/period boundaries by
 // the Manila calendar date, not the server or browser's own timezone.
@@ -95,8 +90,6 @@ export function DashboardView({
   weeklyExpenses: initialWeeklyExpenses,
   attentionFindings,
   stocks,
-  cleaningLogs,
-  payrollRates,
   salaryHistory,
 }: {
   role: string;
@@ -111,8 +104,6 @@ export function DashboardView({
   attentionFindings: AttentionFinding[];
   salaryHistory: SalaryHistoryEntry[];
   stocks: Stock[];
-  cleaningLogs: CleaningLogRow[];
-  payrollRates: PayrollRates;
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -271,18 +262,6 @@ export function DashboardView({
   }, [bookingsWeek]);
   const stayTotal = stayCounts.Daycation + stayCounts.Night + stayCounts.Full || 1;
 
-  const payroll = useMemo(() => {
-    const map = new Map<string, number>();
-    bookingsWeek.forEach((b) => {
-      if (b.receivedById && b.paid) map.set(b.receivedById, (map.get(b.receivedById) ?? 0) + (b.amount || 0));
-      if (b.dpReceivedById) map.set(b.dpReceivedById, (map.get(b.dpReceivedById) ?? 0) + (b.dpAmount || 0));
-    });
-    return employees
-      .map((e) => ({ ...e, collected: map.get(e.id) ?? 0 }))
-      .filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.collected > 0);
-  }, [bookingsWeek, employees]);
-  const payrollTotal = payroll.reduce((s, p) => s + p.collected, 0);
-
   // Earnings period filter — Weekly/Monthly/Yearly, an optional single day,
   // and unit status. Declared here (rather than down by the Earnings card
   // itself) because "Your team" below reads the same rangeType/periodRange,
@@ -316,67 +295,6 @@ export function DashboardView({
     }
     return fmtDate(periodRange.start, { year: "numeric", timeZone: "Asia/Manila" });
   }, [rangeType, periodRange]);
-  const periodLabelShort = rangeType === "daily" ? "today" : rangeType === "weekly" ? "this week" : rangeType === "monthly" ? "this month" : rangeType === "custom" ? "in this range" : "this year";
-
-  // "Your team" — real wages owed for the SAME period selected on the
-  // Earnings card above (Today/This week/This month/This year/Custom), by
-  // role-specific formula:
-  //  · Housekeeping: ₱700 per distinct day with a logged cleaning session,
-  //    plus a ₱300 bonus per Night-stay booking they cleaned.
-  //  · Booker: ₱100 per booking they logged, plus any "Salary" (WeeklyExpense)
-  //    entries logged in the period. Any other manual expense charged to
-  //    them (ad boosts, etc.) is deducted, not added.
-  //  · Auditor: a flat weekly rate, scaled by how many weeks the selected
-  //    period spans (periodWeeks below) — the only line here that isn't
-  //    naturally period-scaled just by filtering to a wider date range.
-  // Uses earningsBookings (the broad, unwindowed set), not bookingsWeek,
-  // since bookingsWeek is hard-capped server-side to the last 7 days and
-  // can't answer "this month"/"this year". Read-only summary — the full
-  // editor for manual weekly expenses lives on the Admin page's Weekly
-  // report tab.
-  const teamBookingsThisPeriod = earningsBookings.filter((b) => {
-    const d = new Date(dayOf(new Date(b.date)));
-    return d >= periodRange.start && d < periodRange.end;
-  });
-  const teamExpensesThisPeriod = weeklyExpenses.filter((e) => {
-    const d = new Date(dayOf(new Date(e.date)));
-    return d >= periodRange.start && d < periodRange.end;
-  });
-  const cleaningDaysByEmployee = new Map<string, Set<string>>();
-  cleaningLogs.forEach((c) => {
-    if (!c.employeeId) return;
-    const d = dayOf(new Date(c.startedAt));
-    if (new Date(d) < periodRange.start || new Date(d) >= periodRange.end) return;
-    if (!cleaningDaysByEmployee.has(c.employeeId)) cleaningDaysByEmployee.set(c.employeeId, new Set());
-    cleaningDaysByEmployee.get(c.employeeId)!.add(d);
-  });
-
-  const normalizedTeamExpensesThisPeriod = teamExpensesThisPeriod.map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: e.targetEmployee?.id ?? null }));
-  const periodWeeks = Math.max(periodDays / 7, 1 / 7);
-
-  // Owners and Co-owners are never part of payroll — no salary, commission,
-  // incentive, or payroll record of any kind. "Your team" only lists staff
-  // in a payroll-eligible role, each with their flat "Salary this week"
-  // (configured rate, normalized to a weekly figure — always the literal
-  // current week, independent of whatever period the Earnings filter above
-  // is set to, matching what the Staff tab's own field means) alongside the
-  // commission/day-rate activity breakdown for roles that have one.
-  const teamCalcs = employees
-    .filter((e) => isPayrollRole(e.role))
-    .map((e) => ({
-      employee: e,
-      salaryThisWeek: weeklySalaryFor(e.monthlySalary),
-      ...computeTeamBreakdown(e, {
-        cleaningDays: cleaningDaysByEmployee.get(e.id)?.size ?? 0,
-        weekBookings: teamBookingsThisPeriod,
-        weekExpenses: normalizedTeamExpensesThisPeriod,
-        rates: payrollRates,
-        periodWeeks,
-      }),
-    }));
-  const teamPayrollTotal = teamCalcs.reduce((s, t) => s + t.total + t.salaryThisWeek, 0);
-  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
-  const AVATAR_COLORS = ["bg-rausch", "bg-teal", "bg-violet", "bg-amber", "bg-blue", "bg-green"];
 
   const today = dayOf(new Date());
   function unitStatus(unit: Unit) {
@@ -1001,7 +919,7 @@ export function DashboardView({
           {/* Red is reserved for things that actually need action (overdue
               bills, low stock, open findings — see "Needs your attention"
               below). A dip in a routine metric like these gets amber, a
-              softer "worth a look," not an alarm. Occupancy/RevPAR/ADR/Payroll
+              softer "worth a look," not an alarm. Occupancy/RevPAR/ADR
               can't mathematically go negative, so they never get either. */}
           <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution" />
           {/* Always amber, not just when negative — a projection, never mistaken for actual money. */}
@@ -1011,7 +929,6 @@ export function DashboardView({
           <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} />
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" />
           <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" />
-          <StatCard label="Payroll" value={peso(payrollTotal)} sub={`${payroll.length} people`} />
         </div>
         <p className="mt-3 text-[11.5px] text-[var(--gray)]">
           <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. Realized profit, Profit margin, and Cash flow always show <b>₱0</b> instead of a negative number — an amber border still flags a period where costs actually outpaced revenue, but the headline figure never goes below zero. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
@@ -1165,74 +1082,6 @@ export function DashboardView({
           canEdit={role === "OWNER_ADMIN"}
           onChanged={refreshWeeklyExpenses}
         />
-      </Accordion>
-
-      <Accordion title="Your team" sub="salary this week">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[12.5px] text-[var(--gray)]">Flat &ldquo;Salary this week&rdquo; from Admin → Staff plus commission/day-rate activity {periodLabelShort}, for Booker/Housekeeping/Auditor — Owners and Co-owners are never part of payroll.</p>
-          {role === "OWNER_ADMIN" && (
-            <Link href="/admin?tab=staff" className="flex-none text-[12.5px] font-bold text-rausch hover:underline">
-              Manage staff →
-            </Link>
-          )}
-        </div>
-        <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
-          {teamCalcs.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
-          {teamCalcs.map(({ employee: emp, total, items, subtitle, salaryThisWeek }, i) => {
-            const isOpen = expandedTeamId === emp.id;
-            return (
-              <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
-                <button onClick={() => setExpandedTeamId(isOpen ? null : emp.id)} className="flex w-full items-center gap-3 p-4 text-left">
-                  <span className={cn("grid h-11 w-11 flex-none place-items-center rounded-full text-[13px] font-bold text-white", AVATAR_COLORS[i % AVATAR_COLORS.length])}>
-                    {initials(emp.name)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-bold">{emp.name}</div>
-                    <div className="text-[12px] text-[var(--gray)]">{ROLE_LABEL[emp.role] ?? emp.role}</div>
-                    {subtitle && <div className="mt-0.5 text-[11.5px] text-[var(--gray)]">{subtitle}</div>}
-                  </div>
-                  <div className="flex-none text-right">
-                    <div className="text-[16px] font-extrabold">{peso(salaryThisWeek)}</div>
-                    <div className="text-[11px] text-[var(--gray)]">salary this week</div>
-                    <div className={cn("mt-0.5 text-[12px] font-bold", total < 0 ? "text-amber" : "text-green")}>
-                      {total >= 0 ? "+" : ""}{peso(total)} activity {periodLabelShort}
-                    </div>
-                  </div>
-                  <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", isOpen && "rotate-180")} />
-                </button>
-                {isOpen && (
-                  <div className="space-y-2 border-t border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
-                    <div className="flex items-center justify-between text-[13px]">
-                      <div>
-                        <div className="font-bold">Salary this week</div>
-                        <div className="text-[11.5px] text-[var(--gray)]">from Admin → Staff, flat rate ÷ 52 weeks</div>
-                      </div>
-                      <div className="font-bold">{peso(salaryThisWeek)}</div>
-                    </div>
-                    {items.length === 0 && <p className="text-[12.5px] text-[var(--gray)]">No activity {periodLabelShort}.</p>}
-                    {items.map((item, j) => (
-                      <div key={j} className="flex items-center justify-between text-[13px]">
-                        <div>
-                          <div className="font-bold">{item.label}</div>
-                          <div className="text-[11.5px] text-[var(--gray)]">{item.detail}</div>
-                        </div>
-                        <div className={cn("font-bold", item.deduction && "text-rausch")}>{item.deduction ? "−" : ""}{peso(item.amount)}</div>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between border-t border-dashed border-[var(--line-2)] pt-2 text-[13px] font-extrabold">
-                      <span>Subtotal</span>
-                      <span className={cn(salaryThisWeek + total < 0 && "text-amber")}>{peso(salaryThisWeek + total)}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <div className="flex items-center justify-between bg-[var(--bg-2)] p-4 text-sm font-extrabold">
-            <span>Total payroll</span>
-            <span className="text-rausch">{peso(teamPayrollTotal)}</span>
-          </div>
-        </div>
       </Accordion>
     </div>
   );
