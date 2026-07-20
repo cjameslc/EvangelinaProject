@@ -14,7 +14,9 @@ import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
-import { playPop, playFanfare } from "@/lib/sound";
+import { playPop, playQuestComplete } from "@/lib/sound";
+import { WorldMapProgress, EliteBadgeButton } from "@/components/earnings/WorldMapProgress";
+import { motion, AnimatePresence } from "framer-motion";
 
 type EmployeeLite = { id: string; name: string; role: string };
 type UnitLite = { id: string; name: string; shortName: string };
@@ -305,7 +307,7 @@ export function EarningsView({
         </div>
       </Accordion>
 
-      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} />}
+      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} employeeId={data.employee.id} />}
 
       {(data.employee.role === "BOOKER" || data.employee.role === "HOUSEKEEPING") && (
         <Accordion title="Achievements">
@@ -422,86 +424,18 @@ export function EarningsView({
   );
 }
 
-// A deliberately playful "skin" over the Elite Booker Challenge data — same
-// numbers as before, presented like a game quest screen instead of a plain
-// stat card: gradient hero banner, a shimmering progress bar, tier badges
-// that glow/float once won and sit grayscale-locked until then. Tapping a
-// tier plays a tiny synthesized chime (fanfare if won, a soft pop if not)
-// — sound only ever fires from a real click, never automatically.
-function EliteChallengeQuest({ challenge }: { challenge: EliteChallenge }) {
+// An original fantasy-kingdom "world map" skin over the Elite Booker
+// Challenge data (see WorldMapProgress.tsx) — same numbers as before,
+// presented as a journey through seven original waypoints instead of a
+// plain stat card. No licensed art/characters/music of any kind.
+function EliteChallengeQuest({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
   return (
     <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
-      <div className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-br from-rausch via-rausch to-violet p-5 text-white">
-        <div className="pointer-events-none absolute -right-3 -top-3 animate-float text-6xl opacity-20">✨</div>
-        <div className="relative flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-[19px] font-extrabold drop-shadow-sm">
-              {challenge.currentBadge ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block animate-float">{"⭐".repeat(challenge.currentStars)}</span> {challenge.currentBadge}
-                </span>
-              ) : "🎯 Quest started — no tier yet"}
-            </div>
-            <div className="mt-0.5 text-[13px] text-white/85">
-              {challenge.completedThisMonth}{challenge.nextTier ? ` / ${challenge.nextTier}` : ""} bookings this month
-            </div>
-          </div>
-          <div className="rounded-xl bg-white/15 px-3 py-2 text-center backdrop-blur-sm">
-            <div className="text-[16px] font-extrabold">#{challenge.rank}</div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-white/80">of {challenge.totalBookers}</div>
-          </div>
-        </div>
-
-        <div className="relative mt-4 h-4 overflow-hidden rounded-full bg-white/20">
-          <div className="relative h-full rounded-full bg-white transition-all duration-700" style={{ width: `${Math.max(4, challenge.progressPct)}%` }}>
-            <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/60 to-transparent bg-[length:200%_100%]" />
-          </div>
-        </div>
-
-        {challenge.nextTier ? (
-          <div className="relative mt-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-semibold text-white/90">
-              <b className="text-white">{challenge.remaining} more booking{challenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(challenge.nextTierAmount ?? 0)}
-            </p>
-            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", challenge.slotsRemainingForNextTier > 0 ? "bg-white/25" : "bg-black/25")}>
-              🎟️ {challenge.slotsRemainingForNextTier} of {challenge.slotsTotalForNextTier} slots left
-            </span>
-          </div>
-        ) : (
-          <p className="relative mt-3 text-[13px] font-extrabold">👑 Maximum tier reached this month — legendary!</p>
-        )}
-
-        <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">
-          <div>
-            <div className="text-[10.5px] font-bold uppercase text-white/70">Estimated commission</div>
-            <div className="text-[16px] font-extrabold">{peso(challenge.estimatedCommission)}</div>
-          </div>
-          <div>
-            <div className="text-[10.5px] font-bold uppercase text-white/70">Potential bonus</div>
-            <div className="text-[16px] font-extrabold">{peso(challenge.potentialBonus)}</div>
-          </div>
-        </div>
+      <div className="mb-4">
+        <WorldMapProgress challenge={challenge} employeeId={employeeId} />
       </div>
-
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
-        {challenge.tiers.map((t, i) => (
-          <button
-            key={t.tier}
-            type="button"
-            onClick={() => (t.wonByMe ? playFanfare() : playPop())}
-            style={{ animationDelay: `${i * 60}ms` }}
-            className={cn(
-              "relative animate-pop-in rounded-xl border p-3 text-center transition-transform hover:-translate-y-0.5",
-              t.wonByMe ? "animate-glow-pulse border-rausch/40 bg-gradient-to-b from-rausch/10 to-transparent" : "border-[var(--line)] opacity-60 grayscale hover:opacity-90 hover:grayscale-0"
-            )}
-          >
-            <div className={cn("text-lg", t.wonByMe && "animate-float")}>{t.medal}</div>
-            <div className="mt-0.5 text-[11.5px] font-extrabold">{t.badge}</div>
-            <div className="text-[10.5px] text-[var(--gray)]">{t.tier} bookings · {peso(t.amount)}</div>
-            <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, t.slotsTotal - t.slotsTaken)} of {t.slotsTotal} slots left</div>
-            {!t.wonByMe && <div className="absolute right-1.5 top-1.5 text-[11px] opacity-40">🔒</div>}
-          </button>
-        ))}
+        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} />)}
       </div>
     </Accordion>
   );
@@ -512,10 +446,23 @@ function EliteChallengeQuest({ challenge }: { challenge: EliteChallenge }) {
 // grayscale until earned. Click plays a chime (fanfare if unlocked, a soft
 // pop otherwise).
 function AchievementBadgeCard({ a, index }: { a: Achievement; index: number }) {
+  const [sparkling, setSparkling] = useState(false);
+
+  function onTap() {
+    if (a.unlocked) {
+      playQuestComplete();
+      setSparkling(true);
+      setTimeout(() => setSparkling(false), 900);
+    } else {
+      playPop();
+    }
+  }
+
   return (
-    <button
+    <motion.button
       type="button"
-      onClick={() => (a.unlocked ? playFanfare() : playPop())}
+      onClick={onTap}
+      whileTap={{ scale: 0.94 }}
       style={{ animationDelay: `${index * 70}ms` }}
       className={cn(
         "relative animate-pop-in overflow-hidden rounded-2xl border p-4 text-center transition-transform hover:-translate-y-0.5",
@@ -527,7 +474,26 @@ function AchievementBadgeCard({ a, index }: { a: Achievement; index: number }) {
       <div className="relative mt-1.5 text-[12.5px] font-bold">{a.label}</div>
       {a.unlocked && !!a.rewardAmount && <div className="relative mt-0.5 text-[12px] font-bold text-green">🪙 {peso(a.rewardAmount)}</div>}
       {a.unlocked && a.personalMessage && <div className="relative mt-1 text-[11px] italic text-[var(--gray)]">&ldquo;{a.personalMessage}&rdquo;</div>}
-    </button>
+      <AnimatePresence>
+        {sparkling && (
+          <div className="pointer-events-none absolute inset-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <motion.span
+                key={i}
+                className="absolute text-sm"
+                style={{ left: `${20 + i * 12}%`, top: "50%" }}
+                initial={{ opacity: 0, scale: 0.4, y: 0 }}
+                animate={{ opacity: [0, 1, 0], scale: 1, y: -30 - (i % 3) * 10, x: (i - 3) * 8 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.8, delay: i * 0.04, ease: "easeOut" }}
+              >
+                ✨
+              </motion.span>
+            ))}
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.button>
   );
 }
 
