@@ -1,57 +1,61 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
-import { prisma, prismaPool } from "@/lib/prisma";
+import { prismaPool } from "@/lib/prisma";
 import { dashboardUnitWhere, dashboardUnitIdWhere } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 
-export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  if (!canSeeDashboard(user.role)) redirect("/");
-  const where = dashboardUnitWhere(user);
-  const now = new Date();
-  const weekAgo = new Date(now.getTime() - 7 * 86400000);
-  const monthStart = manilaMonthStart(now);
-  const nextMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
-  // Every active recurring-expense template must have this month's Bill
-  // before we read any bills below — this is what makes "auto-generate next
-  // month's expense" actually happen: the moment anyone loads a page in a
-  // new month, that month's bills materialize.
-  await ensureRecurringBillsForMonth(monthStart).catch(() => {});
-
-  let units: any[] = [];
-  let bookingsWeek: any[] = [];
-  let bookingsMonth: any[] = [];
-  let employees: any[] = [];
-  let bills: any[] = [];
-  let hkStates: any[] = [];
-  let earningsBookings: any[] = [];
-  let weeklyExpenses: any[] = [];
-  let attentionFindings: any[] = [];
-  let stocks: any[] = [];
-  let cleaningLogs: any[] = [];
-  let salaryHistory: any[] = [];
-  let payrollRates = { housekeepingDayRate: 700, housekeepingNightBonus: 300, bookerCommission: 100, auditorWeeklyRate: 0 };
-
-  try {
+// Everything the Dashboard reads is scoped only by role+ownedUnitIds (see
+// dashboardUnitWhere/dashboardUnitIdWhere), so those two are sufficient as a
+// cache key — no need to key on the user's id. Revalidates every 45s: fresh
+// enough that a booking/payment made just now shows up within under a
+// minute, but it means a page load can be up to ~45s stale, which is an
+// explicitly accepted tradeoff for how much DB load this page was causing.
+// The returned object is pre-normalized (JSON.parse(JSON.stringify(...)))
+// before caching so a cache hit and a cache miss return the exact same
+// shape — Next's unstable_cache round-trips cached values through JSON
+// itself, which would otherwise silently turn Dates into strings only on a
+// hit, not a miss.
+const getDashboardData = unstable_cache(
+  async (role: string, ownedUnitIds: string[]) => {
+    const user = { role, ownedUnitIds };
+    const where = dashboardUnitWhere(user);
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
+    const monthStart = manilaMonthStart(now);
+    const nextMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
     // Findings scoped to this user's units, plus any general (no-unit) ones.
     const unitFilter = (where as any).unitId;
     const findingsWhere = unitFilter ? { OR: [{ unitId: unitFilter }, { unitId: null }] } : {};
 
+    // DashboardView never reads a booking's proofUrl/dpProofUrl (those are
+    // base64-encoded receipt images, only shown on Bookings' own edit modal)
+    // or its `unit` relation (every place it shows a unit name reads it from
+    // the separately-fetched `units`/`bills`/`hkStates` arrays instead) — yet
+    // all three booking reads below used to fetch full rows including those
+    // images. With real receipts attached this was inflating the page's data
+    // to 20MB+ for a business with a literal handful of bookings; this select
+    // is the fix.
+    const dashboardBookingSelect = {
+      id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true,
+      platform: true, amount: true, paid: true, dpAmount: true, guests: true,
+      receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true,
+    };
+
     const res = await Promise.all([
       prismaPool[0].unit.findMany({ where: dashboardUnitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
-      prismaPool[1].booking.findMany({ where: { ...where, date: { gte: weekAgo } }, include: { unit: true } }),
-      prismaPool[2].booking.findMany({ where: { ...where, date: { gte: monthStart, lt: nextMonthStart } } }),
+      prismaPool[1].booking.findMany({ where: { ...where, date: { gte: weekAgo } }, select: dashboardBookingSelect }),
+      prismaPool[2].booking.findMany({ where: { ...where, date: { gte: monthStart, lt: nextMonthStart } }, select: dashboardBookingSelect }),
       prismaPool[3].employee.findMany({ where: { active: true } }),
-      prismaPool[4].bill.findMany({ where: { ...where, month: monthStart }, include: { unit: true } }),
-      prismaPool[5].housekeepingUnitState.findMany({ where, include: { unit: true } }),
+      prismaPool[4].bill.findMany({ where: { ...where, month: monthStart }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
+      prismaPool[5].housekeepingUnitState.findMany({ where }),
       // A broad, unwindowed set so the Earnings card can filter by an
       // arbitrary Weekly/Monthly/Yearly period client-side instead of only
       // the fixed last-7-days/month-to-date slices above.
-      prismaPool[6].booking.findMany({ where, orderBy: { date: "desc" }, take: 500 }),
+      prismaPool[6].booking.findMany({ where, orderBy: { date: "desc" }, take: 500, select: dashboardBookingSelect }),
       // Weekly expenses aren't tied to a unit (salaries, ad spend, etc.) — used
       // for the Earnings "Salary" line. The full manual-entry editor now
       // lives on the Admin page's Weekly report tab.
@@ -79,15 +83,55 @@ export default async function DashboardPage() {
       // employee's current one, so a later raise/cut never rewrites history.
       prismaPool[12].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
     ]);
-    [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs] = res as any;
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs] = res as any[];
     const settings = res[11] as any;
-    salaryHistory = res[12] as any;
-    payrollRates = {
+    const salaryHistory = res[12] as any;
+    const payrollRates = {
       housekeepingDayRate: settings.housekeepingDayRate,
       housekeepingNightBonus: settings.housekeepingNightBonus,
       bookerCommission: settings.bookerCommission,
       auditorWeeklyRate: settings.auditorWeeklyRate,
     };
+
+    return JSON.parse(JSON.stringify({
+      units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
+      weeklyExpenses, attentionFindings, stocks, cleaningLogs, salaryHistory, payrollRates,
+    }));
+  },
+  ["dashboard-data"],
+  { revalidate: 45 }
+);
+
+export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!canSeeDashboard(user.role)) redirect("/");
+  const monthStart = manilaMonthStart(new Date());
+  // Every active recurring-expense template must have this month's Bill
+  // before we read any bills below — this is what makes "auto-generate next
+  // month's expense" actually happen: the moment anyone loads a page in a
+  // new month, that month's bills materialize. Runs uncached, every request
+  // — it's a cheap idempotent write, and the dashboard-data cache above must
+  // never be the thing standing between a new month and its bills existing.
+  await ensureRecurringBillsForMonth(monthStart).catch(() => {});
+
+  let units: any[] = [];
+  let bookingsWeek: any[] = [];
+  let bookingsMonth: any[] = [];
+  let employees: any[] = [];
+  let bills: any[] = [];
+  let hkStates: any[] = [];
+  let earningsBookings: any[] = [];
+  let weeklyExpenses: any[] = [];
+  let attentionFindings: any[] = [];
+  let stocks: any[] = [];
+  let cleaningLogs: any[] = [];
+  let salaryHistory: any[] = [];
+  let payrollRates = { housekeepingDayRate: 700, housekeepingNightBonus: 300, bookerCommission: 100, auditorWeeklyRate: 0 };
+
+  try {
+    const data = await getDashboardData(user.role, user.ownedUnitIds);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, cleaningLogs, salaryHistory, payrollRates } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [

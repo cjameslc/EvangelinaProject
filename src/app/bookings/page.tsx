@@ -18,7 +18,7 @@ export default async function BookingsPage() {
       where,
       orderBy: { date: "desc" },
       include: {
-        unit: true,
+        unit: { select: { id: true, name: true, unitNumber: true, shortName: true, nightlyRate: true, owners: { include: { user: { select: { name: true } } } } } },
         booker: { select: { id: true, name: true } },
         cleaner: { select: { id: true, name: true } },
         dpReceivedBy: { select: { id: true, name: true } },

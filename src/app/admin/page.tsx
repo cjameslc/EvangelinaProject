@@ -17,7 +17,18 @@ export default async function AdminPage() {
 
   const [units, users, settings, loginLogs, weeklyReportBookings, employees, weeklyExpenses, cleaningLogs, bills, stocks] = await Promise.all([
     prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
-    prismaPool[1].user.findMany({ orderBy: { createdAt: "asc" }, include: { ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } } } }),
+    // Explicit select — UsersTab never reads avatarUrl (a base64-encoded
+    // profile photo, only used on the owning user's own Navbar/Profile
+    // page) or passwordHash, yet both used to be fetched for every account
+    // here. One seeded test account's avatarUrl alone was 3.4MB.
+    prismaPool[1].user.findMany({
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true, name: true, username: true, email: true, role: true, avatarColor: true,
+        active: true, mustChangePassword: true, createdAt: true,
+        ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
+      },
+    }),
     prismaPool[2].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
     prismaPool[3].auditLog.findMany({
       where: { action: "user.login" },
@@ -25,11 +36,18 @@ export default async function AdminPage() {
       take: 200,
       include: { actor: { select: { id: true, name: true, username: true, role: true } } },
     }),
-    // Feeds the "Weekly report" tab below — Admin sees every unit, so no scoping.
+    // Feeds the "Weekly report" tab below — Admin sees every unit, so no
+    // scoping. Explicit `select` (not `include`) so this never pulls
+    // proofUrl/dpProofUrl — the base64-encoded receipt images, only needed
+    // on the Bookings page's own edit modal — which was previously fetched
+    // in full for all 200 rows here despite WeeklyReport/StaffTab never
+    // reading either field.
     prismaPool[4].booking.findMany({
       orderBy: { date: "desc" },
       take: 200,
-      include: {
+      select: {
+        id: true, date: true, checkOutDate: true, checkOutTime: true, unitId: true, guests: true, pax: true,
+        platform: true, stayType: true, amount: true, paid: true, method: true, dpAmount: true, dpMethod: true,
         unit: { select: { id: true, name: true, shortName: true, unitNumber: true, owners: { include: { user: { select: { name: true } } } } } },
         booker: { select: { id: true, name: true, role: true } },
         receivedBy: { select: { id: true, name: true, role: true } },
@@ -46,13 +64,12 @@ export default async function AdminPage() {
     prismaPool[9].stock.findMany({ orderBy: { name: "asc" } }),
   ]);
 
-  const safeUsers = users.map(({ passwordHash, ...u }) => u);
   const safeSettings = { ...settings, checklistGroups: (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS };
 
   return (
     <AdminView
       units={JSON.parse(JSON.stringify(units))}
-      users={JSON.parse(JSON.stringify(safeUsers))}
+      users={JSON.parse(JSON.stringify(users))}
       settings={JSON.parse(JSON.stringify(safeSettings))}
       loginLogs={JSON.parse(JSON.stringify(loginLogs))}
       weeklyReportBookings={JSON.parse(JSON.stringify(weeklyReportBookings))}

@@ -154,9 +154,16 @@ export async function GET(req: NextRequest) {
     // Everyone else's counts + awards this month, to compute rank and
     // remaining slots per tier without exposing their identities beyond
     // what's already public on the admin leaderboard.
-    const allBookers = await prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } });
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    // allMonthAwards doesn't depend on allBookers, so it runs alongside that
+    // chain instead of after it.
+    const [allBookers, allMonthAwards] = await Promise.all([
+      prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } }),
+      prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
+    ]);
     const allMonthBookings = await prisma.booking.findMany({
-      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), lt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) } },
+      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart } },
       select: { bookerId: true, date: true, checkOutDate: true },
     });
     const countsByBooker = new Map<string, number>();
@@ -164,9 +171,6 @@ export async function GET(req: NextRequest) {
     allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByBooker.set(b.bookerId, (countsByBooker.get(b.bookerId) ?? 0) + 1); });
     const ranked = [...countsByBooker.entries()].sort((a, b) => b[1] - a[1]);
     const rank = ranked.findIndex(([id]) => id === employee!.id) + 1;
-
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const allMonthAwards = await prisma.eliteBookerAward.findMany({ where: { month: monthStart } });
 
     const currentTierDef = [...ELITE_TIERS].reverse().find((t) => completedThisMonth >= t.tier) ?? null;
     const nextTierDef = ELITE_TIERS.find((t) => completedThisMonth < t.tier) ?? null;

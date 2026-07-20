@@ -7,11 +7,18 @@ import { userSchema } from "@/lib/validation";
 export async function GET() {
   const { error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  // Explicit select — excludes avatarUrl (base64 profile photo, only used
+  // on the owning user's own Navbar/Profile) and passwordHash; see the same
+  // fix in src/app/admin/page.tsx.
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
-    include: { ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } } },
+    select: {
+      id: true, name: true, username: true, email: true, role: true, avatarColor: true,
+      active: true, mustChangePassword: true, createdAt: true,
+      ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
+    },
   });
-  return NextResponse.json(users.map(({ passwordHash, ...u }) => u));
+  return NextResponse.json(users);
 }
 
 export async function POST(req: NextRequest) {

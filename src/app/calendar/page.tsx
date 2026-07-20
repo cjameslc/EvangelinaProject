@@ -20,7 +20,7 @@ export default async function CalendarPage() {
       where,
       orderBy: { date: "asc" },
       include: {
-        unit: true,
+        unit: { select: { id: true, name: true, unitNumber: true, shortName: true } },
         booking: {
           select: {
             platform: true, amount: true, paid: true, dpAmount: true,
