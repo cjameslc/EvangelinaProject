@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { peso } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Modal } from "@/components/ui/Modal";
 import { playCoin, playFanfare, playXpGain, playChestOpen, playPop, getSoundPrefs, subscribeSoundPrefs, setSoundEnabled, setSoundVolume } from "@/lib/sound";
 
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
@@ -145,6 +146,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
             <div className="text-[10px] font-bold uppercase tracking-wide text-white/80">of {challenge.totalBookers}</div>
           </div>
           <SoundControl />
+          <HowItWorksButton challenge={challenge} />
         </div>
       </div>
 
@@ -410,6 +412,59 @@ function MysteryBox({ pct }: { pct: number }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** Info button opening a plain-language explainer of how the world map, tiers, and achievements actually work. */
+function HowItWorksButton({ challenge }: { challenge: EliteChallenge }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="grid h-9 w-9 place-items-center rounded-xl bg-white/15 text-[15px] backdrop-blur-sm hover:bg-white/25"
+        aria-label="How this works"
+        title="How this works"
+      >
+        ℹ️
+      </button>
+      {open && (
+        <Modal open onClose={() => setOpen(false)} title="How the Elite Booker Challenge works" maxWidth={480} footer={<button onClick={() => setOpen(false)} className="btn-primary ml-auto">Got it</button>}>
+          <div className="space-y-4 text-[13px] text-[var(--gray)]">
+            <section>
+              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🗺️ The world map</h3>
+              <p>Your position on the road tracks <b className="text-[var(--ink)]">completed bookings this month</b> — a booking counts once the stay is actually finished, not the moment it&rsquo;s logged. Every completed booking moves you further along, through Cubao Village → Araneta Forest → Comfort Castle → Cozy Peak → Relax Volcano → Signature Sky → Evangelina&rsquo;s Kingdom.</p>
+            </section>
+            <section>
+              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🏆 Reward tiers</h3>
+              <p className="mb-1.5">Five of the seven worlds carry a real ₱ reward, with <b className="text-[var(--ink)]">limited slots</b> — first come, first served each month:</p>
+              <div className="overflow-hidden rounded-xl border border-[var(--line)]">
+                {challenge.tiers.map((t) => (
+                  <div key={t.tier} className="flex items-center justify-between border-t border-[var(--line)] px-3 py-1.5 text-[12px] first:border-0">
+                    <span>{t.medal} {t.badge} · {t.tier} bookings</span>
+                    <span className="font-bold text-[var(--ink)]">{peso(t.amount)} · {t.slotsTotal} slot{t.slotsTotal === 1 ? "" : "s"}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5">Whoever reaches a tier&rsquo;s booking count first claims a slot — once a tier&rsquo;s slots are full, later bookers can still reach that world, just without the ₱ reward attached.</p>
+            </section>
+            <section>
+              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🎖️ Achievements</h3>
+              <p>Separate from the monthly challenge — these are set per person by the owner, based on your <b className="text-[var(--ink)]">lifetime</b> completed bookings/cleanings, not this month&rsquo;s. Once unlocked, a badge (and its ₱ reward, if it has one) is yours for good — it never resets.</p>
+            </section>
+            <section>
+              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🔁 Monthly reset</h3>
+              <p>The world map and tier rewards reset on the 1st of every month. Rank, slots, and position all start over — but every badge you&rsquo;ve already earned stays earned.</p>
+            </section>
+            <section>
+              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">❓ Mystery Box &amp; sound</h3>
+              <p>The gold “?” along the road just hands out a quick tip for fun — it doesn&rsquo;t change your rewards. The 🔊 button next to it mutes or adjusts the little sound effects; your choice is remembered next time you visit.</p>
+            </section>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
