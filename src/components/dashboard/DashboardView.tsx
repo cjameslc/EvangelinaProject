@@ -1166,23 +1166,23 @@ export function DashboardView({
               can't mathematically go negative, so they never get either. */}
           <StatCard
             label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution"
-            info={`Revenue from completed stays (${peso(completedMonthIncome)}) minus paid bills, approved expense requests, and TikTok ad spend, minus payroll accrued so far (${peso(accruedStaffSalary)}). Floors at ₱0 — an amber border means costs actually outpaced revenue.`}
+            info="Completed-stay revenue minus paid bills, expenses, and payroll accrued so far. Floors at ₱0."
           />
           <StatCard
             label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" projected
-            info={`Every booking's full value this month (${peso(expectedMonthIncome)}), whether collected yet or not, minus bills still outstanding (${pesoCentavos(billsDueMonthCentavos)}), pending expense requests, and the ${peso(upcomingStaffSalary)} of payroll not yet accrued. A projection for planning, not money in hand.`}
+            info="Every booking's full value minus outstanding bills and unaccrued payroll. A projection, not cash in hand."
           />
           <StatCard
             label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={marginRaw < 0} tone="caution"
-            info="Realized profit divided by completed-stay revenue, as a percentage. Floors at 0% — an amber border means the real figure is negative."
+            info="Realized profit as a percent of completed-stay revenue. Floors at 0%."
           />
           <StatCard
             label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution"
-            info={`Money actually in hand: everything collected this month, whether the stay has happened yet or not (${peso(monthIncome)}), minus paid bills, approved expense requests, and TikTok ad spend, minus payroll accrued so far. Floors at ₱0.`}
+            info="Everything collected this month minus paid bills, expenses, and payroll accrued so far. Floors at ₱0."
           />
-          <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} info={`Booked nights this week (${occupiedNights}) divided by total available nights (${units.length} units × 7).`} />
-          <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income divided by (number of units × 7 nights) — revenue per available room, a standard hospitality yield metric." />
-          <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" info="The base nightly rate configured for your first listed unit, in Admin → Units." />
+          <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} info="Booked nights this week ÷ total available nights." />
+          <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income ÷ available room-nights." infoAlign="right" />
+          <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" info="Base rate for your first listed unit." infoAlign="right" />
         </div>
         {keyMetricsInsights.length > 0 && (
           <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
