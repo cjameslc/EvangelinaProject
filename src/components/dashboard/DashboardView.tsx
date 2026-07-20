@@ -427,6 +427,17 @@ export function DashboardView({
     [combinedRecentBookings]
   );
 
+  // Check-in already happened but the balance is still unpaid — same "⏰
+  // Past due" tag now shown on the Bookings page. Excludes stays that have
+  // already fully completed (checked out) since those are the more specific,
+  // more urgent unpaidAfterCheckout case just above; a booking can't be in
+  // both buckets at once.
+  const pastDueBookings = useMemo(
+    () => combinedRecentBookings.filter((b) => !isCompletedStay(b) && !b.paid && b.amount > 0 && dayOf(new Date(b.date)) < today),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [combinedRecentBookings]
+  );
+
   // Late cleaning — a unit whose most recent checkout hasn't been cleaned
   // yet AND already has a future guest booked in, so whoever arrives next
   // is the one who'll notice if it slips. Checked against cleanedBookingIds
@@ -505,6 +516,21 @@ export function DashboardView({
       });
     }
 
+    if (pastDueBookings.length > 0) {
+      const total = pastDueBookings.reduce((s, b) => s + b.amount, 0);
+      const desc = pastDueBookings
+        .map((b) => `${unitShortName(b.unitId)} (${fmtDate(b.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })})`)
+        .join(", ");
+      items.push({
+        id: "attn-pastdue",
+        dot: "bg-amber",
+        title: `${peso(total)} past due — check-in already passed`,
+        desc: `Balance still unpaid: ${desc}.`,
+        tag: "Bookings",
+        href: "/bookings",
+      });
+    }
+
     if (unpaidAfterCheckout.length > 0) {
       const total = unpaidAfterCheckout.reduce((s, b) => s + b.amount, 0);
       const desc = unpaidAfterCheckout
@@ -549,7 +575,7 @@ export function DashboardView({
 
     return items.slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, unpaidAfterCheckout, failedSyncUnits]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly

@@ -474,6 +474,15 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   );
 }
 
+/** A booking is past due once its check-in date has already passed while the
+ * balance is still unpaid — the guest should have settled up by check-in at
+ * the latest. Distinct from "Paid"/"Unpaid" (which says nothing about
+ * timing) so staff can tell an on-schedule unpaid booking from one that's
+ * actually overdue. */
+function isPastDue(b: Booking) {
+  return !b.paid && dayOf(new Date(b.date)) < dayOf(new Date());
+}
+
 function BookingLine({
   b, kind, canEdit, onEdit, onDelete,
 }: {
@@ -485,6 +494,7 @@ function BookingLine({
 }) {
   const time = fmtTimeStr(kind === "checkin" ? b.checkInTime : b.checkOutTime);
   const accent = kind === "checkin" ? "var(--green)" : "var(--blue)";
+  const pastDue = isPastDue(b);
   return (
     <div
       className="flex items-start justify-between gap-3 border-t border-[var(--line)] px-4 py-4 first:border-0"
@@ -502,7 +512,7 @@ function BookingLine({
       <div className="flex flex-none flex-col items-end gap-1.5">
         {b.conflict && <Tag variant="unpaid">⚠️ Conflict</Tag>}
         {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
-        {b.paid ? <Tag variant="paid">Paid</Tag> : <Tag variant="unpaid">Unpaid</Tag>}
+        {pastDue ? <Tag variant="unpaid">⏰ Past due</Tag> : b.paid ? <Tag variant="paid">Paid</Tag> : <Tag variant="unpaid">Unpaid</Tag>}
         <div className="text-right text-[12.5px] font-bold">
           <span className="text-[var(--gray)]">Balance </span>
           <span className={b.paid ? "text-green" : "text-rausch"}>{peso(b.paid ? 0 : b.amount)}</span>

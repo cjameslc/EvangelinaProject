@@ -213,8 +213,12 @@ export function BookingForm({
     if (!v.bookerId) e.bookerId = "Choose the booker.";
     if (!v.platform) e.platform = "Choose a platform.";
     if (!v.totalAmount || v.totalAmount <= 0) e.totalAmount = "Enter the total amount for this stay.";
-    if (!v.receivedById) e.receivedById = "Choose who received the money.";
-    if (!v.method) e.method = "Choose how the full payment was made.";
+    // Only required once the full payment is actually marked received — while
+    // "Balance pending" is selected, nobody has received anything yet, so
+    // forcing a receiver/method here would just be recording a payment that
+    // hasn't happened.
+    if (v.paid && !v.receivedById) e.receivedById = "Choose who received the money.";
+    if (v.paid && !v.method) e.method = "Choose how the full payment was made.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -467,7 +471,7 @@ export function BookingForm({
             <p className="mt-1 text-[11.5px] text-[var(--gray)]">Total minus downpayment, calculated automatically.</p>
           </div>
           <div>
-            <label className="field-label">Received by <span className="text-rausch">*</span></label>
+            <label className="field-label">Received by {v.paid && <span className="text-rausch">*</span>}</label>
             <select value={v.receivedById} onChange={(e) => set("receivedById", e.target.value)} className="field-input mt-1.5">
               <option value="">— Select —</option>
               {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -476,7 +480,7 @@ export function BookingForm({
           </div>
         </div>
         <div>
-          <label className="field-label">Full Payment method <span className="text-rausch">*</span></label>
+          <label className="field-label">Full Payment method {v.paid && <span className="text-rausch">*</span>}</label>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {PAYMENT_METHODS.map((m) => <Pill key={m} on={v.method === m} onClick={() => set("method", m)}>{PAYMENT_METHOD_LABEL[m]}</Pill>)}
           </div>
