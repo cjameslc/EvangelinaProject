@@ -82,7 +82,7 @@ const getDashboardData = unstable_cache(
       // into Forecast only). Rejected ones never affect either.
       prismaPool[11].expenseRequest.findMany({
         where: { date: { gte: monthStart, lt: nextMonthStart }, status: { in: ["APPROVED", "PENDING"] } },
-        select: { id: true, category: true, amount: true, status: true, date: true },
+        select: { id: true, category: true, amount: true, status: true, date: true, employee: { select: { name: true } } },
       }),
     ]);
     const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth] = res as any[];

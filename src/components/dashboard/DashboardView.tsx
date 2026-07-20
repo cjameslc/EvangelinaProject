@@ -104,7 +104,7 @@ export function DashboardView({
   attentionFindings: AttentionFinding[];
   salaryHistory: SalaryHistoryEntry[];
   stocks: Stock[];
-  expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string }[];
+  expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -203,6 +203,13 @@ export function DashboardView({
   );
   const pendingExpenseRequestsMonthTotal = useMemo(
     () => expenseRequestsMonth.filter((e) => e.status === "PENDING").reduce((s, e) => s + e.amount, 0),
+    [expenseRequestsMonth]
+  );
+  // Feeds "Needs your attention" — every pending expense request waiting on
+  // an owner decision in My Earnings' approval queue. Empty list = no item
+  // pushed at all, same convention as every other automated check here.
+  const pendingExpenseRequests = useMemo(
+    () => expenseRequestsMonth.filter((e) => e.status === "PENDING"),
     [expenseRequestsMonth]
   );
 
@@ -553,6 +560,21 @@ export function DashboardView({
       });
     });
 
+    if (pendingExpenseRequests.length > 0) {
+      const total = pendingExpenseRequests.reduce((s, e) => s + e.amount, 0);
+      const desc = pendingExpenseRequests
+        .map((e) => `${e.employee?.name ?? "Unknown"} — ${e.category === "TIKTOK_ADS" ? "TikTok Ads" : "Unit Expense"} (${peso(e.amount)})`)
+        .join(", ");
+      items.push({
+        id: "attn-expense-requests",
+        dot: "bg-amber",
+        title: `${pendingExpenseRequests.length} expense request${pendingExpenseRequests.length === 1 ? "" : "s"} awaiting approval`,
+        desc: `${peso(total)} total: ${desc}.`,
+        tag: "Expenses",
+        href: "/earnings",
+      });
+    }
+
     if (lateCleaningUnits.length > 0) {
       const desc = lateCleaningUnits
         .map((u) => `${u.unit.shortName} — checked out ${fmtDate(u.checkoutAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}, next guest ${fmtDate(u.nextCheckInAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}`)
@@ -640,7 +662,7 @@ export function DashboardView({
 
     return items.slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly

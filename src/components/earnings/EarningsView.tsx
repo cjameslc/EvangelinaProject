@@ -400,9 +400,9 @@ export function EarningsView({
         </Accordion>
       )}
 
-      {!isAdminViewer && data.expenseRequests.length > 0 && (
-        <Accordion title="My expense requests" sub={`${data.expenseRequests.length} submitted`}>
-          <MyExpenseRequestsList requests={data.expenseRequests} onChanged={load} />
+      {data.expenseRequests.length > 0 && (
+        <Accordion title={isAdminViewer ? `${data.employee.name}'s expense requests` : "My expense requests"} sub={`${data.expenseRequests.length} submitted`}>
+          <MyExpenseRequestsList requests={data.expenseRequests} onChanged={load} readOnly={isAdminViewer} />
         </Accordion>
       )}
 
@@ -521,6 +521,13 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = { TIKTOK_ADS: "TikTok Ads
 // Employee-facing submission form — TikTok Ads (company-wide) or Unit
 // Expense (requires picking which unit). Submits PENDING; never affects
 // Realized/Forecast profit or payroll until an Owner/Admin approves it.
+/** Manual free-text entries (an expense note, etc.) always get their first
+ * letter capitalized on submit — a small consistency touch so "shower" and
+ * "Shower" don't show up side by side depending on who typed it. */
+function capitalizeFirst(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmitted: () => void }) {
   const toast = useToast();
   const [category, setCategory] = useState<"TIKTOK_ADS" | "UNIT_EXPENSE">("TIKTOK_ADS");
@@ -545,7 +552,7 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
     const res = await fetch("/api/expense-requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, unitId: category === "UNIT_EXPENSE" ? unitId : null, amount, date, note: note.trim(), receiptUrl }),
+      body: JSON.stringify({ category, unitId: category === "UNIT_EXPENSE" ? unitId : null, amount, date, note: capitalizeFirst(note.trim()), receiptUrl }),
     });
     const j = await res.json().catch(() => ({}));
     setSaving(false);
@@ -604,7 +611,7 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
 
 // Employee-facing list of their own submitted requests, with status badges
 // and a rejection reason shown when relevant. Cancel only while PENDING.
-function MyExpenseRequestsList({ requests, onChanged }: { requests: ExpenseRequestRow[]; onChanged: () => void }) {
+function MyExpenseRequestsList({ requests, onChanged, readOnly }: { requests: ExpenseRequestRow[]; onChanged: () => void; readOnly?: boolean }) {
   const toast = useToast();
 
   async function cancel(id: string) {
@@ -633,7 +640,7 @@ function MyExpenseRequestsList({ requests, onChanged }: { requests: ExpenseReque
               <div className="mt-0.5 text-[11.5px] text-rausch">Reason: {r.rejectionReason}</div>
             )}
           </div>
-          {r.status === "PENDING" && (
+          {r.status === "PENDING" && !readOnly && (
             <button onClick={() => cancel(r.id)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Cancel">
               <TrashIcon className="h-4 w-4" />
             </button>

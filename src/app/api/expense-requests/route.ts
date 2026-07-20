@@ -33,9 +33,10 @@ export async function GET(req: NextRequest) {
 }
 
 // Any payroll-eligible employee (Booker/Housekeeping/Auditor) can submit a
-// request for themselves. Owner/Admin/Co-owner have no Employee payroll
-// record to submit under, and Admin can already log an approved expense
-// directly from Admin -> Weekly report, so they're excluded here.
+// request for themselves. Owner/Admin/Co-owner are excluded — they don't
+// have a payroll-eligible Employee role to submit under, and can already
+// see (and approve/reject) every request from Owner Summary's Expense
+// approvals queue.
 export async function POST(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
@@ -52,13 +53,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
 
+  // Every manually-typed note gets its first letter capitalized here —
+  // server-side, not just in the submit form — so it's consistent no matter
+  // what actually calls this endpoint.
+  const note = body.note.trim();
   const request = await prisma.expenseRequest.create({
     data: {
       employeeId: own.id,
       category: body.category,
       unitId: body.category === "UNIT_EXPENSE" ? body.unitId : null,
       amount: body.amount,
-      note: body.note,
+      note: note ? note.charAt(0).toUpperCase() + note.slice(1) : note,
       receiptUrl: body.receiptUrl || null,
       date: new Date(body.date),
     },
