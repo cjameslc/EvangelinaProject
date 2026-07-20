@@ -79,6 +79,13 @@ export const expenseRequestReviewSchema = z.object({
   rejectionReason: z.string().nullable().optional(),
 });
 
+export const payrollPaymentSchema = z.object({
+  employeeId: z.string().min(1),
+  periodStart: z.string().min(1),
+  amount: z.number().int().nonnegative(),
+  status: z.enum(["PENDING", "GIVEN"]),
+});
+
 export const calendarBlockSchema = z.object({
   unitId: z.string().min(1),
   type: z.enum(["Daycation", "Night", "Full", "Cleaning", "Maintenance"]),

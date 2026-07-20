@@ -19,3 +19,4 @@ export type WeeklyExpenseCategory = "GENERAL" | "TIKTOK_ADS";
 export type ExpenseCategory = "Amortization" | "Utilities" | "Water" | "Internet" | "AssociationDues" | "Streaming";
 export type ExpenseRequestCategory = "TIKTOK_ADS" | "UNIT_EXPENSE";
 export type ExpenseRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type PayrollPaymentStatus = "PENDING" | "GIVEN";

@@ -38,6 +38,7 @@ model User {
   shifts       Shift[]
   weeklyExpensesAdded WeeklyExpense[]
   reviewedExpenseRequests ExpenseRequest[]
+  markedPayrollPayments PayrollPayment[]
 
   @@map("users")
 }
@@ -147,6 +148,7 @@ model Employee {
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
   expenseRequests     ExpenseRequest[]
+  payrollPayments     PayrollPayment[]
 
   @@index([active])
   @@map("employees")
@@ -243,6 +245,31 @@ model ExpenseRequest {
   @@index([status])
   @@index([employeeId])
   @@map("expense_requests")
+}
+
+// Record-keeping only — marks whether a given week's payroll (salary +
+// commission/day-rate activity) has actually been handed to the employee.
+// Purely a status marker the owner toggles from My Earnings' Owner Summary;
+// does NOT change how Realized/Forecast profit compute payroll on the
+// Dashboard (those keep using the accrued-by-days-elapsed method). `amount`
+// is a snapshot of what was actually given, since the live-computed total
+// could change later (a rate edit, a corrected booking) without that
+// retroactively rewriting what was already paid out.
+model PayrollPayment {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  periodStart DateTime  // Sunday of the week this covers (same convention as manilaWeekRange)
+  amount      Int
+  status      String    @default("PENDING") // PENDING | GIVEN
+  givenAt     DateTime?
+  markedById  String?
+  markedBy    User?     @relation(fields: [markedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([employeeId, periodStart])
+  @@map("payroll_payments")
 }
 
 model Booking {
