@@ -113,6 +113,14 @@ export function BookingForm({
   const [guestInput, setGuestInput] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [extraCharge, setExtraCharge] = useState("");
+
+  function addExtraCharge() {
+    const amt = Number(extraCharge);
+    if (!extraCharge || Number.isNaN(amt) || amt <= 0) return;
+    setV((s) => ({ ...s, totalAmount: (s.totalAmount ?? 0) + amt }));
+    setExtraCharge("");
+  }
   // Once the guest hand-edits the checkout date/time, stop auto-suggesting
   // it on every check-in date/type change — their edit wins from then on.
   const [checkOutTouched, setCheckOutTouched] = useState(!!initial?.checkOutDate);
@@ -445,6 +453,43 @@ export function BookingForm({
         <p className="mt-1.5 text-[12px] text-[var(--gray)]">The full price of the stay. The downpayment below is subtracted automatically to work out the remaining balance.</p>
         {err("totalAmount")}
       </div>
+
+      {/* Extend stay / add charge — editing an existing booking only.
+          Works the same way regardless of stay type or platform: update the
+          checkout date/time above if the guest is staying longer, then add
+          whatever extra they owe here — it's added straight onto Total
+          Amount so the remaining balance recalculates automatically. */}
+      {!isCreate && (
+        <div className="rounded-2xl border border-dashed border-violet/40 bg-violet/5 p-4">
+          <div className="flex items-center gap-2 text-[13.5px] font-extrabold">
+            <span className="h-2.5 w-2.5 rounded-full bg-violet" /> Extend stay / add charge
+          </div>
+          <p className="mt-1 text-[12px] text-[var(--gray)]">
+            Guest extending their hours or staying another day? Update the checkout date/time above, then add what they owe for the extension here — it goes straight onto the Total Amount above.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <div className="min-w-[140px] flex-1">
+              <label className="field-label">Extra amount (₱)</label>
+              <input
+                type="number"
+                min={0}
+                value={extraCharge}
+                onChange={(e) => setExtraCharge(e.target.value)}
+                className="field-input mt-1.5"
+                placeholder="e.g. 500"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={addExtraCharge}
+              disabled={!extraCharge || Number(extraCharge) <= 0}
+              className="btn-sm btn-primary disabled:opacity-50"
+            >
+              Add to total
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Downpayment block */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-4">

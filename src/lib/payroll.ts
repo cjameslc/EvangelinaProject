@@ -89,12 +89,14 @@ export function computeTeamBreakdown(
   }
   const subtitle = [roleSubtitle, `₱${rates.bookerCommission}/booking (paid & checked out)`].filter(Boolean).join(" + ");
 
-  // Manual weekly expenses charged to this employee: the flat recurring
-  // "Salary" adds to what they're owed; everything else logged against them
-  // (ad boosts, etc.) is deducted from it.
+  // Manual weekly expenses charged to this employee — ad boosts and similar
+  // one-off deductions logged against them. The old flat-rate "Weekly
+  // salary" top-up (a manually-logged WeeklyExpense with note "Salary") is
+  // deliberately no longer read here: base pay comes from the employee's
+  // own salaryType/salaryRate (Owner Summary), and activity income comes
+  // from Booking commission above — automatically credited once a booking
+  // is paid in full and checked out, with no manual top-up step needed.
   const empExpenses = weekExpenses.filter((e) => e.targetEmployeeId === emp.id);
-  const salary = empExpenses.filter((e) => e.note === "Salary").reduce((s, e) => s + e.amount, 0);
-  if (salary > 0) items.push({ label: "Weekly salary", detail: "flat rate", amount: salary });
   empExpenses.filter((e) => e.note !== "Salary").forEach((e) => items.push({ label: e.note, detail: "deducted this week", amount: e.amount, deduction: true }));
 
   const total = items.reduce((s, i) => s + (i.deduction ? -i.amount : i.amount), 0);

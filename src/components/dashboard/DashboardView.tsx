@@ -1075,9 +1075,9 @@ export function DashboardView({
                   const max = Math.max(1, ...earningsBuckets.map((b) => b.amount));
                   return earningsBuckets.map((b, i) => (
                     <div key={i} className="group relative flex flex-1 flex-col items-center gap-1.5">
-                      <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[var(--ink)] px-2.5 py-1.5 text-center opacity-0 shadow-card transition-opacity group-hover:opacity-100">
-                        <div className="text-[11px] font-extrabold text-[var(--bg)]">{peso(b.amount)}</div>
-                        <div className="text-[10px] font-semibold text-[var(--bg)]/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
+                      <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center opacity-0 shadow-card transition-opacity group-hover:opacity-100">
+                        <div className="text-[11px] font-extrabold text-white">{peso(b.amount)}</div>
+                        <div className="text-[10px] font-semibold text-white/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
                       </div>
                       <div
                         className={cn("w-full max-w-[36px] rounded-t-md transition-all group-hover:brightness-110", b.amount > 0 ? "bg-rausch" : "bg-[var(--bg-2)]")}
@@ -1163,13 +1163,8 @@ export function DashboardView({
           <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" info="The base nightly rate configured for your first listed unit, in Admin → Units." />
         </div>
         {keyMetricsInsights.length > 0 && (
-          <div className="mt-3 space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
-            {keyMetricsInsights.map((line, i) => (
-              <p key={i} className="flex items-start gap-2 text-[12px] text-[var(--gray)]">
-                <span className="mt-[5px] h-1.5 w-1.5 flex-none rounded-full bg-rausch/60" />
-                <span>{line}</span>
-              </p>
-            ))}
+          <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
+            <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">{keyMetricsInsights.join(" ")}</p>
           </div>
         )}
       </Accordion>
@@ -1319,7 +1314,7 @@ export function DashboardView({
             );
           })}
           <div className="flex items-center justify-between border-t border-[var(--line)] bg-[var(--bg-2)] p-4 text-sm font-extrabold">
-            <span>Total due this month</span>
+            <span>Total due this week</span>
             <span>{pesoCentavos(visibleDueBillsCentavos)}</span>
           </div>
         </div>

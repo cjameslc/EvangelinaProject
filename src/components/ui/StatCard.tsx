@@ -24,7 +24,7 @@ export function StatCard({
           {info && (
             <span className="group/info relative inline-flex flex-none">
               <InfoIcon className="h-3 w-3 cursor-help text-[var(--gray)]/60 hover:text-[var(--ink)]" />
-              <span className="pointer-events-none absolute bottom-[calc(100%+7px)] left-1/2 z-20 w-[190px] -translate-x-1/2 rounded-lg bg-[var(--ink)] px-2.5 py-1.5 text-center text-[11px] font-semibold normal-case leading-snug tracking-normal text-[var(--bg)] opacity-0 shadow-card transition-opacity group-hover/info:opacity-100">
+              <span className="pointer-events-none absolute bottom-[calc(100%+7px)] left-1/2 z-20 w-[190px] -translate-x-1/2 rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center text-[11px] font-semibold normal-case leading-snug tracking-normal text-white opacity-0 shadow-card transition-opacity group-hover/info:opacity-100">
                 {info}
               </span>
             </span>

@@ -7,11 +7,12 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
-import { PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
+import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditBookings, isReadOnlyFinancials } from "@/lib/rbac";
+import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
 import { AvailabilityChat } from "./AvailabilityChat";
@@ -150,26 +151,62 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return { total, thisMonth, collected, unpaid, unpaidCount: unpaidList.length };
   }, [bookings]);
 
+  // Rooms logged per booker — grouped with the full list of bookings behind
+  // each name (date, unit, stay type), so the count isn't a dead end; tap a
+  // name to see exactly which bookings make it up.
   const byBooker = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, Booking[]>();
     bookings.forEach((b) => {
       // Airbnb-imported bookings never have a human booker — that's not the
       // same "nobody logged this" gap as a manually-entered booking missing
       // one, so give it its own label instead of lumping both under Unassigned.
       const n = b.booker?.name ?? (b.platform === "Airbnb" ? "Airbnb booking" : "Unassigned");
-      map.set(n, (map.get(n) ?? 0) + 1);
+      if (!map.has(n)) map.set(n, []);
+      map.get(n)!.push(b);
     });
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
   }, [bookings]);
 
+  type MethodKey = "Cash" | "GCash" | "BankTransfer" | "Other";
+  const METHOD_KEYS: MethodKey[] = ["Cash", "GCash", "BankTransfer", "Other"];
+
+  // Where the money went — per receiver, broken down by how it came in.
+  // Airbnb bookings never have a manual "received by"/method (nobody at the
+  // property takes that payment by hand) — Airbnb pays out via bank
+  // transfer, so that revenue is attributed to a dedicated "Airbnb" entry
+  // with method Bank transfer, rather than silently missing from this list.
   const byReceiver = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { total: number; byMethod: Record<MethodKey, number> }>();
+    function add(name: string, amount: number, method: string | null) {
+      if (!amount) return;
+      if (!map.has(name)) map.set(name, { total: 0, byMethod: { Cash: 0, GCash: 0, BankTransfer: 0, Other: 0 } });
+      const entry = map.get(name)!;
+      entry.total += amount;
+      const key: MethodKey = (method === "Cash" || method === "GCash" || method === "BankTransfer") ? method : "Other";
+      entry.byMethod[key] += amount;
+    }
     bookings.forEach((b) => {
-      if (b.receivedBy) map.set(b.receivedBy.name, (map.get(b.receivedBy.name) ?? 0) + (b.paid ? b.amount : 0));
-      if (b.dpReceivedBy) map.set(b.dpReceivedBy.name, (map.get(b.dpReceivedBy.name) ?? 0) + (b.dpAmount ?? 0));
+      if (b.paid) {
+        const name = b.receivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
+        const method = b.method ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
+        if (name) add(name, b.amount, method);
+      }
+      const dpName = b.dpReceivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
+      const dpMethod = b.dpMethod ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
+      if (dpName) add(dpName, b.dpAmount ?? 0, dpMethod);
     });
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [bookings]);
+
+  const [expandedBookers, setExpandedBookers] = useState<Set<string>>(new Set());
+  const [expandedReceivers, setExpandedReceivers] = useState<Set<string>>(new Set());
+  function toggleExpanded(set: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) {
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   const dateRange = useMemo(() => {
     // UTC-midnight representing "today" in Manila terms (matching how
@@ -335,25 +372,66 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div>
             <h3 className="mb-1 text-sm font-extrabold">Rooms logged per booker</h3>
-            <p className="mb-2 text-[12.5px] text-[var(--gray)]">Bookings entered by each booker.</p>
+            <p className="mb-2 text-[12.5px] text-[var(--gray)]">Bookings entered by each booker — tap a name for the breakdown.</p>
             {byBooker.length === 0 && <p className="text-sm text-[var(--gray)]">No bookings yet.</p>}
-            {byBooker.map(([name, count]) => (
-              <div key={name} className="flex items-center justify-between border-t border-[var(--line)] py-2.5 first:border-0">
-                <span className="text-[13.5px] font-bold">{name}</span>
-                <span className="text-sm font-extrabold">{count}</span>
-              </div>
-            ))}
+            {byBooker.map(([name, list]) => {
+              const open = expandedBookers.has(name);
+              return (
+                <div key={name} className="border-t border-[var(--line)] first:border-0">
+                  <button type="button" onClick={() => toggleExpanded(setExpandedBookers, name)} className="flex w-full items-center justify-between gap-2 py-2.5 text-left">
+                    <span className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-bold">
+                      <ChevronDownIcon className={cn("h-3.5 w-3.5 flex-none text-[var(--gray)] transition-transform", open && "rotate-180")} />
+                      <span className="truncate">{name}</span>
+                    </span>
+                    <span className="flex-none text-sm font-extrabold">{list.length}</span>
+                  </button>
+                  {open && (
+                    <div className="mb-2.5 ml-5 max-h-[240px] space-y-1.5 overflow-y-auto pr-1">
+                      {list
+                        .slice()
+                        .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+                        .map((b) => (
+                          <div key={b.id} className="flex items-center justify-between gap-2 text-[12px]">
+                            <span className="min-w-0 truncate text-[var(--gray)]">
+                              {fmtDate(b.date, { month: "short", day: "numeric" })} · Unit {b.unit.unitNumber} · {b.unit.shortName}
+                            </span>
+                            <span className="flex-none font-semibold">{STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div>
             <h3 className="mb-1 text-sm font-extrabold">Where the money went</h3>
-            <p className="mb-2 text-[12.5px] text-[var(--gray)]">Total each person collected.</p>
+            <p className="mb-2 text-[12.5px] text-[var(--gray)]">Total each person collected — tap a name for the payment-method breakdown.</p>
             {byReceiver.length === 0 && <p className="text-sm text-[var(--gray)]">No payments recorded yet.</p>}
-            {byReceiver.map(([name, amt]) => (
-              <div key={name} className="flex items-center justify-between border-t border-[var(--line)] py-2.5 first:border-0">
-                <span className="text-[13.5px] font-bold">{name}</span>
-                <span className="text-sm font-extrabold">{peso(amt)}</span>
-              </div>
-            ))}
+            {byReceiver.map(([name, data]) => {
+              const open = expandedReceivers.has(name);
+              return (
+                <div key={name} className="border-t border-[var(--line)] first:border-0">
+                  <button type="button" onClick={() => toggleExpanded(setExpandedReceivers, name)} className="flex w-full items-center justify-between gap-2 py-2.5 text-left">
+                    <span className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-bold">
+                      <ChevronDownIcon className={cn("h-3.5 w-3.5 flex-none text-[var(--gray)] transition-transform", open && "rotate-180")} />
+                      <span className="truncate">{name}</span>
+                    </span>
+                    <span className="flex-none text-sm font-extrabold">{peso(data.total)}</span>
+                  </button>
+                  {open && (
+                    <div className="mb-2.5 ml-5 space-y-1">
+                      {METHOD_KEYS.filter((k) => data.byMethod[k] > 0).map((k) => (
+                        <div key={k} className="flex items-center justify-between text-[12px] text-[var(--gray)]">
+                          <span>{k === "Other" ? "Unspecified method" : PAYMENT_METHOD_LABEL[k]}</span>
+                          <span className="font-semibold text-[var(--ink)]">{peso(data.byMethod[k])}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </Accordion>

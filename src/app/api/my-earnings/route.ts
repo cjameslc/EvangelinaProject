@@ -159,7 +159,10 @@ export async function GET(req: NextRequest) {
   // out, regardless of role (see computeTeamBreakdown for the weekly/monthly
   // version of the same rule).
   lifetimeActivity += commissionEligibleLifetime.length * rates.bookerCommission;
-  const lifetimeAdjustments = expenses.reduce((s, e) => s + (e.note === "Salary" ? e.amount : -e.amount), 0);
+  // Old flat-rate "Salary" WeeklyExpense top-ups are excluded here too, same
+  // as computeTeamBreakdown's weekly/monthly figures — only real deductions
+  // (ad boosts, etc.) still count against lifetime earnings.
+  const lifetimeAdjustments = expenses.filter((e) => e.note !== "Salary").reduce((s, e) => s - e.amount, 0);
   const lifetimeBonusTotal = myAwards.reduce((s, a) => s + a.amount, 0);
 
   // ---- Monthly Elite Booker Challenge progress — shared as-is by anyone
