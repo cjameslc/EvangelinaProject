@@ -358,6 +358,66 @@ export function DashboardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueBills]);
 
+  // Data-driven narrative for the Key metrics card — replaces a fixed
+  // caption with 2-4 sentences that actually explain THIS month's numbers,
+  // in a fixed priority order (overdue → break-even → bookings → occupancy
+  // → cash flow → forecast), capped at 4 so it never turns into a wall of
+  // text. "Operating cost" here is the fixed monthly baseline (full staff
+  // salary + this month's bills, paid and pending) — deliberately excludes
+  // variable ad spend, since that's discretionary, not a fixed cost to
+  // break even against.
+  const keyMetricsInsights = useMemo(() => {
+    const insights: string[] = [];
+    const operatingCostCentavos = monthlyStaffSalary * 100 + billsPaidMonthCentavos + billsDueMonthCentavos;
+    const futureScheduledCentavos = Math.max(0, billsDueMonthCentavos - overdueCentavos);
+    const remainingToBreakEvenCentavos = Math.max(0, operatingCostCentavos - completedMonthIncome * 100);
+    const coveragePct = operatingCostCentavos > 0 ? Math.min(100, Math.round((completedMonthIncome * 100 / operatingCostCentavos) * 100)) : 0;
+    // Nothing completed yet, but most of this month's costs aren't even due
+    // yet either — an empty-looking Realized profit here is just timing,
+    // not a loss, so frame it that way rather than as a shortfall.
+    const earlyMonth = completedMonthIncome === 0 && futureScheduledCentavos > overdueCentavos;
+
+    // 1. Critical overdue payments
+    if (overdueCentavos > 0) {
+      insights.push(`${pesoCentavos(overdueCentavos)} of expenses are overdue and require immediate payment.`);
+    }
+
+    // 2. Break-even progress
+    if (earlyMonth) {
+      insights.push("Most monthly operating expenses are scheduled for later this month. Current profit is expected to improve as more bookings are confirmed and completed.");
+    } else if (completedMonthIncome === 0) {
+      insights.push("Realized profit is ₱0 because no stays have been completed yet during the selected period.");
+    } else if (remainingToBreakEvenCentavos > 0) {
+      insights.push(`${pesoCentavos(remainingToBreakEvenCentavos)} more revenue is needed to reach this month's break-even point.`);
+    } else {
+      insights.push(`This month's operating costs are already fully covered — revenue is covering ${coveragePct}% of monthly operating costs.`);
+    }
+
+    // 3. Booking performance
+    if (bookingsMonth.length > 0) {
+      insights.push(`${bookingsMonth.length} booking${bookingsMonth.length === 1 ? "" : "s"} recorded this month, generating ${peso(completedMonthIncome)} in completed-stay revenue so far.`);
+    }
+
+    // 4. Occupancy trend
+    insights.push(
+      occupancy >= 70
+        ? `Occupancy is ${occupancy}%, indicating strong booking performance.`
+        : `Occupancy is ${occupancy}%, with availability remaining for additional bookings.`
+    );
+
+    // 5. Cash flow
+    if (monthIncome === 0) {
+      insights.push("Cash flow remains at ₱0 because guest payments have not yet been received.");
+    }
+
+    // 6. Forecast explanation — never frame this as a loss, just timing.
+    if (forecastProfitCents < 0) {
+      insights.push("Current bookings have not yet covered this month's operating costs. Forecast profit will update automatically as new bookings are added and completed.");
+    }
+
+    return insights.slice(0, 4);
+  }, [overdueCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, monthlyStaffSalary, completedMonthIncome, forecastProfitCents, monthIncome, occupancy, bookingsMonth]);
+
   // The "Upcoming expenses" widget only ever shows bills that are actually
   // overdue — "due soon" (not yet overdue) bills are intentionally left out
   // entirely, per an explicit ask to stop surfacing those and keep this
@@ -1082,22 +1142,36 @@ export function DashboardView({
               below). A dip in a routine metric like these gets amber, a
               softer "worth a look," not an alarm. Occupancy/RevPAR/ADR
               can't mathematically go negative, so they never get either. */}
-          <StatCard label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution" />
-          <StatCard label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" projected />
-          <StatCard label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={marginRaw < 0} tone="caution" />
-          <StatCard label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution" />
-          <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} />
-          <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" />
-          <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" />
+          <StatCard
+            label="Realized profit" value={peso(netProfit)} sub="completed stays, paid costs only" warn={netProfitRaw < 0} tone="caution"
+            info={`Revenue from completed stays (${peso(completedMonthIncome)}) minus paid bills, approved expense requests, and TikTok ad spend, minus payroll accrued so far (${peso(accruedStaffSalary)}). Floors at ₱0 — an amber border means costs actually outpaced revenue.`}
+          />
+          <StatCard
+            label="Forecast profit" value={peso(forecastProfit)} sub="if fully collected/paid" projected
+            info={`Every booking's full value this month (${peso(expectedMonthIncome)}), whether collected yet or not, minus bills still outstanding (${pesoCentavos(billsDueMonthCentavos)}), pending expense requests, and the ${peso(upcomingStaffSalary)} of payroll not yet accrued. A projection for planning, not money in hand.`}
+          />
+          <StatCard
+            label="Profit margin" value={`${margin}%`} sub="realized income kept as profit" warn={marginRaw < 0} tone="caution"
+            info="Realized profit divided by completed-stay revenue, as a percentage. Floors at 0% — an amber border means the real figure is negative."
+          />
+          <StatCard
+            label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution"
+            info={`Money actually in hand: everything collected this month, whether the stay has happened yet or not (${peso(monthIncome)}), minus paid bills, approved expense requests, and TikTok ad spend, minus payroll accrued so far. Floors at ₱0.`}
+          />
+          <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} info={`Booked nights this week (${occupiedNights}) divided by total available nights (${units.length} units × 7).`} />
+          <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income divided by (number of units × 7 nights) — revenue per available room, a standard hospitality yield metric." />
+          <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" info="The base nightly rate configured for your first listed unit, in Admin → Units." />
         </div>
-        <div className="mt-3 space-y-1.5 text-[11.5px] text-[var(--gray)]">
-          <p>
-            <b>Realized profit</b> counts completed stays, <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}), and payroll accrued so far ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — not pending/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) or the {peso(upcomingStaffSalary)} of payroll still to come.
-          </p>
-          <p>
-            Realized profit, Profit margin, and Cash flow always show <b>₱0</b> instead of negative — an amber border still flags a period where costs outpaced revenue. <b>Forecast profit</b> projects every booking&rsquo;s full value against those same not-yet-real costs — for planning, not money in hand.
-          </p>
-        </div>
+        {keyMetricsInsights.length > 0 && (
+          <div className="mt-3 space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
+            {keyMetricsInsights.map((line, i) => (
+              <p key={i} className="flex items-start gap-2 text-[12px] text-[var(--gray)]">
+                <span className="mt-[5px] h-1.5 w-1.5 flex-none rounded-full bg-rausch/60" />
+                <span>{line}</span>
+              </p>
+            ))}
+          </div>
+        )}
       </Accordion>
 
       <Accordion title="Stay mix" sub={`${stayTotal} bookings`}>
