@@ -40,7 +40,6 @@ const OWNER_SUMMARY_VALUE = "__owner_summary__";
 type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
 type EliteChallenge = {
-  metric: "bookings" | "cleaningDays";
   completedThisMonth: number; rank: number; totalBookers: number;
   currentTier: number | null; currentStars: number; currentBadge: string | null;
   nextTier: number | null; nextTierAmount: number | null; remaining: number; progressPct: number;
@@ -68,14 +67,9 @@ type EarningsData = {
   expenseRequests: ExpenseRequestRow[];
 };
 type LeaderboardRow = { employeeId: string; name: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
-type LeaderboardMetric = "bookings" | "cleaningDays";
 type LeaderboardData =
-  | { scope: "all"; metric: LeaderboardMetric; leaderboard: LeaderboardRow[] }
-  | { scope: "own"; metric: LeaderboardMetric; rank: number | null; total: number; own: LeaderboardRow | null };
-const LEADERBOARD_LABELS: Record<LeaderboardMetric, { person: string; personPlural: string; activity: string; activityPlural: string }> = {
-  bookings: { person: "booker", personPlural: "bookers", activity: "booking", activityPlural: "bookings" },
-  cleaningDays: { person: "cleaner", personPlural: "cleaners", activity: "cleaning day", activityPlural: "cleaning days" },
-};
+  | { scope: "all"; leaderboard: LeaderboardRow[] }
+  | { scope: "own"; rank: number | null; total: number; own: LeaderboardRow | null };
 
 export function EarningsView({
   role, isAdminViewer, ownEmployeeId, employees,
@@ -121,17 +115,11 @@ export function EarningsView({
   }, [selectedEmployeeId]);
 
   useEffect(() => {
-    // Admin viewers see the board for whichever employee is currently
-    // selected (Booker or Housekeeping); a non-admin viewer's own board is
-    // inferred server-side from their own Employee record regardless of
-    // this param, so it's only meaningful for the admin case.
-    if (isOwnerSummary || !data?.employee) return;
-    const roleParam = isAdminViewer && data.employee.role === "HOUSEKEEPING" ? "?role=HOUSEKEEPING" : "";
-    fetch(`/api/leaderboard${roleParam}`)
+    fetch("/api/leaderboard")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j && setLeaderboard(j))
       .catch(() => {});
-  }, [isOwnerSummary, isAdminViewer, data?.employee?.id, data?.employee?.role]);
+  }, []);
 
   // Owner-only: the Owner Summary view's data (team salary, pending-approvals
   // queue, this week's payroll-given status) is company-wide, independent of
@@ -396,45 +384,40 @@ export function EarningsView({
         </Accordion>
       )}
 
-      {(() => {
-        const l = LEADERBOARD_LABELS[leaderboard?.metric ?? "bookings"];
-        return (
-          <Accordion title="Leaderboard" sub={leaderboard?.scope === "all" ? `top ${l.personPlural}, this month` : "your ranking"}>
-            {!leaderboard && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
-            {leaderboard?.scope === "all" && (
-              <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
-                {leaderboard.leaderboard.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No {l.personPlural} on file.</p>}
-                {leaderboard.leaderboard.map((r, i) => (
-                  <div key={r.employeeId} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
-                    <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-full text-[12px] font-extrabold", i === 0 ? "bg-amber text-white" : "bg-[var(--bg-2)] text-[var(--gray)]")}>{i + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13.5px] font-bold">{r.name}</div>
-                      <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} {r.completedThisMonth === 1 ? l.activity : l.activityPlural} this month</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
-                      <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
-                    </div>
-                  </div>
-                ))}
+      <Accordion title="Leaderboard" sub={leaderboard?.scope === "all" ? "top bookers, this month" : "your ranking"}>
+        {!leaderboard && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
+        {leaderboard?.scope === "all" && (
+          <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+            {leaderboard.leaderboard.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No bookers on file.</p>}
+            {leaderboard.leaderboard.map((r, i) => (
+              <div key={r.employeeId} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+                <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-full text-[12px] font-extrabold", i === 0 ? "bg-amber text-white" : "bg-[var(--bg-2)] text-[var(--gray)]")}>{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-bold">{r.name}</div>
+                  <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} bookings this month</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
+                  <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
+                </div>
               </div>
+            ))}
+          </div>
+        )}
+        {leaderboard?.scope === "own" && (
+          <div className="rounded-2xl border border-[var(--line)] p-5 text-center">
+            {leaderboard.rank ? (
+              <>
+                <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
+                <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} booker{leaderboard.total === 1 ? "" : "s"} this month</p>
+                {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed bookings</p>}
+              </>
+            ) : (
+              <p className="text-[13px] text-[var(--gray)]">Not ranked yet — no completed bookings this month.</p>
             )}
-            {leaderboard?.scope === "own" && (
-              <div className="rounded-2xl border border-[var(--line)] p-5 text-center">
-                {leaderboard.rank ? (
-                  <>
-                    <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
-                    <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} {leaderboard.total === 1 ? l.person : l.personPlural} this month</p>
-                    {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed {leaderboard.own.completedThisMonth === 1 ? l.activity : l.activityPlural}</p>}
-                  </>
-                ) : (
-                  <p className="text-[13px] text-[var(--gray)]">Not ranked yet — no completed {l.activityPlural} this month.</p>
-                )}
-              </div>
-            )}
-          </Accordion>
-        );
-      })()}
+          </div>
+        )}
+      </Accordion>
     </div>
   );
 }
@@ -444,14 +427,13 @@ export function EarningsView({
 // presented as a journey through seven original waypoints instead of a
 // plain stat card. No licensed art/characters/music of any kind.
 function EliteChallengeQuest({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
-  const isCleaning = challenge.metric === "cleaningDays";
   return (
-    <Accordion title={`Monthly Elite ${isCleaning ? "Housekeeper" : "Booker"} Challenge`} sub="resets on the 1st of every month">
+    <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
       <div className="mb-4">
         <WorldMapProgress challenge={challenge} employeeId={employeeId} />
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
-        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} metric={challenge.metric} />)}
+        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} />)}
       </div>
     </Accordion>
   );

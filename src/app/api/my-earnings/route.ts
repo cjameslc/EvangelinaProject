@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
-import { isBookingCompleted, syncEliteBookerAwards, syncEliteCleanerAwards, ELITE_TIERS, HOUSEKEEPER_TIERS } from "@/lib/gamification";
+import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
     auditorWeeklyRate: settings.auditorWeeklyRate,
   };
 
-  if (employee.role === "BOOKER") await syncEliteBookerAwards();
-  else if (employee.role === "HOUSEKEEPING") await syncEliteCleanerAwards();
+  const isEliteChallengeEligible = (ELITE_CHALLENGE_ROLES as readonly string[]).includes(employee.role);
+  if (isEliteChallengeEligible) await syncEliteBookerAwards();
 
   const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
     prisma.booking.findMany({
@@ -74,9 +74,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
     prisma.weeklyExpense.findMany({ where: { targetEmployeeId: employee.id }, orderBy: { date: "desc" }, take: 200 }),
-    employee.role === "HOUSEKEEPING"
-      ? prisma.eliteCleanerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } })
-      : prisma.eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
+    prisma.eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
     prisma.expenseRequest.findMany({
       where: { employeeId: employee.id },
       orderBy: { createdAt: "desc" },
@@ -158,63 +156,37 @@ export async function GET(req: NextRequest) {
   const lifetimeAdjustments = expenses.reduce((s, e) => s + (e.note === "Salary" ? e.amount : -e.amount), 0);
   const lifetimeBonusTotal = myAwards.reduce((s, a) => s + a.amount, 0);
 
-  // ---- Monthly Elite Challenge progress — Booker (completed bookings) or
-  // Housekeeping (distinct cleaning days), same shape either way. ----
+  // ---- Monthly Elite Booker Challenge progress — shared as-is by anyone
+  // eligible (Booker, or Housekeeping staff who also take bookings), same
+  // tiers/rewards/slot pool for everyone in it. ----
   let eliteChallenge: any = null;
-  if (employee.role === "BOOKER" || employee.role === "HOUSEKEEPING") {
-    const isBooker = employee.role === "BOOKER";
-    const tiers: readonly { tier: number; amount: number; slots: number; stars: number; badge: string; medal: string }[] = isBooker ? ELITE_TIERS : HOUSEKEEPER_TIERS;
+  if (isEliteChallengeEligible) {
+    const completedThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && isBookingCompleted(b, now)).length;
 
     // Everyone else's counts + awards this month, to compute rank and
     // remaining slots per tier without exposing their identities beyond
     // what's already public on the admin leaderboard.
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-
-    let completedThisMonth: number;
-    const countsByEmployee = new Map<string, number>();
-    let allMonthAwards: { tier: number }[];
-
-    if (isBooker) {
-      completedThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && isBookingCompleted(b, now)).length;
-      const [allBookers, monthAwardsCompanyWide] = await Promise.all([
-        prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } }),
-        prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
-      ]);
-      allMonthAwards = monthAwardsCompanyWide;
-      allBookers.forEach((b) => countsByEmployee.set(b.id, 0));
-      const allMonthBookings = await prisma.booking.findMany({
-        where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart } },
-        select: { bookerId: true, date: true, checkOutDate: true },
-      });
-      allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByEmployee.set(b.bookerId, (countsByEmployee.get(b.bookerId) ?? 0) + 1); });
-    } else {
-      completedThisMonth = cleaningDaysThisMonth;
-      const [allCleaners, monthAwardsCompanyWide] = await Promise.all([
-        prisma.employee.findMany({ where: { role: "HOUSEKEEPING", active: true }, select: { id: true } }),
-        prisma.eliteCleanerAward.findMany({ where: { month: monthStart } }),
-      ]);
-      allMonthAwards = monthAwardsCompanyWide;
-      allCleaners.forEach((c) => countsByEmployee.set(c.id, 0));
-      const allMonthLogs = await prisma.cleaningLog.findMany({
-        where: { employeeId: { in: allCleaners.map((c) => c.id) }, startedAt: { gte: monthStart, lt: nextMonthStart } },
-        select: { employeeId: true, startedAt: true },
-      });
-      const daysByEmployee = new Map<string, Set<string>>();
-      allMonthLogs.forEach((l) => {
-        if (!l.employeeId) return;
-        if (!daysByEmployee.has(l.employeeId)) daysByEmployee.set(l.employeeId, new Set());
-        daysByEmployee.get(l.employeeId)!.add(dayOf(new Date(l.startedAt)));
-      });
-      daysByEmployee.forEach((days, empId) => countsByEmployee.set(empId, days.size));
-    }
-
-    const ranked = [...countsByEmployee.entries()].sort((a, b) => b[1] - a[1]);
+    // allMonthAwards doesn't depend on allBookers, so it runs alongside that
+    // chain instead of after it.
+    const [allBookers, allMonthAwards] = await Promise.all([
+      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } }),
+      prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
+    ]);
+    const allMonthBookings = await prisma.booking.findMany({
+      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart } },
+      select: { bookerId: true, date: true, checkOutDate: true },
+    });
+    const countsByBooker = new Map<string, number>();
+    allBookers.forEach((b) => countsByBooker.set(b.id, 0));
+    allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByBooker.set(b.bookerId, (countsByBooker.get(b.bookerId) ?? 0) + 1); });
+    const ranked = [...countsByBooker.entries()].sort((a, b) => b[1] - a[1]);
     const rank = ranked.findIndex(([id]) => id === employee!.id) + 1;
 
-    const currentTierDef = [...tiers].reverse().find((t) => completedThisMonth >= t.tier) ?? null;
-    const nextTierDef = tiers.find((t) => completedThisMonth < t.tier) ?? null;
-    const tiersWithSlots = tiers.map((t) => ({
+    const currentTierDef = [...ELITE_TIERS].reverse().find((t) => completedThisMonth >= t.tier) ?? null;
+    const nextTierDef = ELITE_TIERS.find((t) => completedThisMonth < t.tier) ?? null;
+    const tiersWithSlots = ELITE_TIERS.map((t) => ({
       tier: t.tier,
       amount: t.amount,
       stars: t.stars,
@@ -227,7 +199,6 @@ export async function GET(req: NextRequest) {
     const nextTierSlots = nextTierDef ? tiersWithSlots.find((t) => t.tier === nextTierDef.tier)! : null;
 
     eliteChallenge = {
-      metric: isBooker ? "bookings" : "cleaningDays",
       completedThisMonth,
       rank,
       totalBookers: ranked.length,
@@ -240,7 +211,7 @@ export async function GET(req: NextRequest) {
       progressPct: nextTierDef ? Math.min(100, Math.round((completedThisMonth / nextTierDef.tier) * 100)) : 100,
       slotsRemainingForNextTier: nextTierSlots ? Math.max(0, nextTierSlots.slotsTotal - nextTierSlots.slotsTaken) : 0,
       slotsTotalForNextTier: nextTierSlots?.slotsTotal ?? 0,
-      estimatedCommission: isBooker ? completedThisMonth * rates.bookerCommission : completedThisMonth * rates.housekeepingDayRate,
+      estimatedCommission: completedThisMonth * rates.bookerCommission,
       potentialBonus: nextTierDef?.amount ?? 0,
       tiers: tiersWithSlots,
     };
@@ -264,7 +235,7 @@ export async function GET(req: NextRequest) {
     return { id: a.id, label: a.label, threshold: a.threshold, rewardAmount: a.rewardAmount, unlocked, personalMessage: unlocked ? a.personalMessage : null };
   });
   const unlockedAchievementRewardTotal = achievementResults.filter((a) => a.unlocked).reduce((s, a) => s + a.rewardAmount, 0);
-  const eliteTierBadges = employee.role === "HOUSEKEEPING" ? HOUSEKEEPER_TIERS : employee.role === "BOOKER" ? ELITE_TIERS : [];
+  const eliteTierBadges = isEliteChallengeEligible ? ELITE_TIERS : [];
   const achievements = [
     ...achievementResults,
     ...eliteTierBadges.map((t) => ({ id: `tier-${t.tier}`, label: `${t.medal} ${t.badge}`, unlocked: myAwards.some((a) => a.tier === t.tier) })),

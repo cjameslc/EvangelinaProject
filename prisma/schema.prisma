@@ -147,7 +147,6 @@ model Employee {
   targetedExpenses    WeeklyExpense[]
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
-  eliteCleanerAwards  EliteCleanerAward[]
   expenseRequests     ExpenseRequest[]
   payrollPayments     PayrollPayment[]
   achievements        EmployeeAchievement[]
@@ -158,13 +157,15 @@ model Employee {
 
 // Monthly Elite Booker Challenge — company-wide (not per-unit) completed-
 // booking milestones (50/100/150/200/250) with LIMITED reward slots (first
-// 2, first 2, first 2, first 1, first 1 employees each month). Persisted
-// the instant a slot is won (unique per employee+month+tier) so it's never
-// double-awarded and never reassigned later even if a recompute would
-// otherwise reorder who "should" have won — once paid, it stays paid.
-// completedAt is the timestamp of the exact booking that crossed the tier,
-// used to rank who got there first when multiple employees compete for the
-// same limited slots.
+// 2, first 2, first 2, first 1, first 1 employees each month). Open to
+// anyone who can be assigned as a booking's booker — Bookers, and
+// Housekeeping staff who also take bookings at this business — sharing the
+// same slot pool, not a separate copy. Persisted the instant a slot is won
+// (unique per employee+month+tier) so it's never double-awarded and never
+// reassigned later even if a recompute would otherwise reorder who "should"
+// have won — once paid, it stays paid. completedAt is the timestamp of the
+// exact booking that crossed the tier, used to rank who got there first
+// when multiple employees compete for the same limited slots.
 model EliteBookerAward {
   id          String   @id @default(cuid())
   employeeId  String
@@ -178,26 +179,6 @@ model EliteBookerAward {
 
   @@unique([employeeId, month, tier])
   @@map("elite_booker_awards")
-}
-
-// Monthly Elite Housekeeper Challenge — the same company-wide, limited-slot
-// milestone system as EliteBookerAward above, but keyed off distinct
-// cleaning days this month (5/10/15/20/25) instead of completed bookings.
-// Same reward amounts, slot counts, and "paid once, never reassigned"
-// guarantee — see EliteBookerAward's comment for the full rationale.
-model EliteCleanerAward {
-  id          String   @id @default(cuid())
-  employeeId  String
-  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  month       DateTime // first-of-month marker, matching Bill.month's convention
-  tier        Int // 5 | 10 | 15 | 20 | 25 (distinct cleaning days)
-  amount      Int // 500 | 1500 | 2500 | 3500 | 5000
-  slotRank    Int // 1st or 2nd employee to reach this tier that month (always 1 for Platinum/Legend)
-  completedAt DateTime // when the tier-crossing day's first cleaning session started — the tiebreaker
-  createdAt   DateTime @default(now())
-
-  @@unique([employeeId, month, tier])
-  @@map("elite_cleaner_awards")
 }
 
 // Append-only log of monthlySalary changes, so a report for a past period

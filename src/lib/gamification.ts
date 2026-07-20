@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 
-/** Monthly Elite Booker Challenge tiers — company-wide, limited reward slots. */
+/** Monthly Elite Booker Challenge tiers — company-wide, limited reward slots.
+ * Shared as-is by Housekeeping staff too: several employees do both jobs, so
+ * their booking activity is real booker activity and competes for the same
+ * slots/rewards, not a separate scaled-down copy. */
 export const ELITE_TIERS = [
   { tier: 50, amount: 500, slots: 2, stars: 1, badge: "Bronze Booker", medal: "🥉" },
   { tier: 100, amount: 1500, slots: 2, stars: 2, badge: "Silver Booker", medal: "🥈" },
@@ -9,21 +12,9 @@ export const ELITE_TIERS = [
   { tier: 250, amount: 5000, slots: 1, stars: 5, badge: "Legend Booker", medal: "👑" },
 ] as const;
 
-/** Monthly Elite Housekeeper Challenge tiers — same shape/rewards/slots as
- * ELITE_TIERS above, but the metric is distinct cleaning days this month
- * instead of completed bookings (250 bookings/month is reachable for a
- * high-volume booker; 250 distinct days obviously isn't for a cleaner, so
- * the thresholds are scaled to what a housekeeping schedule can actually hit). */
-export const HOUSEKEEPER_TIERS = [
-  { tier: 5, amount: 500, slots: 2, stars: 1, badge: "Bronze Housekeeper", medal: "🥉" },
-  { tier: 10, amount: 1500, slots: 2, stars: 2, badge: "Silver Housekeeper", medal: "🥈" },
-  { tier: 15, amount: 2500, slots: 2, stars: 3, badge: "Gold Housekeeper", medal: "🥇" },
-  { tier: 20, amount: 3500, slots: 1, stars: 4, badge: "Platinum Housekeeper", medal: "💎" },
-  { tier: 25, amount: 5000, slots: 1, stars: 5, badge: "Legend Housekeeper", medal: "👑" },
-] as const;
-
-const dayOf = (d: Date) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+/** Roles eligible for the Elite Booker Challenge — anyone who can be
+ * assigned as a booking's booker, regardless of their primary role. */
+export const ELITE_CHALLENGE_ROLES = ["BOOKER", "HOUSEKEEPING"] as const;
 
 /** A booking counts toward commission/gamification once its stay has actually finished. */
 export function isBookingCompleted(booking: { date: Date | string; checkOutDate: Date | string | null }, now: Date = new Date()): boolean {
@@ -44,7 +35,7 @@ export function isBookingCompleted(booking: { date: Date | string; checkOutDate:
  */
 export async function syncEliteBookerAwards() {
   const now = new Date();
-  const bookers = await prisma.employee.findMany({ where: { role: "BOOKER", active: true }, select: { id: true } });
+  const bookers = await prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } });
   if (bookers.length === 0) return;
 
   const bookings = await prisma.booking.findMany({
@@ -83,66 +74,6 @@ export async function syncEliteBookerAwards() {
       for (let i = 0; i < winners.length; i++) {
         const w = winners[i];
         await prisma.eliteBookerAward.upsert({
-          where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
-          update: {},
-          create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },
-        });
-      }
-    }
-  }
-}
-
-/**
- * Same idempotent slot-award sync as syncEliteBookerAwards, but for the
- * Housekeeper Challenge: the metric is distinct cleaning days this month
- * (Asia/Manila calendar day, matching every other cleaning-day count in the
- * app), and the tiebreaker for who "reached" a tier first is the timestamp
- * of that day's earliest logged cleaning session.
- */
-export async function syncEliteCleanerAwards() {
-  const cleaners = await prisma.employee.findMany({ where: { role: "HOUSEKEEPING", active: true }, select: { id: true } });
-  if (cleaners.length === 0) return;
-
-  const logs = await prisma.cleaningLog.findMany({
-    where: { employeeId: { in: cleaners.map((c) => c.id) } },
-    select: { employeeId: true, startedAt: true },
-  });
-
-  // For each employee+month, the earliest log timestamp on each distinct day.
-  const byEmployeeMonth = new Map<string, Map<string, Date>>();
-  for (const log of logs) {
-    if (!log.employeeId) continue;
-    const day = dayOf(log.startedAt);
-    const monthKey = day.slice(0, 7);
-    const key = `${log.employeeId}::${monthKey}`;
-    if (!byEmployeeMonth.has(key)) byEmployeeMonth.set(key, new Map());
-    const dayMap = byEmployeeMonth.get(key)!;
-    const existing = dayMap.get(day);
-    if (!existing || log.startedAt.getTime() < existing.getTime()) dayMap.set(day, log.startedAt);
-  }
-
-  // Sorted (ascending) list of distinct-day completion timestamps per employee+month.
-  const distinctDaysByKey = new Map<string, Date[]>();
-  for (const [key, dayMap] of byEmployeeMonth) {
-    distinctDaysByKey.set(key, [...dayMap.values()].sort((a, b) => a.getTime() - b.getTime()));
-  }
-
-  const monthKeys = new Set([...distinctDaysByKey.keys()].map((k) => k.split("::")[1]));
-  for (const monthKey of monthKeys) {
-    const [y, m] = monthKey.split("-").map(Number);
-    const month = new Date(Date.UTC(y, m - 1, 1));
-    for (const t of HOUSEKEEPER_TIERS) {
-      const crossings: { employeeId: string; completedAt: Date }[] = [];
-      for (const [key, times] of distinctDaysByKey) {
-        const [empId, mk] = key.split("::");
-        if (mk !== monthKey || times.length < t.tier) continue;
-        crossings.push({ employeeId: empId, completedAt: times[t.tier - 1] });
-      }
-      crossings.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
-      const winners = crossings.slice(0, t.slots);
-      for (let i = 0; i < winners.length; i++) {
-        const w = winners[i];
-        await prisma.eliteCleanerAward.upsert({
           where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
           update: {},
           create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },

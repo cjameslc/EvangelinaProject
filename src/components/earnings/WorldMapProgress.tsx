@@ -9,7 +9,6 @@ import { playCoin, playFanfare, playXpGain, playChestOpen, playPop, playQuestCom
 
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
 type EliteChallenge = {
-  metric: "bookings" | "cleaningDays";
   completedThisMonth: number; rank: number; totalBookers: number;
   currentTier: number | null; currentStars: number; currentBadge: string | null;
   nextTier: number | null; nextTierAmount: number | null; remaining: number; progressPct: number;
@@ -19,61 +18,36 @@ type EliteChallenge = {
 
 type Achievement = { id: string; label: string; unlocked: boolean; threshold?: number; rewardAmount?: number; personalMessage?: string | null };
 
-function unitNouns(metric: EliteChallenge["metric"]) {
-  return metric === "cleaningDays"
-    ? { singular: "cleaning day", plural: "cleaning days" }
-    : { singular: "booking", plural: "bookings" };
-}
-
 // Original fantasy-kingdom world map — an entirely custom progression path
 // (CSS/SVG/emoji, no licensed art of any kind) laid over the same Elite
-// Challenge data the plain stat card used to show (Elite Booker Challenge
-// for Bookers, Elite Housekeeper Challenge for Housekeeping — same journey,
-// different metric). Cubao Village and Araneta Forest are free waypoints
-// along the road (no reward, just a fun sense of distance); the five
-// castles/mountains/etc. after that are the real tiers, each one named
+// Booker Challenge data the plain stat card used to show — shared as-is by
+// Housekeeping staff too (several employees do both jobs at this business).
+// Cubao Village and Araneta Forest are free waypoints along the road (no
+// reward, just a fun sense of distance); the five castles/mountains/etc.
+// after that are the real tiers, unchanged from before — each one named
 // after one of the business's own real listings, so the journey is
 // recognizably *this* staycation business's world, not a generic fantasy
 // skin. Evangelina's Kingdom, the finale, makes the brand itself the
-// legendary destination. Thresholds scale to whichever tier set the
-// challenge is using (see worldNodesFor below) so the same seven waypoints
-// work whether the metric is bookings or cleaning days.
-const WORLD_NODE_SHAPES = [
-  { key: "village", icon: "🏘️", label: "Cubao Village", from: "#7ED957", to: "#4FC3F7" },
-  { key: "forest", icon: "🌲", label: "Araneta Forest", from: "#3FA34D", to: "#2E7D32" },
-  { key: "bronze", icon: "🏰", label: "Comfort Castle", from: "#C97A3D", to: "#8D5524" },
-  { key: "silver", icon: "⛰️", label: "Cozy Peak", from: "#8EA9C1", to: "#5C7A99" },
-  { key: "gold", icon: "🌋", label: "Relax Volcano", from: "#FF7A45", to: "#B71C1C" },
-  { key: "platinum", icon: "☁️", label: "Signature Sky", from: "#B3E5FC", to: "#7C9EFF" },
-  { key: "legend", icon: "👑", label: "Evangelina's Kingdom", from: "#B983FF", to: "#6C5CE7" },
+// legendary destination.
+const WORLD_NODES = [
+  { key: "village", threshold: 0, icon: "🏘️", label: "Cubao Village", from: "#7ED957", to: "#4FC3F7" },
+  { key: "forest", threshold: 25, icon: "🌲", label: "Araneta Forest", from: "#3FA34D", to: "#2E7D32" },
+  { key: "bronze", threshold: 50, icon: "🏰", label: "Comfort Castle", from: "#C97A3D", to: "#8D5524" },
+  { key: "silver", threshold: 100, icon: "⛰️", label: "Cozy Peak", from: "#8EA9C1", to: "#5C7A99" },
+  { key: "gold", threshold: 150, icon: "🌋", label: "Relax Volcano", from: "#FF7A45", to: "#B71C1C" },
+  { key: "platinum", threshold: 200, icon: "☁️", label: "Signature Sky", from: "#B3E5FC", to: "#7C9EFF" },
+  { key: "legend", threshold: 250, icon: "👑", label: "Evangelina's Kingdom", from: "#B983FF", to: "#6C5CE7" },
 ] as const;
-type WorldNode = typeof WORLD_NODE_SHAPES[number] & { threshold: number };
-
-function worldNodesFor(tiers: EliteTierStatus[]): WorldNode[] {
-  const tierThresholds = tiers.map((t) => t.tier);
-  const thresholds = [0, Math.round(tierThresholds[0] / 2), ...tierThresholds];
-  return WORLD_NODE_SHAPES.map((shape, i) => ({ ...shape, threshold: thresholds[i] }));
-}
 
 // A few in-character tips/encouragements the mascot hands out from the
-// Mystery Reward Box — flavor only, no mechanical effect. A separate set
-// for the Housekeeper Challenge keeps the flavor text relevant instead of
-// talking about bookings to someone whose game tracks cleaning days.
-const MYSTERY_MESSAGES_BOOKING = [
+// Mystery Reward Box — flavor only, no mechanical effect.
+const MYSTERY_MESSAGES = [
   "A warm welcome message turns a first-time guest into a repeat one. 🏡",
   "Every completed booking is a room with a five-star story waiting to happen. ⭐",
   "Cubao Village remembers every host who keeps their word on check-in time. 🕒",
   "The road to Evangelina's Kingdom is paved one happy guest at a time. 👑",
   "Quick replies win bookings — the fastest host in the village gets the gold. ⚡",
   "A tidy handover is worth more than any coin chest. 🧹✨",
-];
-const MYSTERY_MESSAGES_CLEANING = [
-  "A spotless room is the first five-star review a guest ever leaves. ⭐",
-  "Cubao Village remembers every room that sparkled at check-in. 🧼",
-  "The road to Evangelina's Kingdom is swept one clean room at a time. 👑",
-  "Fresh linens and a tidy handover turn a stay into a story guests tell. 🛏️✨",
-  "Every distinct cleaning day counts — consistency wins the crown. 🗓️",
-  "A well-stocked, spotless unit is worth more than any coin chest. 🧹✨",
 ];
 
 function useCountUp(target: number, durationMs = 900) {
@@ -98,18 +72,16 @@ function useCountUp(target: number, durationMs = 900) {
 
 export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
   const completed = challenge.completedThisMonth;
-  const unit = unitNouns(challenge.metric);
-  const worldNodes = useMemo(() => worldNodesFor(challenge.tiers), [challenge.tiers]);
-  const maxThreshold = worldNodes[worldNodes.length - 1].threshold;
+  const maxThreshold = WORLD_NODES[WORLD_NODES.length - 1].threshold;
   const overallPct = Math.min(100, (completed / maxThreshold) * 100);
 
   // Which zone the traveler is currently standing in, for the background.
   const currentZoneIndex = useMemo(() => {
     let idx = 0;
-    worldNodes.forEach((n, i) => { if (completed >= n.threshold) idx = i; });
+    WORLD_NODES.forEach((n, i) => { if (completed >= n.threshold) idx = i; });
     return idx;
-  }, [completed, worldNodes]);
-  const zone = worldNodes[currentZoneIndex];
+  }, [completed]);
+  const zone = WORLD_NODES[currentZoneIndex];
   const isNight = zone.key === "legend"; // Legend Kingdom reads as a starry night-sky realm
 
   const displayedCompleted = useCountUp(completed);
@@ -131,15 +103,14 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
   // employee at a new zone — a simple localStorage watermark, not a
   // backend event, but it means the celebration only plays once per
   // milestone rather than every single page view.
-  const [celebrating, setCelebrating] = useState<WorldNode | null>(null);
+  const [celebrating, setCelebrating] = useState<typeof WORLD_NODES[number] | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const key = `eva-world-seen-${challenge.metric}-${employeeId}`;
+    const key = `eva-world-seen-${employeeId}`;
     const lastSeenThreshold = Number(window.localStorage.getItem(key) ?? "0");
-    const firstRealTierThreshold = worldNodes[2]?.threshold ?? 0; // bronze tier — first real reward world
     if (zone.threshold > lastSeenThreshold) {
       window.localStorage.setItem(key, String(zone.threshold));
-      if (lastSeenThreshold > 0 || zone.threshold >= firstRealTierThreshold) {
+      if (lastSeenThreshold > 0 || zone.threshold >= 50) {
         setCelebrating(zone);
         const t = setTimeout(() => setCelebrating(null), 2600);
         playChestOpen();
@@ -147,7 +118,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zone.threshold, employeeId, challenge.metric]);
+  }, [zone.threshold, employeeId]);
 
   return (
     <div
@@ -170,7 +141,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
           </div>
           <div className="mt-0.5 text-[13px] text-white/85">
             <motion.span key={displayedCompleted}>{displayedCompleted}</motion.span>
-            {challenge.nextTier ? ` / ${challenge.nextTier}` : ""} {unit.plural} this month
+            {challenge.nextTier ? ` / ${challenge.nextTier}` : ""} bookings this month
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -191,15 +162,15 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
         {/* Welcome-door check-in points between each world — this business's
             own spin on a "warp gate," since every world here is a stay. */}
         <div className="absolute left-0 top-[13px] flex w-full justify-between px-[calc(50%/7)]">
-          {worldNodes.slice(0, -1).map((n, i) => (
-            <span key={n.key} className={cn("text-[13px] opacity-0 sm:opacity-100", completed >= worldNodes[i + 1].threshold ? "grayscale-0" : "grayscale opacity-40")}>🚪</span>
+          {WORLD_NODES.slice(0, -1).map((n, i) => (
+            <span key={n.key} className={cn("text-[13px] opacity-0 sm:opacity-100", completed >= WORLD_NODES[i + 1].threshold ? "grayscale-0" : "grayscale opacity-40")}>🚪</span>
           ))}
         </div>
         <div className="relative flex justify-between">
-          {worldNodes.map((n) => {
+          {WORLD_NODES.map((n) => {
             const reached = completed >= n.threshold;
             return (
-              <div key={n.key} className="flex flex-col items-center" style={{ width: `${100 / worldNodes.length}%` }}>
+              <div key={n.key} className="flex flex-col items-center" style={{ width: `${100 / WORLD_NODES.length}%` }}>
                 <motion.div
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
@@ -228,7 +199,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
             <StaySprite />
           </motion.div>
         </motion.div>
-        <MysteryBox pct={overallPct} metric={challenge.metric} />
+        <MysteryBox pct={overallPct} />
       </div>
 
       {/* XP bar */}
@@ -246,7 +217,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
       {challenge.nextTier ? (
         <div className="relative mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[13px] font-semibold text-white/90">
-            <b className="text-white">{challenge.remaining} more {challenge.remaining === 1 ? unit.singular : unit.plural}</b> to unlock 💰 {peso(challenge.nextTierAmount ?? 0)}
+            <b className="text-white">{challenge.remaining} more booking{challenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(challenge.nextTierAmount ?? 0)}
           </p>
           <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", challenge.slotsRemainingForNextTier > 0 ? "bg-white/25" : "bg-black/25")}>
             🎟️ {challenge.slotsRemainingForNextTier} of {challenge.slotsTotalForNextTier} slots left
@@ -258,7 +229,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
 
       <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">
         <div>
-          <div className="text-[10.5px] font-bold uppercase text-white/70">{challenge.metric === "cleaningDays" ? "Estimated day-rate pay" : "Estimated commission"}</div>
+          <div className="text-[10.5px] font-bold uppercase text-white/70">Estimated commission</div>
           <div className="text-[16px] font-extrabold">{peso(displayedCommission)}</div>
         </div>
         <div>
@@ -362,8 +333,7 @@ function SkyLayer({ isNight }: { isNight: boolean }) {
   );
 }
 
-export function EliteBadgeButton({ tier, index, metric = "bookings" }: { tier: EliteTierStatus; index: number; metric?: EliteChallenge["metric"] }) {
-  const unit = unitNouns(metric);
+export function EliteBadgeButton({ tier, index }: { tier: EliteTierStatus; index: number }) {
   return (
     <button
       type="button"
@@ -376,7 +346,7 @@ export function EliteBadgeButton({ tier, index, metric = "bookings" }: { tier: E
     >
       <div className={cn("text-lg", tier.wonByMe && "animate-float")}>{tier.medal}</div>
       <div className="mt-0.5 text-[11.5px] font-extrabold">{tier.badge}</div>
-      <div className="text-[10.5px] text-[var(--gray)]">{tier.tier} {unit.plural} · {peso(tier.amount)}</div>
+      <div className="text-[10.5px] text-[var(--gray)]">{tier.tier} bookings · {peso(tier.amount)}</div>
       <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, tier.slotsTotal - tier.slotsTaken)} of {tier.slotsTotal} slots left</div>
       {!tier.wonByMe && <div className="absolute right-1.5 top-1.5 text-[11px] opacity-40">🔒</div>}
     </button>
@@ -412,12 +382,11 @@ function StaySprite() {
 
 /** A small clickable "?" waypoint marker in the brand's own gold/rausch —
  * taps hand out an in-character hospitality tip, purely for flavor. */
-function MysteryBox({ pct, metric }: { pct: number; metric: EliteChallenge["metric"] }) {
+function MysteryBox({ pct }: { pct: number }) {
   const [open, setOpen] = useState<string | null>(null);
   function tap() {
     playCoin();
-    const messages = metric === "cleaningDays" ? MYSTERY_MESSAGES_CLEANING : MYSTERY_MESSAGES_BOOKING;
-    setOpen(messages[Math.floor(Math.random() * messages.length)]);
+    setOpen(MYSTERY_MESSAGES[Math.floor(Math.random() * MYSTERY_MESSAGES.length)]);
     setTimeout(() => setOpen(null), 3200);
   }
   return (
@@ -453,8 +422,6 @@ function MysteryBox({ pct, metric }: { pct: number; metric: EliteChallenge["metr
 /** Info button opening a plain-language explainer of how the world map, tiers, and achievements actually work. */
 function HowItWorksButton({ challenge }: { challenge: EliteChallenge }) {
   const [open, setOpen] = useState(false);
-  const unit = unitNouns(challenge.metric);
-  const isCleaning = challenge.metric === "cleaningDays";
   return (
     <>
       <button
@@ -467,17 +434,11 @@ function HowItWorksButton({ challenge }: { challenge: EliteChallenge }) {
         ℹ️
       </button>
       {open && (
-        <Modal open onClose={() => setOpen(false)} title={`How the Elite ${isCleaning ? "Housekeeper" : "Booker"} Challenge works`} maxWidth={480} footer={<button onClick={() => setOpen(false)} className="btn-primary ml-auto">Got it</button>}>
+        <Modal open onClose={() => setOpen(false)} title="How the Elite Booker Challenge works" maxWidth={480} footer={<button onClick={() => setOpen(false)} className="btn-primary ml-auto">Got it</button>}>
           <div className="space-y-4 text-[13px] text-[var(--gray)]">
             <section>
               <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🗺️ The world map</h3>
-              <p>
-                Your position on the road tracks <b className="text-[var(--ink)]">{unit.plural} this month</b> —
-                {isCleaning
-                  ? " a cleaning day counts once you've logged at least one cleaning session that calendar day."
-                  : " a booking counts once the stay is actually finished, not the moment it's logged."}
-                {" "}Every {unit.singular} moves you further along, through Cubao Village → Araneta Forest → Comfort Castle → Cozy Peak → Relax Volcano → Signature Sky → Evangelina&rsquo;s Kingdom.
-              </p>
+              <p>Your position on the road tracks <b className="text-[var(--ink)]">completed bookings this month</b> — a booking counts once the stay is actually finished, not the moment it&rsquo;s logged. Every completed booking moves you further along, through Cubao Village → Araneta Forest → Comfort Castle → Cozy Peak → Relax Volcano → Signature Sky → Evangelina&rsquo;s Kingdom.</p>
             </section>
             <section>
               <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🏆 Reward tiers</h3>
@@ -485,12 +446,12 @@ function HowItWorksButton({ challenge }: { challenge: EliteChallenge }) {
               <div className="overflow-hidden rounded-xl border border-[var(--line)]">
                 {challenge.tiers.map((t) => (
                   <div key={t.tier} className="flex items-center justify-between border-t border-[var(--line)] px-3 py-1.5 text-[12px] first:border-0">
-                    <span>{t.medal} {t.badge} · {t.tier} {unit.plural}</span>
+                    <span>{t.medal} {t.badge} · {t.tier} bookings</span>
                     <span className="font-bold text-[var(--ink)]">{peso(t.amount)} · {t.slotsTotal} slot{t.slotsTotal === 1 ? "" : "s"}</span>
                   </div>
                 ))}
               </div>
-              <p className="mt-1.5">Whoever reaches a tier&rsquo;s {unit.singular} count first claims a slot — once a tier&rsquo;s slots are full, others can still reach that world, just without the ₱ reward attached.</p>
+              <p className="mt-1.5">Whoever reaches a tier&rsquo;s booking count first claims a slot — once a tier&rsquo;s slots are full, later bookers can still reach that world, just without the ₱ reward attached.</p>
             </section>
             <section>
               <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🎖️ Achievements</h3>

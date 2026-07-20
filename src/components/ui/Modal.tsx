@@ -43,7 +43,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[86vh] w-full flex-col rounded-card bg-[var(--card)] shadow-card"
+        className="flex max-h-[86vh] w-full flex-col rounded-card bg-[var(--card)] text-[var(--ink)] shadow-card [text-shadow:none]"
         style={{ maxWidth }}
         onClick={(e) => e.stopPropagation()}
       >
