@@ -89,6 +89,7 @@ export function DashboardView({
   attentionFindings,
   stocks,
   salaryHistory,
+  expenseRequestsMonth,
 }: {
   role: string;
   units: Unit[];
@@ -102,6 +103,7 @@ export function DashboardView({
   attentionFindings: AttentionFinding[];
   salaryHistory: SalaryHistoryEntry[];
   stocks: Stock[];
+  expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string }[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -189,6 +191,20 @@ export function DashboardView({
     [weeklyExpenses, thisMonthIsoForAds]
   );
 
+  // Employee-submitted expense requests (TikTok ads / unit expenses not
+  // otherwise covered) — approved ones are already-real money, same
+  // treatment as the Admin-logged TikTok ad spend above; pending ones are
+  // a possible future cost, folded into Forecast only, never Realized.
+  // Rejected ones (excluded from the server query entirely) never count.
+  const approvedExpenseRequestsMonthTotal = useMemo(
+    () => expenseRequestsMonth.filter((e) => e.status === "APPROVED").reduce((s, e) => s + e.amount, 0),
+    [expenseRequestsMonth]
+  );
+  const pendingExpenseRequestsMonthTotal = useMemo(
+    () => expenseRequestsMonth.filter((e) => e.status === "PENDING").reduce((s, e) => s + e.amount, 0),
+    [expenseRequestsMonth]
+  );
+
   // Realized vs Forecast — the two figures replace the old single "Net
   // profit," which mixed money already earned/spent with money that was
   // merely expected/upcoming and could look deeply negative for no real
@@ -199,7 +215,7 @@ export function DashboardView({
   // ever reflects money that has genuinely moved. All in centavos through
   // the subtraction itself, so a recurring expense's cents are actually
   // reflected — only the final StatCard values round to whole pesos.
-  const realizedCostsCentavos = accruedStaffSalary * 100 + tikTokAdsMonthTotal * 100;
+  const realizedCostsCentavos = accruedStaffSalary * 100 + tikTokAdsMonthTotal * 100 + approvedExpenseRequestsMonthTotal * 100;
   const netProfitCents = computeNetProfitCentavos({
     revenueCentavos: completedMonthIncome * 100,
     paidExpensesCentavos: billsPaidMonthCentavos,
@@ -233,7 +249,7 @@ export function DashboardView({
   const forecastProfitCents = computeNetProfitCentavos({
     revenueCentavos: expectedMonthIncome * 100,
     paidExpensesCentavos: billsDueMonthCentavos,
-    otherPaidCostsCentavos: upcomingStaffSalary * 100,
+    otherPaidCostsCentavos: upcomingStaffSalary * 100 + pendingExpenseRequestsMonthTotal * 100,
   });
   const forecastProfit = Math.round(forecastProfitCents / 100);
 

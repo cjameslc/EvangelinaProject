@@ -17,3 +17,5 @@ export type FindingSeverity = "Critical" | "Warning" | "Minor" | "Positive";
 export type IcalSyncType = "AUTOMATIC" | "MANUAL";
 export type WeeklyExpenseCategory = "GENERAL" | "TIKTOK_ADS";
 export type ExpenseCategory = "Amortization" | "Utilities" | "Water" | "Internet" | "AssociationDues" | "Streaming";
+export type ExpenseRequestCategory = "TIKTOK_ADS" | "UNIT_EXPENSE";
+export type ExpenseRequestStatus = "PENDING" | "APPROVED" | "REJECTED";

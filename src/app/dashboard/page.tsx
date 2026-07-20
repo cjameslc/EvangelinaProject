@@ -76,12 +76,20 @@ const getDashboardData = unstable_cache(
       // of the month, not just the employee's current one, so a later
       // raise/cut never rewrites history.
       prismaPool[10].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+      // Employee-submitted ad-hoc expenses (TikTok ads / unit expenses) —
+      // APPROVED ones are already-real money (folded into Realized profit
+      // like a paid bill); PENDING ones are a possible future cost (folded
+      // into Forecast only). Rejected ones never affect either.
+      prismaPool[11].expenseRequest.findMany({
+        where: { date: { gte: monthStart, lt: nextMonthStart }, status: { in: ["APPROVED", "PENDING"] } },
+        select: { id: true, category: true, amount: true, status: true, date: true },
+      }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
-      weeklyExpenses, attentionFindings, stocks, salaryHistory,
+      weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth,
     }));
   },
   ["dashboard-data"],
@@ -112,10 +120,11 @@ export default async function DashboardPage() {
   let attentionFindings: any[] = [];
   let stocks: any[] = [];
   let salaryHistory: any[] = [];
+  let expenseRequestsMonth: any[] = [];
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -133,6 +142,7 @@ export default async function DashboardPage() {
     attentionFindings = [];
     stocks = [];
     salaryHistory = [];
+    expenseRequestsMonth = [];
   }
 
   return (
@@ -149,6 +159,7 @@ export default async function DashboardPage() {
       attentionFindings={JSON.parse(JSON.stringify(attentionFindings))}
       stocks={JSON.parse(JSON.stringify(stocks))}
       salaryHistory={JSON.parse(JSON.stringify(salaryHistory))}
+      expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
     />
   );
 }

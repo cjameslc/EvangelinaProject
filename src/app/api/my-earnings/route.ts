@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   if (employee.role === "BOOKER") await syncEliteBookerAwards();
 
-  const [allBookingsForEmployee, cleaningLogs, expenses, myAwards] = await Promise.all([
+  const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
     prisma.booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
       select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true },
@@ -70,6 +70,12 @@ export async function GET(req: NextRequest) {
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
     prisma.weeklyExpense.findMany({ where: { targetEmployeeId: employee.id }, orderBy: { date: "desc" }, take: 200 }),
     prisma.eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
+    prisma.expenseRequest.findMany({
+      where: { employeeId: employee.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: { unit: { select: { id: true, name: true, shortName: true } } },
+    }),
   ]);
 
   const now = new Date();
@@ -264,5 +270,9 @@ export async function GET(req: NextRequest) {
     payrollHistory,
     bonusAwards: myAwards.map((a) => ({ id: a.id, month: a.month.toISOString(), tier: a.tier, amount: a.amount, slotRank: a.slotRank, completedAt: a.completedAt.toISOString() })),
     adjustments: expenses.slice(0, 30).map((e) => ({ id: e.id, date: e.date.toISOString(), amount: e.amount, note: e.note, deduction: e.note !== "Salary" })),
+    expenseRequests: myExpenseRequests.map((r) => ({
+      id: r.id, category: r.category, amount: r.amount, note: r.note, date: r.date.toISOString(), status: r.status,
+      rejectionReason: r.rejectionReason, unit: r.unit ? { id: r.unit.id, name: r.unit.name, shortName: r.unit.shortName } : null,
+    })),
   });
 }

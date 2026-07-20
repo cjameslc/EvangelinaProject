@@ -63,6 +63,22 @@ export const weeklyExpenseSchema = z.object({
   category: z.enum(["GENERAL", "TIKTOK_ADS"]).optional(),
 });
 
+export const expenseRequestSchema = z
+  .object({
+    date: z.string().min(1),
+    amount: z.number().int().positive(),
+    note: z.string().min(1),
+    category: z.enum(["TIKTOK_ADS", "UNIT_EXPENSE"]),
+    unitId: z.string().nullable().optional(),
+    receiptUrl: z.string().nullable().optional(),
+  })
+  .refine((v) => v.category !== "UNIT_EXPENSE" || !!v.unitId, { message: "Pick a unit for a unit expense.", path: ["unitId"] });
+
+export const expenseRequestReviewSchema = z.object({
+  status: z.enum(["APPROVED", "REJECTED"]),
+  rejectionReason: z.string().nullable().optional(),
+});
+
 export const calendarBlockSchema = z.object({
   unitId: z.string().min(1),
   type: z.enum(["Daycation", "Night", "Full", "Cleaning", "Maintenance"]),

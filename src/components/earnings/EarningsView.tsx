@@ -6,12 +6,29 @@ import autoTable from "jspdf-autotable";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate } from "@/lib/format";
 import { ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { FilePdfIcon } from "@/components/ui/Icons";
+import { FilePdfIcon, PlusIcon, TrashIcon } from "@/components/ui/Icons";
+import { fileToDataUrl } from "@/lib/file";
+import { StaffTab } from "@/components/admin/StaffTab";
 
 type EmployeeLite = { id: string; name: string; role: string };
+type UnitLite = { id: string; name: string; shortName: string };
+type ExpenseRequestRow = {
+  id: string; category: string; amount: number; note: string; date: string; status: string;
+  rejectionReason: string | null; unit: UnitLite | null;
+};
+type PendingRequestRow = ExpenseRequestRow & { employee: { id: string; name: string; role: string } };
+type FullEmployee = { id: string; name: string; role: string; monthlySalary: number; salaryType: "DAILY" | "WEEKLY" | "MONTHLY"; salaryRate: number; active: boolean };
+
+const EXPENSE_STATUS_BADGE: Record<string, string> = {
+  PENDING: "bg-amber/15 text-amber",
+  APPROVED: "bg-green/15 text-green",
+  REJECTED: "bg-rausch/15 text-rausch",
+};
 type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
 type EliteChallenge = {
@@ -39,6 +56,7 @@ type EarningsData = {
   payrollHistory: PayrollHistoryRow[];
   bonusAwards: BonusAward[];
   adjustments: Adjustment[];
+  expenseRequests: ExpenseRequestRow[];
 };
 type LeaderboardRow = { employeeId: string; name: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
 type LeaderboardData =
@@ -87,6 +105,36 @@ export function EarningsView({
       .then((j) => j && setLeaderboard(j))
       .catch(() => {});
   }, []);
+
+  // Owner-only: the full team-salary editor and the pending-approvals queue
+  // are company-wide, independent of whichever employee is selected in the
+  // picker above — fetched once, refreshed on demand.
+  const [teamEmployees, setTeamEmployees] = useState<FullEmployee[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequestRow[]>([]);
+  async function refreshTeamEmployees() {
+    const res = await fetch("/api/employees");
+    if (res.ok) setTeamEmployees(await res.json());
+  }
+  async function refreshPendingRequests() {
+    const res = await fetch("/api/expense-requests?status=PENDING");
+    if (res.ok) setPendingRequests(await res.json());
+  }
+  useEffect(() => {
+    if (!isAdminViewer) return;
+    refreshTeamEmployees();
+    refreshPendingRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminViewer]);
+
+  // Employee-only: units for the "Unit Expense" picker on the submit form.
+  const [units, setUnits] = useState<UnitLite[]>([]);
+  useEffect(() => {
+    if (isAdminViewer) return;
+    fetch("/api/units")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((j) => setUnits(j.map((u: any) => ({ id: u.id, name: u.name, shortName: u.shortName }))))
+      .catch(() => {});
+  }, [isAdminViewer]);
 
   const filteredHistory = useMemo(() => {
     if (!data) return [];
@@ -184,6 +232,18 @@ export function EarningsView({
         <StatCard label="Bonuses" value={peso(data.bonusAwards.reduce((s, a) => s + a.amount, 0))} sub="lifetime, all units" />
         <StatCard label="Lifetime earnings" value={peso(data.lifetimeEarnings)} sub="estimated, all-time" />
       </div>
+
+      {isAdminViewer && (
+        <Accordion title="Team salary" sub={`${teamEmployees.filter((e) => e.active).length} on staff`}>
+          <StaffTab employees={teamEmployees} onChanged={refreshTeamEmployees} />
+        </Accordion>
+      )}
+
+      {isAdminViewer && (
+        <Accordion title="Expense approvals" sub={`${pendingRequests.length} pending`}>
+          <ExpenseApprovalsPanel requests={pendingRequests} onChanged={refreshPendingRequests} />
+        </Accordion>
+      )}
 
       <Accordion title="How this is calculated" sub={data.thisWeek.subtitle || undefined}>
         <div className="space-y-2">
@@ -341,6 +401,18 @@ export function EarningsView({
         </Accordion>
       )}
 
+      {!isAdminViewer && (
+        <Accordion title="Submit an expense" sub="TikTok ads or a unit expense not otherwise covered">
+          <ExpenseSubmitForm units={units} onSubmitted={load} />
+        </Accordion>
+      )}
+
+      {!isAdminViewer && data.expenseRequests.length > 0 && (
+        <Accordion title="My expense requests" sub={`${data.expenseRequests.length} submitted`}>
+          <MyExpenseRequestsList requests={data.expenseRequests} onChanged={load} />
+        </Accordion>
+      )}
+
       <Accordion title="Leaderboard" sub={leaderboard?.scope === "all" ? "top bookers, this month" : "your ranking"}>
         {!leaderboard && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
         {leaderboard?.scope === "all" && (
@@ -376,5 +448,218 @@ export function EarningsView({
         )}
       </Accordion>
     </div>
+  );
+}
+
+const EXPENSE_CATEGORY_LABEL: Record<string, string> = { TIKTOK_ADS: "TikTok Ads", UNIT_EXPENSE: "Unit Expense" };
+
+// Employee-facing submission form — TikTok Ads (company-wide) or Unit
+// Expense (requires picking which unit). Submits PENDING; never affects
+// Realized/Forecast profit or payroll until an Owner/Admin approves it.
+function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmitted: () => void }) {
+  const toast = useToast();
+  const [category, setCategory] = useState<"TIKTOK_ADS" | "UNIT_EXPENSE">("TIKTOK_ADS");
+  const [unitId, setUnitId] = useState("");
+  const [amount, setAmount] = useState<number | null>(null);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function onReceiptChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReceiptUrl(await fileToDataUrl(file));
+  }
+
+  async function submit() {
+    if (!amount || amount <= 0) { toast("Enter an amount", true); return; }
+    if (!note.trim()) { toast("Add a short note", true); return; }
+    if (category === "UNIT_EXPENSE" && !unitId) { toast("Pick a unit", true); return; }
+    setSaving(true);
+    const res = await fetch("/api/expense-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category, unitId: category === "UNIT_EXPENSE" ? unitId : null, amount, date, note: note.trim(), receiptUrl }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't submit request", true); return; }
+    toast("Submitted for approval ✓");
+    setAmount(null); setNote(""); setReceiptUrl(null); setUnitId("");
+    onSubmitted();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 rounded-full bg-[var(--bg-2)] p-1 w-fit">
+        {(["TIKTOK_ADS", "UNIT_EXPENSE"] as const).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setCategory(c)}
+            className={cn("rounded-full px-3.5 py-1.5 text-[13px] font-bold transition", category === c ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+          >
+            {EXPENSE_CATEGORY_LABEL[c]}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {category === "UNIT_EXPENSE" && (
+          <div>
+            <label className="field-label">Unit</label>
+            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className="field-input mt-1.5">
+              <option value="">Select a unit…</option>
+              {units.map((u) => <option key={u.id} value={u.id}>{u.shortName}</option>)}
+            </select>
+          </div>
+        )}
+        <div>
+          <label className="field-label">Amount (₱)</label>
+          <input type="number" value={amount ?? ""} onChange={(e) => setAmount(e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label className="field-label">Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1.5" />
+        </div>
+        <div>
+          <label className="field-label">Receipt (optional)</label>
+          <input type="file" accept="image/*" onChange={onReceiptChange} className="field-input mt-1.5" />
+        </div>
+      </div>
+      <div>
+        <label className="field-label">Note</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} className="field-input mt-1.5" placeholder="e.g. boosted post campaign, replacement pillows" />
+      </div>
+      <button onClick={submit} disabled={saving} className="btn-primary">{saving ? "Submitting…" : "Submit for approval"}</button>
+    </div>
+  );
+}
+
+// Employee-facing list of their own submitted requests, with status badges
+// and a rejection reason shown when relevant. Cancel only while PENDING.
+function MyExpenseRequestsList({ requests, onChanged }: { requests: ExpenseRequestRow[]; onChanged: () => void }) {
+  const toast = useToast();
+
+  async function cancel(id: string) {
+    if (!confirm("Cancel this request?")) return;
+    const res = await fetch(`/api/expense-requests/${id}`, { method: "DELETE" });
+    if (!res.ok) { toast("Couldn't cancel", true); return; }
+    toast("Cancelled");
+    onChanged();
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+      {requests.map((r) => (
+        <div key={r.id} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[13.5px] font-bold">{peso(r.amount)}</span>
+              <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">{EXPENSE_CATEGORY_LABEL[r.category] ?? r.category}</span>
+              {r.unit && <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">{r.unit.shortName}</span>}
+              <span className={cn("rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide", EXPENSE_STATUS_BADGE[r.status])}>{r.status}</span>
+            </div>
+            <div className="mt-0.5 truncate text-[11.5px] text-[var(--gray)]">
+              {fmtDate(r.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} · {r.note}
+            </div>
+            {r.status === "REJECTED" && r.rejectionReason && (
+              <div className="mt-0.5 text-[11.5px] text-rausch">Reason: {r.rejectionReason}</div>
+            )}
+          </div>
+          {r.status === "PENDING" && (
+            <button onClick={() => cancel(r.id)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Cancel">
+              <TrashIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Owner-facing approval queue — every PENDING request across all employees.
+// Approve is one click; Reject requires a short reason so the employee
+// isn't left guessing.
+function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingRequestRow[]; onChanged: () => void }) {
+  const toast = useToast();
+  const [rejecting, setRejecting] = useState<PendingRequestRow | null>(null);
+  const [reason, setReason] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function approve(id: string) {
+    setBusyId(id);
+    const res = await fetch(`/api/expense-requests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "APPROVED" }),
+    });
+    setBusyId(null);
+    if (!res.ok) { toast("Couldn't approve", true); return; }
+    toast("Approved ✓");
+    onChanged();
+  }
+
+  async function reject() {
+    if (!rejecting) return;
+    if (!reason.trim()) { toast("Add a reason for the employee", true); return; }
+    setBusyId(rejecting.id);
+    const res = await fetch(`/api/expense-requests/${rejecting.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "REJECTED", rejectionReason: reason.trim() }),
+    });
+    setBusyId(null);
+    if (!res.ok) { toast("Couldn't reject", true); return; }
+    toast("Rejected");
+    setRejecting(null);
+    setReason("");
+    onChanged();
+  }
+
+  if (requests.length === 0) {
+    return <p className="text-[13px] text-[var(--gray)]">Nothing pending — all caught up. 🎉</p>;
+  }
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
+        {requests.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[13.5px] font-bold">{peso(r.amount)}</span>
+                <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">{EXPENSE_CATEGORY_LABEL[r.category] ?? r.category}</span>
+                {r.unit && <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">{r.unit.shortName}</span>}
+              </div>
+              <div className="mt-0.5 truncate text-[11.5px] text-[var(--gray)]">
+                {r.employee.name} · {ROLE_LABEL[r.employee.role] ?? r.employee.role} · {fmtDate(r.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} · {r.note}
+              </div>
+            </div>
+            <div className="flex flex-none gap-1.5">
+              <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="btn btn-sm">Approve</button>
+              <button onClick={() => { setRejecting(r); setReason(""); }} disabled={busyId === r.id} className="btn-ghost btn-sm">Reject</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {rejecting && (
+        <Modal
+          open
+          onClose={() => setRejecting(null)}
+          title="Reject expense request"
+          maxWidth={400}
+          footer={<><button onClick={() => setRejecting(null)} className="btn-ghost">Cancel</button><button onClick={reject} disabled={busyId === rejecting.id} className="btn-primary ml-auto">Reject</button></>}
+        >
+          <div>
+            <p className="mb-3 text-[13px] text-[var(--gray)]">{rejecting.employee.name}&rsquo;s {peso(rejecting.amount)} request — the reason below is shown to them.</p>
+            <label className="field-label">Reason</label>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} className="field-input mt-1.5" placeholder="e.g. missing receipt, duplicate of an existing entry" />
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

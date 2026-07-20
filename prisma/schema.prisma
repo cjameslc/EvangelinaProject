@@ -37,6 +37,7 @@ model User {
   auditLogs    AuditLog[]
   shifts       Shift[]
   weeklyExpensesAdded WeeklyExpense[]
+  reviewedExpenseRequests ExpenseRequest[]
 
   @@map("users")
 }
@@ -84,6 +85,7 @@ model Unit {
   auditFindings AuditFinding[]
   recurringExpenseTemplates RecurringExpenseTemplate[]
   icalSyncLogs  IcalSyncLog[]
+  expenseRequests ExpenseRequest[]
 
   @@map("units")
 }
@@ -144,6 +146,7 @@ model Employee {
   targetedExpenses    WeeklyExpense[]
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
+  expenseRequests     ExpenseRequest[]
 
   @@index([active])
   @@map("employees")
@@ -209,6 +212,37 @@ model WeeklyExpense {
   @@index([date])
   @@index([category, date])
   @@map("weekly_expenses")
+}
+
+// An employee-submitted ad-hoc expense (TikTok ad spend or a unit-specific
+// cost) not otherwise covered by the Bill/RecurringExpense system — the
+// employee-facing counterpart to Admin's direct-entry Weekly report expense
+// tools. Never affects Realized/Forecast profit or payroll until an Owner/
+// Admin approves it (see src/components/dashboard/DashboardView.tsx and
+// src/app/api/expense-requests/route.ts) — a rejected request is kept, not
+// deleted, so the employee can see the reason instead of it silently
+// vanishing.
+model ExpenseRequest {
+  id              String    @id @default(cuid())
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  category        String    // "TIKTOK_ADS" | "UNIT_EXPENSE"
+  unitId          String?   // required for UNIT_EXPENSE, null for TIKTOK_ADS
+  unit            Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  amount          Int
+  note            String
+  receiptUrl      String?   // base64 data-URL, same pattern as Booking.proofUrl/AuditFinding.photoUrl
+  date            DateTime
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectionReason String?
+  reviewedById    String?
+  reviewedBy      User?     @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([status])
+  @@index([employeeId])
+  @@map("expense_requests")
 }
 
 model Booking {
