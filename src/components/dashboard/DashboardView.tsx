@@ -227,15 +227,22 @@ export function DashboardView({
     paidExpensesCentavos: billsPaidMonthCentavos,
     otherPaidCostsCentavos: realizedCostsCentavos,
   });
-  const netProfit = Math.round(netProfitCents / 100);
+  // Floored at ₱0 — not "clamped because negative," but because with zero
+  // completed revenue this period there's nothing real to compare accrued
+  // costs against yet, and a big negative number here reads as "we're
+  // losing money" when what's actually true is "no stays have finished
+  // yet." The moment a stay completes, this reflects real numbers again —
+  // including going genuinely negative if costs truly do outpace revenue.
+  // The cost breakdown stays visible in the caption below regardless.
+  const netProfit = completedMonthIncome > 0 ? Math.round(netProfitCents / 100) : 0;
   const margin = marginPct(netProfitCents, completedMonthIncome * 100);
   // Cash flow stays revenue-in-hand (DP + collected balances, same as
   // before) since it's about money that's actually moved, not which stays
   // are done — but it now deducts only accrued payroll too, for the same
-  // reason Realized profit does.
-  const cashFlow = Math.round(
-    cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: realizedCostsCentavos }) / 100
-  );
+  // reason Realized profit does. Same zero-revenue floor, keyed off its own
+  // revenue basis (collected cash, not completed stays).
+  const cashFlowRaw = cashFlowCentavos({ revenueCentavos: monthIncome * 100, paidExpensesCentavos: billsPaidMonthCentavos, otherPaidCostsCentavos: realizedCostsCentavos });
+  const cashFlow = monthIncome > 0 ? Math.round(cashFlowRaw / 100) : 0;
 
   // Forecast profit = what the rest of this month still owes/expects:
   // every booking's full value (whether collected yet or not) minus bills
@@ -1004,7 +1011,7 @@ export function DashboardView({
           <StatCard label="Payroll" value={peso(payrollTotal)} sub={`${payroll.length} people`} />
         </div>
         <p className="mt-3 text-[11.5px] text-[var(--gray)]">
-          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
+          <b>Realized profit</b> only counts completed stays and <b>paid</b> expenses ({pesoCentavos(billsPaidMonthCentavos)}) plus payroll actually accrued so far this month ({peso(accruedStaffSalary)} of {peso(monthlyStaffSalary)}) — pending/due/overdue bills ({pesoCentavos(billsDueMonthCentavos)}) and the {peso(upcomingStaffSalary)} of payroll not yet earned aren&rsquo;t deducted until they&rsquo;re real. Shows <b>₱0</b>, not negative, until a stay actually completes this month — nothing to compare accrued costs against yet. <b>Forecast profit</b> is a projection using every booking&rsquo;s full value against those same not-yet-real costs — useful for planning, not a statement of money in hand.
         </p>
       </Accordion>
 
