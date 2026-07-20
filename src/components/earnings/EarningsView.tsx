@@ -8,7 +8,7 @@ import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { peso, fmtDate, manilaWeekRange, initials } from "@/lib/format";
+import { peso, fmtDate, manilaWeekRange, manilaMonthStart, initials } from "@/lib/format";
 import { ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
@@ -145,9 +145,21 @@ export function EarningsView({
     const res = await fetch("/api/expense-requests?status=PENDING");
     if (res.ok) setPendingRequests(await res.json());
   }
+  // Two fetches, merged: weekly-cadence staff (DAILY/WEEKLY salaryType) are
+  // tracked against this week's Sunday, monthly-cadence staff against this
+  // month's 1st — each employee only ever has rows in their own cadence
+  // (see OwnerSummarySection), so merging never collides.
   async function refreshPayrollPayments() {
-    const res = await fetch("/api/payroll-payments");
-    if (res.ok) setPayrollPayments(await res.json());
+    const monthStartIso = manilaMonthStart().toISOString();
+    const [weekRes, monthRes] = await Promise.all([
+      fetch("/api/payroll-payments"),
+      fetch(`/api/payroll-payments?periodStart=${encodeURIComponent(monthStartIso)}`),
+    ]);
+    const [weekRows, monthRows] = await Promise.all([
+      weekRes.ok ? weekRes.json() : [],
+      monthRes.ok ? monthRes.json() : [],
+    ]);
+    setPayrollPayments([...weekRows, ...monthRows]);
   }
   useEffect(() => {
     if (!isAdminViewer) return;
@@ -720,7 +732,6 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
 const SALARY_TYPE_LABEL: Record<SalaryType, string> = { DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly" };
 const RATE_LABEL: Record<SalaryType, string> = { DAILY: "Rate per day (₱)", WEEKLY: "Rate per week (₱)", MONTHLY: "Rate per month (₱)" };
 const PAYROLL_STATUS_BADGE: Record<string, string> = { PENDING: "bg-amber/15 text-amber", GIVEN: "bg-green/15 text-green" };
-const NEW_ROW = { id: "", name: "", role: "BOOKER", salaryType: "MONTHLY" as SalaryType, salaryRate: "" };
 
 // The Owner's landing view — one compact table (status + summary + edit, all
 // in one place instead of stacked separately) plus the expense-approval
@@ -739,13 +750,28 @@ function OwnerSummarySection({
   const toast = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; role: string; salaryType: SalaryType; salaryRate: string }>({ name: "", role: "BOOKER", salaryType: "MONTHLY", salaryRate: "" });
-  const [adding, setAdding] = useState(false);
-  const [addForm, setAddForm] = useState(NEW_ROW);
   const [saving, setSaving] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
 
   const periodStartIso = useMemo(() => manilaWeekRange(0).start.toISOString(), []);
+  const monthStartIso = useMemo(() => manilaMonthStart().toISOString(), []);
   const paymentByEmployee = useMemo(() => new Map(payrollPayments.map((p) => [p.employeeId, p])), [payrollPayments]);
+
+  // Owners/Co-owners aren't staff paid a salary through this list — they
+  // manage the business, not the other way around (same rule isPayrollRole
+  // already applies to the Achievements panel below).
+  const payrollEmployees = useMemo(() => teamEmployees.filter((e) => isPayrollRole(e.role)), [teamEmployees]);
+
+  // Whoever's salaryType is MONTHLY gets tracked/given once a month against
+  // their full monthly rate; everyone else (DAILY/WEEKLY) stays on the
+  // existing weekly cadence — one less setting to keep in sync, since
+  // salaryType is already what the owner configured for how this person is
+  // actually paid.
+  function periodFor(emp: FullEmployee) {
+    return emp.salaryType === "MONTHLY"
+      ? { periodStart: monthStartIso, amount: emp.monthlySalary, label: "this month" }
+      : { periodStart: periodStartIso, amount: Math.round(weeklySalaryFor(emp.monthlySalary)), label: "this week" };
+  }
 
   function startEdit(e: FullEmployee) {
     setEditingId(e.id);
@@ -768,37 +794,13 @@ function OwnerSummarySection({
     onEmployeesChanged();
   }
 
-  async function deactivate(id: string) {
-    if (!confirm("Remove this person from staff? They'll stop appearing in Booker/Cleaner/Received-by menus.")) return;
-    await fetch(`/api/employees/${id}`, { method: "DELETE" });
-    onEmployeesChanged();
-  }
-
-  async function addPerson() {
-    if (!addForm.name.trim()) { toast("Enter a name", true); return; }
-    const raw = addForm.salaryRate.trim();
-    if (!raw || Number.isNaN(Number(raw)) || Number(raw) <= 0) { toast("Enter a valid salary rate", true); return; }
-    setSaving(true);
-    const res = await fetch("/api/employees", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: addForm.name, role: addForm.role, salaryType: addForm.salaryType, salaryRate: Number(raw) }),
-    });
-    setSaving(false);
-    if (!res.ok) { toast("Couldn't add person", true); return; }
-    toast("Added ✓");
-    setAdding(false);
-    setAddForm(NEW_ROW);
-    onEmployeesChanged();
-  }
-
   async function togglePayroll(emp: FullEmployee, nextStatus: "PENDING" | "GIVEN") {
     setBusyPaymentId(emp.id);
-    const weeklyAmount = Math.round(weeklySalaryFor(emp.monthlySalary));
+    const { periodStart, amount } = periodFor(emp);
     const res = await fetch("/api/payroll-payments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId: emp.id, periodStart: periodStartIso, amount: weeklyAmount, status: nextStatus }),
+      body: JSON.stringify({ employeeId: emp.id, periodStart, amount, status: nextStatus }),
     });
     setBusyPaymentId(null);
     if (!res.ok) { toast("Couldn't update payroll status", true); return; }
@@ -809,52 +811,19 @@ function OwnerSummarySection({
   return (
     <div className="space-y-5">
       <div className="card overflow-hidden p-0">
-        <div className="flex items-center justify-between p-5 pb-3">
-          <div>
-            <h2 className="text-[15px] font-extrabold">Team salary</h2>
-            <p className="mt-0.5 text-[12px] text-[var(--gray)]">{teamEmployees.filter((e) => e.active).length} on staff · this week&rsquo;s payroll status</p>
-          </div>
-          <button onClick={() => setAdding((v) => !v)} className="btn btn-sm">
-            <PlusIcon className="h-3.5 w-3.5" /> Add person
-          </button>
+        <div className="p-5 pb-3">
+          <h2 className="text-[15px] font-extrabold">Team salary</h2>
+          <p className="mt-0.5 text-[12px] text-[var(--gray)]">{payrollEmployees.filter((e) => e.active).length} on staff · current payroll status</p>
+          <p className="mt-1 text-[11.5px] text-[var(--gray)]">New staff are added from Admin &rarr; Users &amp; roles — booker, housekeeping, and auditor accounts show up here automatically.</p>
         </div>
 
-        {adding && (
-          <div className="mx-5 mb-3 rounded-2xl border border-[var(--line)] p-3.5">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-[140px] flex-1">
-                <label className="field-label">Name</label>
-                <input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} className="field-input mt-1.5" placeholder="Full name" />
-              </div>
-              <div className="min-w-[140px] flex-1">
-                <label className="field-label">Role</label>
-                <select value={addForm.role} onChange={(e) => setAddForm((f) => ({ ...f, role: e.target.value }))} className="field-input mt-1.5">
-                  {Object.entries(ROLE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
-              </div>
-              <div className="min-w-[120px]">
-                <label className="field-label">Type</label>
-                <select value={addForm.salaryType} onChange={(e) => setAddForm((f) => ({ ...f, salaryType: e.target.value as SalaryType }))} className="field-input mt-1.5">
-                  {(["DAILY", "WEEKLY", "MONTHLY"] as const).map((t) => <option key={t} value={t}>{SALARY_TYPE_LABEL[t]}</option>)}
-                </select>
-              </div>
-              <div className="min-w-[120px]">
-                <label className="field-label">{RATE_LABEL[addForm.salaryType]}</label>
-                <input type="number" min={0} value={addForm.salaryRate} onChange={(e) => setAddForm((f) => ({ ...f, salaryRate: e.target.value }))} className="field-input mt-1.5" placeholder="e.g. 15000" />
-              </div>
-              <button onClick={addPerson} disabled={saving} className="btn-primary">{saving ? "Saving…" : "Add"}</button>
-              <button onClick={() => { setAdding(false); setAddForm(NEW_ROW); }} className="btn-ghost">Cancel</button>
-            </div>
-          </div>
-        )}
-
         <div className="overflow-hidden border-t border-[var(--line)]">
-          {teamEmployees.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
-          {teamEmployees.map((emp) => {
-            const eligible = isPayrollRole(emp.role);
+          {payrollEmployees.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
+          {payrollEmployees.map((emp) => {
+            const { amount: defaultAmount, label } = periodFor(emp);
             const payment = paymentByEmployee.get(emp.id);
             const status = payment?.status ?? "PENDING";
-            const weeklyAmount = payment?.amount ?? Math.round(weeklySalaryFor(emp.monthlySalary));
+            const amount = payment?.amount ?? defaultAmount;
             const isEditing = editingId === emp.id;
             return (
               <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
@@ -863,29 +832,20 @@ function OwnerSummarySection({
                     <div className="text-[14px] font-bold">{emp.name}{!emp.active && <span className="ml-1.5 text-[11px] font-semibold text-[var(--gray)]">(inactive)</span>}</div>
                     <div className="text-[12px] text-[var(--gray)]">{ROLE_LABEL[emp.role] ?? emp.role} · {SALARY_TYPE_LABEL[emp.salaryType]} ₱{emp.salaryRate}</div>
                   </div>
-                  {eligible && (
-                    <div className="flex-none text-right">
-                      <div className="text-[15px] font-extrabold">{peso(weeklyAmount)}</div>
-                      <div className="text-[11px] text-[var(--gray)]">this week</div>
-                    </div>
-                  )}
-                  {eligible && (
-                    <span className={cn("flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide", PAYROLL_STATUS_BADGE[status])}>{status}</span>
-                  )}
-                  {eligible && (
-                    <button
-                      onClick={() => togglePayroll(emp, status === "GIVEN" ? "PENDING" : "GIVEN")}
-                      disabled={busyPaymentId === emp.id}
-                      className="btn-sm btn flex-none"
-                    >
-                      {status === "GIVEN" ? "Mark pending" : "Mark given"}
-                    </button>
-                  )}
+                  <div className="flex-none text-right">
+                    <div className="text-[15px] font-extrabold">{peso(amount)}</div>
+                    <div className="text-[11px] text-[var(--gray)]">{label}</div>
+                  </div>
+                  <span className={cn("flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide", PAYROLL_STATUS_BADGE[status])}>{status}</span>
+                  <button
+                    onClick={() => togglePayroll(emp, status === "GIVEN" ? "PENDING" : "GIVEN")}
+                    disabled={busyPaymentId === emp.id}
+                    className="btn-sm btn flex-none"
+                  >
+                    {status === "GIVEN" ? "Mark pending" : "Mark given"}
+                  </button>
                   <button onClick={() => (isEditing ? setEditingId(null) : startEdit(emp))} className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-[var(--line-2)] text-[var(--gray)] hover:border-rausch hover:text-rausch" aria-label="Edit">
                     <EditIcon className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => deactivate(emp.id)} className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-[var(--line-2)] text-[var(--gray)] hover:border-rausch hover:text-rausch" aria-label="Remove">
-                    <TrashIcon className="h-4 w-4" />
                   </button>
                   <ChevronDownIcon className={cn("h-4 w-4 flex-none text-[var(--gray)] transition-transform", isEditing && "rotate-180")} />
                 </div>

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { userSchema } from "@/lib/validation";
+import { ensureEmployeeForUser } from "@/lib/employeeProvision";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
@@ -30,6 +31,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   try {
     const updated = await prisma.user.update({ where: { id: params.id }, data });
+    await ensureEmployeeForUser(updated);
     await logAudit(user.id, "user.update", "User", params.id, { role: body.role });
     const { passwordHash, ...safe } = updated;
     return NextResponse.json(safe);

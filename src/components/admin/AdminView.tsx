@@ -4,23 +4,35 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { UnitsTab } from "./UnitsTab";
 import { UsersTab } from "./UsersTab";
-import { StaffTab } from "./StaffTab";
 import { SettingsTab } from "./SettingsTab";
 import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
-import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { BillsPanel } from "@/components/housekeeping/BillsPanel";
 import { StockPanel } from "@/components/housekeeping/StockPanel";
+import { Pill } from "@/components/ui/Pill";
+import { Accordion } from "@/components/ui/Accordion";
 import { cn } from "@/lib/utils";
 
-const TABS = ["Units", "Users & roles", "Staff", "Bills", "Supplies", "Housekeeping checklist", "Login logs", "Weekly report", "Settings"] as const;
+// Staff/salary management (add, edit rates, deactivate) lives entirely
+// under My Earnings -> Owner Summary now, not here — that view already does
+// everything the old Staff tab used to (plus payroll "mark given"
+// tracking), so keeping both was just two places that could drift out of
+// sync. The old Weekly report tab (ad-spend logging + per-employee payroll
+// breakdown) was removed outright with no replacement — a deliberate call,
+// not an oversight.
+//
+// Bills + Supplies are folded into one "Operations" tab (both are small,
+// unit-scoped list panels reusing the exact same components Housekeeping
+// itself uses); Housekeeping checklist + Login logs are folded into
+// "Settings" as collapsible sections, since the checklist already lives on
+// the same Settings record. Units and Users & roles are untouched.
+const TABS = ["Units", "Users & roles", "Operations", "Settings"] as const;
 
 export function AdminView({
-  units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs, weeklyReportBookings, employees: initialEmployees, weeklyExpenses, cleaningLogs, canEditExpenses,
+  units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs,
   bills: initialBills, stocks: initialStocks,
 }: {
   units: any[]; users: any[]; settings: any; loginLogs: any[];
-  weeklyReportBookings: any[]; employees: any[]; weeklyExpenses: any[]; cleaningLogs: any[]; canEditExpenses: boolean;
   bills: any[]; stocks: any[];
 }) {
   const searchParams = useSearchParams();
@@ -30,8 +42,8 @@ export function AdminView({
   const [users, setUsers] = useState(initialUsers);
   const [bills, setBills] = useState(initialBills);
   const [stocks, setStocks] = useState(initialStocks);
-  const [employees, setEmployees] = useState(initialEmployees);
   const [settings, setSettings] = useState(initialSettings);
+  const [opsView, setOpsView] = useState<"Bills" | "Supplies">("Bills");
 
   async function refreshBills() {
     const res = await fetch("/api/housekeeping/bills");
@@ -40,10 +52,6 @@ export function AdminView({
   async function refreshStocks() {
     const res = await fetch("/api/housekeeping/stocks");
     if (res.ok) setStocks(await res.json());
-  }
-  async function refreshEmployees() {
-    const res = await fetch("/api/employees");
-    if (res.ok) setEmployees(await res.json());
   }
 
   return (
@@ -63,42 +71,31 @@ export function AdminView({
 
       {tab === "Units" && <UnitsTab units={units} onUnitsChange={setUnits} ownerCandidates={users.filter((u: any) => u.role === "CO_OWNER" || u.role === "OWNER_ADMIN")} />}
       {tab === "Users & roles" && <UsersTab users={users} onUsersChange={setUsers} units={units} />}
-      {tab === "Staff" && (
-        <StaffTab
-          employees={employees}
-          onChanged={refreshEmployees}
-          weekBookings={weeklyReportBookings}
-          weekExpenses={weeklyExpenses}
-          cleaningLogs={cleaningLogs}
-          payrollRates={{
-            housekeepingDayRate: settings.housekeepingDayRate,
-            housekeepingNightBonus: settings.housekeepingNightBonus,
-            bookerCommission: settings.bookerCommission,
-            auditorWeeklyRate: settings.auditorWeeklyRate,
-          }}
-        />
+
+      {tab === "Operations" && (
+        <div>
+          <div className="mb-4 flex gap-1.5">
+            <Pill on={opsView === "Bills"} onClick={() => setOpsView("Bills")}>Bills</Pill>
+            <Pill on={opsView === "Supplies"} onClick={() => setOpsView("Supplies")}>Supplies</Pill>
+          </div>
+          {opsView === "Bills" && <BillsPanel units={units} bills={bills} canEdit canTogglePaid={false} showMetrics={false} collapsible onChanged={refreshBills} />}
+          {opsView === "Supplies" && <StockPanel units={units} stocks={stocks} canEdit onChanged={refreshStocks} />}
+        </div>
       )}
-      {tab === "Bills" && <BillsPanel units={units} bills={bills} canEdit canTogglePaid={false} showMetrics={false} collapsible onChanged={refreshBills} />}
-      {tab === "Supplies" && <StockPanel units={units} stocks={stocks} canEdit onChanged={refreshStocks} />}
-      {tab === "Housekeeping checklist" && <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />}
-      {tab === "Login logs" && <LoginLogsTab logs={loginLogs} />}
-      {tab === "Weekly report" && (
-        <WeeklyReport
-          bookings={weeklyReportBookings}
-          units={units}
-          employees={employees}
-          initialExpenses={weeklyExpenses}
-          canEditExpenses={canEditExpenses}
-          cleaningLogs={cleaningLogs}
-          payrollRates={{
-            housekeepingDayRate: settings.housekeepingDayRate,
-            housekeepingNightBonus: settings.housekeepingNightBonus,
-            bookerCommission: settings.bookerCommission,
-            auditorWeeklyRate: settings.auditorWeeklyRate,
-          }}
-        />
+
+      {tab === "Settings" && (
+        <div>
+          <Accordion title="Business & payroll rates">
+            <SettingsTab initial={settings} onSaved={setSettings} />
+          </Accordion>
+          <Accordion title="Housekeeping checklist" defaultOpen={false}>
+            <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />
+          </Accordion>
+          <Accordion title="Login logs" defaultOpen={false}>
+            <LoginLogsTab logs={loginLogs} />
+          </Accordion>
+        </div>
       )}
-      {tab === "Settings" && <SettingsTab initial={settings} onSaved={setSettings} />}
     </div>
   );
 }

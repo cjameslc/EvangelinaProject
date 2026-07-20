@@ -382,6 +382,11 @@ export function DashboardView({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upcomingExpenseBills, expenseDateFilter]);
+  // The footer total must equal exactly what's listed above it — summing
+  // billsDueMonthCentavos here instead would silently include pending bills
+  // that aren't overdue yet (and so never appear as a row in this table),
+  // making the total look wrong next to what's actually visible.
+  const visibleDueBillsCentavos = useMemo(() => visibleDueBills.reduce((s, b) => s + billCentavos(b), 0), [visibleDueBills]);
 
   // "Needs your attention" — cross-section of open Auditor findings,
   // overdue bills, and low stock. Purely a summary; each source's own page
@@ -1241,7 +1246,7 @@ export function DashboardView({
           })}
           <div className="flex items-center justify-between border-t border-[var(--line)] bg-[var(--bg-2)] p-4 text-sm font-extrabold">
             <span>Total due this month</span>
-            <span>{pesoCentavos(billsDueMonthCentavos)}</span>
+            <span>{pesoCentavos(visibleDueBillsCentavos)}</span>
           </div>
         </div>
       </Accordion>

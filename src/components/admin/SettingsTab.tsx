@@ -49,7 +49,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       </div>
       <div className="border-t border-[var(--line)] pt-4">
         <h3 className="mb-1 text-[14px] font-extrabold">Payroll rates</h3>
-        <p className="mb-3 text-[12px] text-[var(--gray)]">Used by the &ldquo;Your team&rdquo; payroll formula on the Dashboard and Weekly report.</p>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Used by the &ldquo;Your team&rdquo; payroll formula on the Dashboard and My Earnings.</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="field-label">Housekeeping — per day (₱)</label>

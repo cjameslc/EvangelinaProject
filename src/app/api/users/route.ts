@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { userSchema } from "@/lib/validation";
+import { ensureEmployeeForUser } from "@/lib/employeeProvision";
 
 export async function GET() {
   const { error } = await requireUser(["OWNER_ADMIN"]);
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
           : undefined,
       },
     });
+    await ensureEmployeeForUser(created);
     await logAudit(user.id, "user.create", "User", created.id, { username: created.username, role: created.role });
     const { passwordHash: _omit, ...safe } = created;
     return NextResponse.json(safe, { status: 201 });
