@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { canEditHousekeeping } from "@/lib/rbac";
+import { openCleaningCalendarBlock, closeCleaningCalendarBlock, clearCleaningCalendarBlock } from "@/lib/calendarMirror";
 
 // PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean, bookingId?: string }
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -40,15 +41,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [] },
   });
 
-  // When a clean finishes, write a permanent log entry.
+  // Mirror onto the calendar so /calendar shows a unit is currently being
+  // cleaned — same mirroring pattern used for bookings (syncCalendarMirror).
+  if (body.start) await openCleaningCalendarBlock(params.id, data.startedAt);
+  if (body.status === "todo") await clearCleaningCalendarBlock(params.id);
+
+  // When a clean finishes, write a permanent log entry (attributed to
+  // whoever's logged in — the person actually doing the clean) and close
+  // off the calendar's in-progress marker.
   if (body.status === "clean" && body.end) {
+    const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
     await prisma.cleaningLog.create({
       data: {
         unitId: params.id,
+        employeeId: employee?.id ?? null,
         startedAt: state.startedAt ?? new Date(),
         endedAt: state.endedAt ?? new Date(),
       },
     });
+    await closeCleaningCalendarBlock(params.id, state.endedAt ?? new Date());
   }
 
   await logAudit(user.id, "housekeeping.update", "HousekeepingUnitState", params.id, { status: body.status });

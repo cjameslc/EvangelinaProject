@@ -25,3 +25,35 @@ export async function syncCalendarMirror(booking: MirrorableBooking) {
     create: { unitId: booking.unitId, type: booking.stayType as any, date: booking.date, endDate, guest, status: "confirmed", bookingId: booking.id },
   });
 }
+
+// Mirrors a unit's live "cleaning in progress" state onto the calendar as a
+// Cleaning-type CalendarBlock, so /calendar shows it immediately — the same
+// mirroring idea as syncCalendarMirror above, just keyed off "the currently
+// open cleaning block for this unit" (endDate: null) instead of a bookingId,
+// since a clean has no Booking row of its own to hang a unique key off.
+
+/** Called when a housekeeper clicks "Start cleaning" — opens a new Cleaning
+ * block dated `startedAt`, left open-ended until the clean finishes. Clears
+ * any stale open block first (e.g. a previous session reset without
+ * finishing) so a unit never shows two overlapping "cleaning" bars. */
+export async function openCleaningCalendarBlock(unitId: string, startedAt: Date) {
+  await prisma.calendarBlock.deleteMany({ where: { unitId, type: "Cleaning", endDate: null } });
+  await prisma.calendarBlock.create({
+    data: { unitId, type: "Cleaning", date: startedAt, endDate: null, guest: "Cleaning in progress", status: "confirmed" },
+  });
+}
+
+/** Called when a housekeeper marks a unit clean — closes off the open
+ * Cleaning block with `endedAt`. */
+export async function closeCleaningCalendarBlock(unitId: string, endedAt: Date) {
+  await prisma.calendarBlock.updateMany({
+    where: { unitId, type: "Cleaning", endDate: null },
+    data: { endDate: endedAt, guest: "Cleaned" },
+  });
+}
+
+/** Called when a housekeeper resets a unit back to "to clean" — removes any
+ * open Cleaning block, matching HousekeepingUnitState's own reset. */
+export async function clearCleaningCalendarBlock(unitId: string) {
+  await prisma.calendarBlock.deleteMany({ where: { unitId, type: "Cleaning", endDate: null } });
+}
