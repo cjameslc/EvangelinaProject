@@ -15,6 +15,16 @@ import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/c
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
 import { WorldMapProgress, EliteBadgeButton, AchievementBadgeCard } from "@/components/earnings/WorldMapProgress";
+import { playFanfare, playPop } from "@/lib/sound";
+
+// Festive top-3 treatment for the Leaderboard — gold/silver/bronze medal
+// badge, a matching soft gradient wash, and a glow ring, so the top spots
+// read as a podium at a glance instead of a plain numbered list.
+const RANK_STYLE: Record<number, { medal: string; badgeBg: string; card: string; ring: string }> = {
+  1: { medal: "🥇", badgeBg: "linear-gradient(135deg,#FFE082,#C87D00)", card: "bg-gradient-to-r from-amber/20 via-amber/5 to-transparent", ring: "ring-2 ring-amber/60" },
+  2: { medal: "🥈", badgeBg: "linear-gradient(135deg,#E9EDF2,#94A3B8)", card: "bg-gradient-to-r from-slate-300/25 via-slate-300/5 to-transparent", ring: "ring-2 ring-slate-300/70" },
+  3: { medal: "🥉", badgeBg: "linear-gradient(135deg,#FDBA74,#B45309)", card: "bg-gradient-to-r from-orange-400/20 via-orange-400/5 to-transparent", ring: "ring-2 ring-orange-400/60" },
+};
 
 type EmployeeLite = { id: string; name: string; role: string };
 type UnitLite = { id: string; name: string; shortName: string };
@@ -315,7 +325,7 @@ export function EarningsView({
         </Accordion>
       )}
 
-      <Accordion title="Payroll history" sub="last 12 weeks">
+      <Accordion title="Payroll history" sub="last 10 weeks">
         <input
           value={historySearch}
           onChange={(e) => setHistorySearch(e.target.value)}
@@ -389,25 +399,52 @@ export function EarningsView({
         {leaderboard?.scope === "all" && (
           <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
             {leaderboard.leaderboard.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No bookers on file.</p>}
-            {leaderboard.leaderboard.map((r, i) => (
-              <div key={r.employeeId} className="flex items-center gap-3 border-t border-[var(--line)] p-3.5 first:border-0">
-                <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-full text-[12px] font-extrabold", i === 0 ? "bg-amber text-white" : "bg-[var(--bg-2)] text-[var(--gray)]")}>{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-bold">{r.name}</div>
-                  <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} bookings this month</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
-                  <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
-                </div>
-              </div>
-            ))}
+            {leaderboard.leaderboard.map((r, i) => {
+              const rank = i + 1;
+              const style = RANK_STYLE[rank];
+              return (
+                <button
+                  type="button"
+                  key={r.employeeId}
+                  onClick={() => (rank <= 3 ? playFanfare() : playPop())}
+                  style={{ animationDelay: `${i * 60}ms` }}
+                  className={cn(
+                    "flex w-full animate-pop-in items-center gap-3 border-t border-[var(--line)] p-3.5 text-left transition-transform first:border-0 hover:-translate-y-0.5",
+                    style && style.card
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "grid h-9 w-9 flex-none place-items-center rounded-full text-[15px] font-extrabold",
+                      style ? cn("animate-glow-pulse text-white shadow-md", style.ring) : "bg-[var(--bg-2)] text-[12px] text-[var(--gray)]"
+                    )}
+                    style={style ? { background: style.badgeBg } : undefined}
+                  >
+                    {style ? style.medal : rank}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className={cn("text-[13.5px] font-bold", rank === 1 && "text-amber")}>{r.name}</div>
+                    <div className="text-[11.5px] text-[var(--gray)]">{r.completedThisMonth} bookings this month</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[13px] font-bold">{peso(r.commissionThisMonth + r.bonusThisMonth)}</div>
+                    <div className="text-[11px] text-[var(--gray)]">commission + bonus</div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
         {leaderboard?.scope === "own" && (
-          <div className="rounded-2xl border border-[var(--line)] p-5 text-center">
+          <div
+            className={cn(
+              "rounded-2xl border p-5 text-center",
+              leaderboard.rank && RANK_STYLE[leaderboard.rank] ? cn("border-transparent", RANK_STYLE[leaderboard.rank].card) : "border-[var(--line)]"
+            )}
+          >
             {leaderboard.rank ? (
               <>
+                {RANK_STYLE[leaderboard.rank] && <div className="animate-float text-4xl">{RANK_STYLE[leaderboard.rank].medal}</div>}
                 <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
                 <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} booker{leaderboard.total === 1 ? "" : "s"} this month</p>
                 {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed bookings</p>}

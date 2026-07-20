@@ -242,9 +242,9 @@ export async function GET(req: NextRequest) {
   ];
   const lifetimeEarnings = lifetimeActivity + lifetimeAdjustments + lifetimeBonusTotal + unlockedAchievementRewardTotal;
 
-  // ---- Payroll history: last 12 weeks ----
+  // ---- Payroll history: last 10 weeks ----
   const payrollHistory = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 10; i++) {
     const wStart = manilaWeekStart(-i);
     const wEnd = new Date(wStart);
     wEnd.setUTCDate(wEnd.getUTCDate() + 7);
