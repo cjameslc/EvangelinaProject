@@ -61,13 +61,16 @@ function makePrismaClient() {
           },
         },
         housekeepingUnitState: {
-          create: ({ args, query }) => { stringifyField(args.data as any, "checked"); stringifyField(args.data as any, "cleanedBookingIds"); return query(args); },
-          update: ({ args, query }) => { stringifyField(args.data as any, "checked"); stringifyField(args.data as any, "cleanedBookingIds"); return query(args); },
+          create: ({ args, query }) => { stringifyField(args.data as any, "checked"); stringifyField(args.data as any, "cleanedBookingIds"); stringifyField(args.data as any, "photoUrls"); return query(args); },
+          update: ({ args, query }) => { stringifyField(args.data as any, "checked"); stringifyField(args.data as any, "cleanedBookingIds"); stringifyField(args.data as any, "photoUrls"); return query(args); },
           upsert: ({ args, query }) => {
-            stringifyField(args.create as any, "checked"); stringifyField(args.create as any, "cleanedBookingIds");
-            stringifyField(args.update as any, "checked"); stringifyField(args.update as any, "cleanedBookingIds");
+            stringifyField(args.create as any, "checked"); stringifyField(args.create as any, "cleanedBookingIds"); stringifyField(args.create as any, "photoUrls");
+            stringifyField(args.update as any, "checked"); stringifyField(args.update as any, "cleanedBookingIds"); stringifyField(args.update as any, "photoUrls");
             return query(args);
           },
+        },
+        cleaningLog: {
+          create: ({ args, query }) => { stringifyField(args.data as any, "photoUrls"); return query(args); },
         },
         settings: {
           update: ({ args, query }) => { stringifyField(args.data as any, "checklistGroups"); return query(args); },
@@ -95,6 +98,16 @@ function makePrismaClient() {
           cleanedBookingIds: {
             needs: { cleanedBookingIds: true },
             compute: (row): string[] => parseJson(row.cleanedBookingIds, []),
+          },
+          photoUrls: {
+            needs: { photoUrls: true },
+            compute: (row): string[] => parseJson(row.photoUrls, []),
+          },
+        },
+        cleaningLog: {
+          photoUrls: {
+            needs: { photoUrls: true },
+            compute: (row): string[] => (row.photoUrls == null ? [] : parseJson(row.photoUrls, [])),
           },
         },
         settings: {

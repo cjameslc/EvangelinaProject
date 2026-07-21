@@ -9,6 +9,7 @@ import { fmtDate, fmtTime, fmtTimeStr, unitLabel } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditHousekeeping } from "@/lib/rbac";
+import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
 import { StockPanel } from "./StockPanel";
@@ -90,16 +91,28 @@ export function HousekeepingView({
       if (patch.status === "clean" && patch.end && patch.bookingId) {
         optimistic.cleanedBookingIds = prevIds.includes(patch.bookingId) ? prevIds : [...prevIds, patch.bookingId];
       }
-      if (patch.status === "todo") optimistic.cleanedBookingIds = [];
-      const merged = { ...(prev[idx] ?? { unitId, status: "todo", byName: null, checked: [] }), ...optimistic };
+      if (patch.status === "todo") { optimistic.cleanedBookingIds = []; optimistic.photoUrls = []; }
+      const merged = { ...(prev[idx] ?? { unitId, status: "todo", byName: null, checked: [], photoUrls: [] }), ...optimistic };
       if (idx === -1) return [...prev, merged];
       const copy = [...prev];
       copy[idx] = merged;
       return copy;
     });
-    await fetch(`/api/housekeeping/unit/${unitId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
-    if (patch.status) toast(patch.status === "clean" ? "Room marked clean ✓" : patch.status === "cleaning" ? "Cleaning started" : "Reset to to-do");
-    refreshHk();
+    // fetchOrQueue (not a plain fetch) — while offline this persists the
+    // patch to IndexedDB and replays it once the connection comes back,
+    // instead of just failing. The optimistic setStates() above already
+    // reflects the change locally either way.
+    const { queued } = await fetchOrQueue({
+      url: `/api/housekeeping/unit/${unitId}`,
+      method: "PATCH",
+      bodyJson: patch,
+      label: `Housekeeping update — ${unitId}`,
+    });
+    if (patch.status) {
+      const base = patch.status === "clean" ? "Room marked clean ✓" : patch.status === "cleaning" ? "Cleaning started" : "Reset to to-do";
+      toast(queued ? `${base} — will sync when back online` : base);
+    }
+    if (!queued) await refreshHk().catch(() => {});
   }
 
   async function clockIn() {
@@ -330,7 +343,18 @@ export function HousekeepingView({
 
       <Accordion title="Rooms" sub="tap a checklist item to tick it">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {units.map((u) => (
+          {/* For the person actually cleaning, today's pending rooms should
+              be the first thing they see — everyone else (Owner/Admin/
+              Co-owner) keeps the plain configured unit order, since they're
+              scanning for an overview, not working through a task list. */}
+          {(role === "HOUSEKEEPING"
+            ? [...units].sort((a, b) => {
+                const ap = pendingBookingIdForUnit(a.id) ? 0 : 1;
+                const bp = pendingBookingIdForUnit(b.id) ? 0 : 1;
+                return ap - bp;
+              })
+            : units
+          ).map((u) => (
             <RoomCard
               key={u.id}
               unit={u}

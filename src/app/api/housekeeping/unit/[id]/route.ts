@@ -4,7 +4,7 @@ import { requireUser, logAudit } from "@/lib/session";
 import { canEditHousekeeping } from "@/lib/rbac";
 import { openCleaningCalendarBlock, closeCleaningCalendarBlock, clearCleaningCalendarBlock } from "@/lib/calendarMirror";
 
-// PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean, bookingId?: string }
+// PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean, bookingId?: string, photoUrls?: string[] }
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
@@ -19,6 +19,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.byName !== undefined) data.byName = body.byName;
   if (body.start) data.startedAt = new Date();
   if (body.end) data.endedAt = new Date();
+  if (body.photoUrls) data.photoUrls = body.photoUrls;
   // Records WHICH booking's checkout this finished clean satisfies —
   // accumulated (not overwritten), since a unit can have more than one
   // checkout in a day and a single flat "clean" would otherwise wrongly
@@ -33,12 +34,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data.endedAt = null;
     data.byName = null;
     data.cleanedBookingIds = [];
+    data.photoUrls = [];
   }
 
   const state = await prisma.housekeepingUnitState.upsert({
     where: { unitId: params.id },
     update: data,
-    create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [] },
+    create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [], photoUrls: body.photoUrls ?? [] },
   });
 
   // Mirror onto the calendar so /calendar shows a unit is currently being
@@ -57,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         employeeId: employee?.id ?? null,
         startedAt: state.startedAt ?? new Date(),
         endedAt: state.endedAt ?? new Date(),
+        photoUrls: (state.photoUrls.length ? state.photoUrls : null) as any,
       },
     });
     await closeCleaningCalendarBlock(params.id, state.endedAt ?? new Date());

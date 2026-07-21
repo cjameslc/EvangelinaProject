@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDownIcon } from "@/components/ui/Icons";
+import { ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { Tag } from "@/components/ui/Tag";
+import { PhotoCapture } from "@/components/housekeeping/PhotoCapture";
 import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
-type HkState = { id?: string; unitId: string; status: string; byName: string | null };
+type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked?: boolean[][]; photoUrls?: string[] };
 type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
 
 export function RoomCard({
@@ -38,6 +39,16 @@ export function RoomCard({
   // the raw status at "clean".
   const status = pendingBookingId ? (rawStatus === "cleaning" ? "cleaning" : "todo") : isDefaultClean ? "clean" : rawStatus;
   const genuinelyFinished = !pendingBookingId && !isDefaultClean;
+
+  const checkedGrid = state?.checked ?? [];
+  const photoUrls = state?.photoUrls ?? [];
+  function isChecked(gi: number, ii: number) {
+    return !!checkedGrid[gi]?.[ii];
+  }
+  function toggleCheck(gi: number, ii: number) {
+    const next = checklistGroups.map((g, gIdx) => g.items.map((_, iIdx) => (gIdx === gi && iIdx === ii ? !isChecked(gi, ii) : isChecked(gIdx, iIdx))));
+    onChange(unit.id, { checked: next });
+  }
 
   function start() {
     onChange(unit.id, { status: "cleaning", byName: currentUserName, start: true, bookingId: pendingBookingId });
@@ -77,28 +88,49 @@ export function RoomCard({
           <div className="flex flex-col gap-1.5">
             {checklistGroups.map((g, gi) => {
               const open = openGroup === gi;
+              const doneCount = g.items.filter((_, ii) => isChecked(gi, ii)).length;
               return (
                 <div key={g.name} className="rounded-xl border border-[var(--line)] overflow-hidden">
                   <button onClick={() => setOpenGroup(open ? null : gi)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-extrabold">
                     {g.name}
                     {g.optional && <span className="rounded-full bg-[var(--bg-2)] px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-[var(--gray)]">optional</span>}
-                    <span className="ml-auto text-[12px] font-semibold text-[var(--gray)]">{g.items.length}</span>
+                    <span className={cn("ml-auto text-[12px] font-semibold", doneCount === g.items.length ? "text-teal" : "text-[var(--gray)]")}>
+                      {doneCount}/{g.items.length}
+                    </span>
                     <ChevronDownIcon className={cn("h-3.5 w-3.5 flex-none text-[var(--gray)] transition-transform", open && "rotate-180")} />
                   </button>
                   {open && (
                     <div className="space-y-0.5 p-1.5 pt-0">
-                      {g.items.map((item, ii) => (
-                        <div key={ii} className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] font-semibold text-[var(--ink)]">
-                          <span className="h-1.5 w-1.5 flex-none rounded-full bg-[var(--line-2)]" />
-                          {item}
-                        </div>
-                      ))}
+                      {g.items.map((item, ii) => {
+                        const on = isChecked(gi, ii);
+                        return (
+                          <button
+                            key={ii}
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => toggleCheck(gi, ii)}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] disabled:cursor-default disabled:hover:bg-transparent"
+                          >
+                            <span className={cn("grid h-4 w-4 flex-none place-items-center rounded border", on ? "border-teal bg-teal text-white" : "border-[var(--line-2)]")}>
+                              {on && <CheckIcon className="h-3 w-3" />}
+                            </span>
+                            <span className={cn(on && "text-[var(--gray)] line-through")}>{item}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               );
             })}
           </div>
+
+          {status === "cleaning" && (
+            <div>
+              <p className="mb-1.5 text-[12px] font-bold text-[var(--gray)]">Photos</p>
+              <PhotoCapture unitId={unit.id} photoUrls={photoUrls} onChange={(urls) => onChange(unit.id, { photoUrls: urls })} />
+            </div>
+          )}
         </>
       )}
     </div>

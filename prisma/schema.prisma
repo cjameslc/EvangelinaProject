@@ -404,6 +404,13 @@ model HousekeepingUnitState {
   // marking it "to clean" again. Not a relation (no onDelete concern) since
   // a deleted booking simply stops being referenced — nothing to cascade.
   cleanedBookingIds String @default("[]") // JSON-encoded string[] — see src/lib/prisma.ts extension
+  // Vercel Blob URLs for photos taken during the *current* cleaning session,
+  // staged here the same way cleanedBookingIds is — copied onto the
+  // resulting CleaningLog.photoUrls when the clean finishes, then cleared on
+  // reset. Not base64: this app has repeatedly hit real performance
+  // problems from base64-in-DB image fields (Booking proof images, Bill
+  // receipts) — a new, taken-every-day photo feature must not repeat that.
+  photoUrls String @default("[]") // JSON-encoded string[] — see src/lib/prisma.ts extension
   updatedAt DateTime @updatedAt
 
   @@map("housekeeping_unit_state")
@@ -420,6 +427,10 @@ model CleaningLog {
   employee   Employee? @relation(fields: [employeeId], references: [id])
   startedAt  DateTime
   endedAt    DateTime?
+  // Copied in from HousekeepingUnitState.photoUrls when the clean finishes
+  // — the permanent record, unlike the state row which gets reset per
+  // session. Null (not "[]") for logs written before this field existed.
+  photoUrls  String?
 
   @@index([unitId, startedAt])
   @@index([employeeId])
