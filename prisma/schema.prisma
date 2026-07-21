@@ -353,6 +353,14 @@ model Booking {
   checkedInAt     DateTime?
   checkedOutAt    DateTime?
 
+  // Set when this booking was created through the guest-facing Booking
+  // Engine (Guest Portal self-service, or a future channel) — null for
+  // every staff-logged booking (manual entry, Excel import, Airbnb sync),
+  // exactly as today. Purely additive; nothing existing reads this field.
+  guestId         String?
+  guest           Guest?        @relation(fields: [guestId], references: [id], onDelete: SetNull)
+  specialRequest  String?
+
   // Airbnb iCal sync
   source          String @default("MANUAL")
   externalUid     String?       // iCal UID from the imported VEVENT (source = AIRBNB)
@@ -619,4 +627,40 @@ model DismissedAttentionItem {
   dismissedAt   DateTime @default(now())
 
   @@map("dismissed_attention_items")
+}
+
+// Guest-facing account (Guest Portal) — deliberately a separate model from
+// User, not a new role on it. User is staff-only (username+password,
+// role-gated internal pages); a Guest authenticates passwordlessly by email
+// (GuestLoginToken below) and only ever reaches the public/guest routes.
+// The two auth systems share nothing — no session, no cookie, no code path
+// — specifically so guest work can never regress staff login.
+model Guest {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+
+  @@map("guests")
+}
+
+// One-time-use email magic-link tokens. Deliberately its own tiny table
+// instead of NextAuth's EmailProvider/adapter machinery — that provider
+// requires a database adapter (Account/Session/User tables matching its own
+// schema), which would mean migrating the existing JWT-only staff auth onto
+// an adapter just to get guest login. This is a few plain columns instead.
+model GuestLoginToken {
+  id        String    @id @default(cuid())
+  email     String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+  @@map("guest_login_tokens")
 }
