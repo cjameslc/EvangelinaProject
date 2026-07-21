@@ -455,7 +455,12 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber" />Unpaid</span>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
+      {/* items-start: without it, CSS Grid's default row-stretch forces the
+          calendar card to match the sidebar's height — invisible with a
+          full 5-unit grid, but a big empty gap once focused down to one
+          unit's single row (or any month with a short grid). Both columns
+          should size to their own content instead. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_300px]">
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <div style={{ minWidth: days.length * CELL_W + SIDEBAR_W }}>
@@ -486,14 +491,20 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                     type="button"
                     onClick={() => focusUnit(u.id)}
                     disabled={!!focusedUnit}
-                    className="sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition hover:bg-[var(--bg-2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ink)] disabled:cursor-default disabled:hover:bg-[var(--card)]"
+                    className={cn(
+                      "group sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition",
+                      !focusedUnit && "cursor-pointer hover:bg-rausch/[0.06] active:bg-rausch/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
+                    )}
                     style={{ width: SIDEBAR_W }}
                     title={focusedUnit ? undefined : `View Unit ${u.unitNumber} · ${u.shortName} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
                     aria-label={focusedUnit ? undefined : `Focus calendar on Unit ${u.unitNumber}, ${u.shortName}`}
                   >
-                    <div className="flex min-w-0 items-center gap-1.5">
+                    <div className="flex w-full min-w-0 items-center gap-1.5">
                       <span className="flex-none rounded bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">{u.unitNumber}</span>
-                      <span className="truncate text-[13px] font-extrabold leading-tight">{u.shortName}</span>
+                      <span className="truncate text-[13px] font-extrabold leading-tight group-hover:text-rausch group-hover:underline">{u.shortName}</span>
+                      {!focusedUnit && (
+                        <ArrowRightIcon className="ml-auto h-3.5 w-3.5 flex-none text-[var(--gray)] opacity-40 transition group-hover:translate-x-0.5 group-hover:text-rausch group-hover:opacity-100" />
+                      )}
                     </div>
                     <div className="flex flex-none items-center gap-1.5">
                       <span className="rounded px-1.5 py-0.5 text-[10.5px] font-extrabold whitespace-nowrap" style={{ background: `${TYPE_META.Daycation.color}1A`, color: TYPE_META.Daycation.color }}>
