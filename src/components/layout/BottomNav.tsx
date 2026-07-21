@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
 import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -115,7 +116,7 @@ export function BottomNav() {
               {theme === "dark" ? "Light mode" : "Dark mode"}
             </button>
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={() => { clearQueuedMutations().catch(() => {}); signOut({ callbackUrl: "/login" }); }}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
             >
               <LogoutIcon className="h-[17px] w-[17px] flex-none" /> Sign out

@@ -93,6 +93,22 @@ export async function flushQueuedMutations() {
   }
 }
 
+/**
+ * Clears anything still queued — called on sign-out. Otherwise a mutation
+ * queued while offline under one user's session could still be sitting in
+ * IndexedDB (which is scoped to the browser, not the logged-in user) and
+ * replay under whoever signs in next on the same device.
+ */
+export async function clearQueuedMutations() {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 let listenersAttached = false;
 export function attachOfflineQueueListeners() {
   if (listenersAttached || typeof window === "undefined") return;
