@@ -4,12 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { NAV_ITEMS, ROLE_LABEL } from "@/lib/constants";
+import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, MenuIcon, CloseIcon, UserIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
 // a "More" dropdown — chosen from real measurement: a role seeing all 7
@@ -20,9 +20,9 @@ import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, W
 // Earnings in particular stays a primary, one-click tab for actual staff,
 // and only gets folded into "More" for Owner/Admin and Co-owner, who don't
 // have payroll of their own to check there anyway.
-const PRIMARY_NAV_COUNT = 4;
+export const PRIMARY_NAV_COUNT = 4;
 
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+export const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   grid: GridIcon,
   file: FileIcon,
   home: HomeIcon,
@@ -39,17 +39,16 @@ export function Navbar() {
   const { avatarUrl, name: liveName } = useAvatar();
   const displayName = liveName ?? session?.user?.name ?? "";
   const [menuOpen, setMenuOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
   const role = session?.user?.role;
-  const items = NAV_ITEMS.filter((i) => role === "OWNER_ADMIN" || (role && i.roles.includes(role)));
+  const items = visibleNavItems(role);
   const primaryItems = items.slice(0, PRIMARY_NAV_COUNT);
   const moreItems = items.slice(PRIMARY_NAV_COUNT);
   const onMoreItem = moreItems.some((item) => pathname.startsWith(item.href));
 
-  // Close the mobile nav panel on route change so it never lingers open.
-  useEffect(() => { setNavOpen(false); setMoreOpen(false); }, [pathname]);
+  // Close the "More" dropdown on route change so it never lingers open.
+  useEffect(() => { setMoreOpen(false); }, [pathname]);
 
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
@@ -119,12 +118,6 @@ export function Navbar() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {session && (
-            <button onClick={() => setNavOpen((v) => !v)} className="btn-icon md:hidden" aria-label="Toggle menu" aria-expanded={navOpen}>
-              {navOpen ? <CloseIcon className="h-[18px] w-[18px]" /> : <MenuIcon className="h-[18px] w-[18px]" />}
-            </button>
-          )}
-
           <button onClick={toggle} className="btn-icon" aria-label="Toggle theme">
             {theme === "dark" ? <SunIcon className="h-[18px] w-[18px]" /> : <MoonIcon className="h-[18px] w-[18px]" />}
           </button>
@@ -173,28 +166,6 @@ export function Navbar() {
           )}
         </div>
       </div>
-
-      {session && navOpen && (
-        <div className="border-t border-[var(--line)] bg-[var(--card)] px-3 py-2 md:hidden">
-          {items.map((item) => {
-            const Icon = ICONS[item.icon];
-            const on = pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl px-3 py-3 text-[14px] font-semibold transition",
-                  on ? "bg-rausch/10 text-rausch" : "text-[var(--ink)] hover:bg-[var(--bg-2)]"
-                )}
-              >
-                <Icon className="h-[17px] w-[17px] flex-none" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      )}
     </nav>
   );
 }

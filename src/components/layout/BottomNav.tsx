@@ -1,0 +1,128 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { useTheme } from "@/components/ui/ThemeProvider";
+import { ICONS, PRIMARY_NAV_COUNT } from "@/components/layout/Navbar";
+import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon } from "@/components/ui/Icons";
+
+// Mobile-only primary navigation, replacing the old hamburger dropdown-panel.
+// Desktop keeps Navbar's top nav untouched. Shares NAV_ITEMS/role-filtering
+// with Navbar via visibleNavItems() so the two surfaces can't drift.
+export function BottomNav() {
+  const { data: session } = useSession();
+  const pathname = usePathname();
+  const { theme, toggle } = useTheme();
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  useEffect(() => { setSheetOpen(false); }, [pathname]);
+
+  if (!session) return null;
+
+  const role = session.user?.role;
+  const items = visibleNavItems(role);
+  const primaryItems = items.slice(0, PRIMARY_NAV_COUNT);
+  const overflowItems = items.slice(PRIMARY_NAV_COUNT);
+  const onOverflowItem = overflowItems.some((item) => pathname.startsWith(item.href));
+
+  return (
+    <>
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="flex h-16 items-stretch">
+          {primaryItems.map((item) => {
+            const Icon = ICONS[item.icon];
+            const on = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex flex-1 flex-col items-center justify-center gap-1 text-[10.5px] font-bold",
+                  on ? "text-rausch" : "text-[var(--gray)]"
+                )}
+              >
+                <Icon className="h-[20px] w-[20px]" />
+                {item.label === "My Earnings" ? "Earnings" : item.label}
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setSheetOpen(true)}
+            aria-label="More"
+            className={cn(
+              "flex flex-1 flex-col items-center justify-center gap-1 text-[10.5px] font-bold",
+              onOverflowItem ? "text-rausch" : "text-[var(--gray)]"
+            )}
+          >
+            <MoreIcon className="h-[20px] w-[20px]" />
+            More
+          </button>
+        </div>
+      </nav>
+
+      {sheetOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSheetOpen(false)} />
+          <div
+            className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-[var(--line)] bg-[var(--card)] p-2 pt-3 shadow-card"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
+          >
+            <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-[var(--line-2)]" />
+            <div className="flex items-center justify-between px-3 pb-1">
+              <span className="text-[13px] font-bold text-[var(--gray)]">
+                {session.user?.name} · {ROLE_LABEL[session.user.role]}
+              </span>
+              <button onClick={() => setSheetOpen(false)} className="btn-icon h-8 w-8" aria-label="Close">
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </div>
+
+            {overflowItems.map((item) => {
+              const Icon = ICONS[item.icon];
+              const on = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl px-3 py-3 text-[14px] font-semibold transition",
+                    on ? "bg-rausch/10 text-rausch" : "text-[var(--ink)] hover:bg-[var(--bg-2)]"
+                  )}
+                >
+                  <Icon className="h-[17px] w-[17px] flex-none" /> {item.label}
+                </Link>
+              );
+            })}
+
+            <Link
+              href="/profile"
+              className="flex items-center gap-3 rounded-xl px-3 py-3 text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+            >
+              <UserIcon className="h-[17px] w-[17px] flex-none" /> Profile
+            </Link>
+            <button
+              onClick={toggle}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+            >
+              {theme === "dark" ? <SunIcon className="h-[17px] w-[17px] flex-none" /> : <MoonIcon className="h-[17px] w-[17px] flex-none" />}
+              {theme === "dark" ? "Light mode" : "Dark mode"}
+            </button>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+            >
+              <LogoutIcon className="h-[17px] w-[17px] flex-none" /> Sign out
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

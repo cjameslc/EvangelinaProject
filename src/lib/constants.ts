@@ -27,6 +27,12 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/admin", label: "Admin", icon: "settings", roles: ["OWNER_ADMIN"] },
 ];
 
+// Shared by Navbar (desktop) and BottomNav (mobile) so the two nav surfaces
+// can never drift on which tabs a role sees.
+export function visibleNavItems(role: string | undefined) {
+  return NAV_ITEMS.filter((i) => role === "OWNER_ADMIN" || (role && i.roles.includes(role)));
+}
+
 export const STAY_TYPES = {
   Daycation: { label: "Daycation", short: "DAY", hrs: "12 hrs", color: "#C87D00" },
   Night: { label: "Night stay", short: "NIGHT", hrs: "12 hrs", color: "#6C5CE7" },

@@ -42,6 +42,7 @@ export const AlertIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M10.3 3
 export const ClockIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></>, p);
 export const LogoutIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>, p);
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => base(<><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>, p);
+export const MoreIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="5" cy="12" r="1.5" fill="currentColor" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><circle cx="19" cy="12" r="1.5" fill="currentColor" /></>, p);
 export const UserIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>, p);
 export const FilterIcon = (p: SVGProps<SVGSVGElement>) => base(<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />, p);
 export const DownloadIcon = (p: SVGProps<SVGSVGElement>) =>
