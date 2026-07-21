@@ -25,7 +25,7 @@ export default async function HousekeepingPage() {
   const scheduleFrom = new Date(today); scheduleFrom.setUTCDate(scheduleFrom.getUTCDate() - 3);
   const scheduleTo = new Date(today); scheduleTo.setUTCDate(scheduleTo.getUTCDate() + 7);
 
-  const [units, states, logs, stocks, employees, openShift, bills, settings, upcomingBookings] = await Promise.all([
+  const [units, states, logs, stocks, employees, openShift, bills, settings, upcomingBookings, housekeepingOpenShifts] = await Promise.all([
     prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prisma.housekeepingUnitState.findMany({ where }),
     prisma.cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 30, include: { unit: { select: { name: true, shortName: true } } } }),
@@ -41,6 +41,15 @@ export default async function HousekeepingPage() {
         unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },
         cleaner: { select: { id: true, name: true } },
       },
+    }),
+    // Feeds the Owner/Admin/Co-owner "Housekeeping status" roster — every
+    // currently clocked-in Housekeeping user, not just the viewer's own
+    // shift (which is all `openShift` above ever covers, and is meaningless
+    // for a role that doesn't clock in itself).
+    prisma.shift.findMany({
+      where: { clockOut: null, user: { role: "HOUSEKEEPING" } },
+      select: { id: true, clockIn: true, user: { select: { id: true, name: true } } },
+      orderBy: { clockIn: "asc" },
     }),
   ]);
 
@@ -58,6 +67,7 @@ export default async function HousekeepingPage() {
       initialBills={JSON.parse(JSON.stringify(bills))}
       checklistGroups={JSON.parse(JSON.stringify(checklistGroups))}
       upcomingBookings={JSON.parse(JSON.stringify(upcomingBookings))}
+      housekeepingOpenShifts={JSON.parse(JSON.stringify(housekeepingOpenShifts))}
     />
   );
 }

@@ -31,6 +31,7 @@ type Log = { id: string; unitId: string; unit: { shortName: string }; startedAt:
 type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
 type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
+type OpenShift = { id: string; clockIn: string; user: { id: string; name: string } };
 type ChecklistGroup = { name: string; optional?: boolean; items: string[]; unitIds?: string[] };
 type ScheduleBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; guests: string[];
@@ -38,18 +39,19 @@ type ScheduleBooking = {
 };
 
 export function HousekeepingView({
-  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, checklistGroups, upcomingBookings = [],
+  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, checklistGroups, upcomingBookings = [], housekeepingOpenShifts = [],
 }: {
   role: string;
   units: Unit[];
   initialStates: HkState[];
   initialLogs: Log[];
   initialStocks: Stock[];
-  employees: { id: string; name: string }[];
+  employees: { id: string; name: string; role: string; userId?: string | null }[];
   initialShift: Shift;
   initialBills: Bill[];
   checklistGroups: ChecklistGroup[];
   upcomingBookings?: ScheduleBooking[];
+  housekeepingOpenShifts?: OpenShift[];
 }) {
   const { data: session } = useSession();
   const toast = useToast();
@@ -62,6 +64,20 @@ export function HousekeepingView({
   const [scheduleTab, setScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   const canEdit = canEditHousekeeping(role as any);
   const userName = session?.user?.name ?? "";
+  // Clocking in/out is a Housekeeping-only action — Owner/Admin can still
+  // edit rooms/checklists/supplies (that's what canEdit above gates), but
+  // clocking in themselves would corrupt "who's actually on duty".
+  const isHousekeepingStaff = role === "HOUSEKEEPING";
+  // For every other role, "on duty" means the whole Housekeeping roster's
+  // real clock state — not just whichever user happens to be viewing the
+  // page, which for an Owner is never a real shift at all.
+  const housekeepingRoster = useMemo(() => {
+    const openByUserId = new Map(housekeepingOpenShifts.map((s) => [s.user.id, s]));
+    return employees
+      .filter((e) => e.role === "HOUSEKEEPING")
+      .map((e) => ({ employee: e, openShift: e.userId ? openByUserId.get(e.userId) ?? null : null }))
+      .sort((a, b) => (b.openShift ? 1 : 0) - (a.openShift ? 1 : 0) || a.employee.name.localeCompare(b.employee.name));
+  }, [employees, housekeepingOpenShifts]);
 
   async function refreshHk() {
     const res = await fetch("/api/housekeeping");
@@ -230,16 +246,37 @@ export function HousekeepingView({
         <p className="mt-1 text-[14.5px] text-[var(--gray)]">Clock in, work through each room&rsquo;s checklist, keep supplies stocked, and track monthly bills.</p>
       </div>
 
-      <div className="card mb-5 flex flex-wrap items-center gap-3.5 p-4">
-        <span className={`h-2.5 w-2.5 rounded-full ${shift ? "bg-green shadow-[0_0_0_4px_rgba(0,138,5,.16)]" : "bg-[var(--gray)]"}`} />
-        <div>
-          <div className="text-[15px] font-extrabold">{shift ? `${userName} is on duty` : "No one on duty"}</div>
-          <div className="text-[13px] text-[var(--gray)]">{shift ? `Clocked in at ${fmtTime(shift.clockIn)}` : "Clock in to start logging your cleaning."}</div>
+      {isHousekeepingStaff ? (
+        <div className="card mb-5 flex flex-wrap items-center gap-3.5 p-4">
+          <span className={`h-2.5 w-2.5 rounded-full ${shift ? "bg-green shadow-[0_0_0_4px_rgba(0,138,5,.16)]" : "bg-[var(--gray)]"}`} />
+          <div>
+            <div className="text-[15px] font-extrabold">{shift ? `${userName} is on duty` : "No one on duty"}</div>
+            <div className="text-[13px] text-[var(--gray)]">{shift ? `Clocked in at ${fmtTime(shift.clockIn)}` : "Clock in to start logging your cleaning."}</div>
+          </div>
+          <div className="ml-auto">
+            {shift ? <button onClick={clockOut} className="btn">Clock out</button> : <button onClick={clockIn} className="btn" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Clock in</button>}
+          </div>
         </div>
-        <div className="ml-auto">
-          {canEdit && (shift ? <button onClick={clockOut} className="btn">Clock out</button> : <button onClick={clockIn} className="btn" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Clock in</button>)}
+      ) : (
+        <div className="card mb-5 p-4">
+          <div className="mb-3 text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Housekeeping status</div>
+          {housekeepingRoster.length === 0 ? (
+            <p className="text-[13.5px] text-[var(--gray)]">No Housekeeping staff on record.</p>
+          ) : housekeepingRoster.every((r) => !r.openShift) ? (
+            <p className="text-[14px] font-semibold text-[var(--gray)]">No one has clocked in from Housekeeping.</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {housekeepingRoster.map((r) => (
+                <div key={r.employee.id} className="flex items-center gap-2.5">
+                  <span className={`h-2.5 w-2.5 flex-none rounded-full ${r.openShift ? "bg-green shadow-[0_0_0_4px_rgba(0,138,5,.16)]" : "bg-[var(--gray)]"}`} />
+                  <span className="text-[14px] font-extrabold">{r.employee.name}</span>
+                  <span className="text-[13px] text-[var(--gray)]">{r.openShift ? `on duty since ${fmtTime(r.openShift.clockIn)}` : "off duty"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {role === "HOUSEKEEPING" && <HousekeepingChallengeCard />}
 
