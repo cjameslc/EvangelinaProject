@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
 import { canEditBookings, canEditSpecificBooking } from "@/lib/rbac";
-import { syncCalendarMirror, bookingsConflict } from "@/lib/calendarMirror";
+import { syncCalendarMirror } from "@/lib/calendarMirror";
+import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
+import { notify } from "@/lib/bookingEngine/notificationService";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
@@ -44,12 +46,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const nextPlatform = data.platform ?? existing.platform;
   const nextStayType = normalizeStayTypeForPlatform(nextPlatform, data.stayType ?? existing.stayType);
   data.stayType = nextStayType;
-  const others = await prisma.booking.findMany({
-    where: { unitId: nextUnitId, id: { not: params.id } },
-    select: { stayType: true, date: true, checkOutDate: true },
-  });
-  const conflict = others.some((b) => bookingsConflict({ stayType: nextStayType, date: nextDate, checkOutDate: nextCheckOutDate }, b));
-  if (conflict) {
+  const { available } = await checkAvailability(
+    { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any },
+    { excludeBookingId: params.id }
+  );
+  if (!available) {
     return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
   }
 
@@ -60,6 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // edited booking always shows on its exact — and correctly spanned —
   // date(s) on the /calendar grid, rather than the stale one it had before.
   await syncCalendarMirror(booking);
+  await notify({ type: "booking.updated", bookingId: booking.id });
 
   return NextResponse.json(booking);
 }
@@ -83,5 +85,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // the bookingId relation), so /calendar never shows an orphaned entry.
   await prisma.booking.delete({ where: { id: params.id } });
   await logAudit(user.id, "booking.delete", "Booking", params.id);
+  await notify({ type: "booking.cancelled", bookingId: params.id });
   return NextResponse.json({ ok: true });
 }

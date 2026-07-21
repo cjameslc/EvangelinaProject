@@ -2,7 +2,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
-import { syncCalendarMirror, bookingsConflict } from "@/lib/calendarMirror";
+import { syncCalendarMirror } from "@/lib/calendarMirror";
+import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
+import { notify } from "@/lib/bookingEngine/notificationService";
 
 export type BookingInput = z.infer<typeof bookingSchema>;
 
@@ -35,17 +37,15 @@ export async function createBookingRecord(
   const checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   const stayType = normalizeStayTypeForPlatform(body.platform, body.stayType);
 
-  // Overlap guard: compares actual occupied date ranges (not just exact
-  // check-in date matches), so a multi-night stay correctly blocks every
-  // night it spans — not only bookings whose check-in happens to land on
-  // the exact same day. Daycation and Night may still share a single day
-  // (different time slots); Full always blocks the whole day.
-  const unitBookings = await prisma.booking.findMany({
-    where: { unitId: body.unitId },
-    select: { stayType: true, date: true, checkOutDate: true },
-  });
-  const conflict = unitBookings.some((b) => bookingsConflict({ stayType, date: dayStart, checkOutDate }, b));
-  if (conflict) {
+  // Overlap guard — same check the Booking Engine's availability service
+  // (checkAvailability) uses everywhere else, so "is this unit free" only
+  // has one implementation. Compares actual occupied date ranges (not just
+  // exact check-in date matches), so a multi-night stay correctly blocks
+  // every night it spans — not only bookings whose check-in happens to
+  // land on the exact same day. Daycation and Night may still share a
+  // single day (different time slots); Full always blocks the whole day.
+  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType: stayType as any });
+  if (!available) {
     return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
   }
 
@@ -84,5 +84,6 @@ export async function createBookingRecord(
   await syncCalendarMirror(booking);
 
   await logAudit(user.id, "booking.create", "Booking", booking.id, { unitId: booking.unitId, amount: booking.amount });
+  await notify({ type: "booking.created", bookingId: booking.id });
   return { ok: true, booking };
 }
