@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
@@ -186,8 +184,11 @@ export function EarningsView({
     return data.payrollHistory.filter((h) => fmtDate(h.weekStart, { month: "short", day: "numeric" }).toLowerCase().includes(q));
   }, [data, historySearch]);
 
-  function exportPDF() {
+  async function exportPDF() {
     if (!data) return;
+    // Loaded on demand — jsPDF/autoTable are only needed by this click
+    // handler, not on every Earnings page load.
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const doc = new jsPDF();
     const rausch = [255, 56, 92];
     const tableOpts: any = {

@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
@@ -823,7 +821,12 @@ export function DashboardView({
     downloadBlob(blob, `${reportFileSlug(r.monthLabel)}.csv`);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    // Loaded on demand, not at page load — jsPDF/autoTable are only ever
+    // needed by this one click handler, and every Dashboard visit was
+    // paying for them upfront otherwise (this app has hit real
+    // over-fetching/over-bundling issues before; same fix here).
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const r = buildMonthlyReport();
     const doc = new jsPDF();
     const rausch = [255, 56, 92];
