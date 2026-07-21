@@ -84,12 +84,20 @@ const getDashboardData = unstable_cache(
         where: { date: { gte: monthStart, lt: nextMonthStart }, status: { in: ["APPROVED", "PENDING"] } },
         select: { id: true, category: true, amount: true, status: true, date: true, employee: { select: { name: true } } },
       }),
+      // Feeds "Needs your attention" — a clean marked done unusually fast
+      // after being started is worth a second look (rushed or not actually
+      // done), not necessarily proof of anything, so this only flags it,
+      // never blocks/auto-rejects. Same 7-day window as bookingsWeek.
+      prismaPool[12].cleaningLog.findMany({
+        where: { ...where, startedAt: { gte: weekAgo }, endedAt: { not: null } },
+        select: { id: true, unitId: true, startedAt: true, endedAt: true, employee: { select: { name: true } } },
+      }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
-      weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth,
+      weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent,
     }));
   },
   ["dashboard-data"],
@@ -121,10 +129,11 @@ export default async function DashboardPage() {
   let stocks: any[] = [];
   let salaryHistory: any[] = [];
   let expenseRequestsMonth: any[] = [];
+  let cleaningLogsRecent: any[] = [];
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -143,6 +152,7 @@ export default async function DashboardPage() {
     stocks = [];
     salaryHistory = [];
     expenseRequestsMonth = [];
+    cleaningLogsRecent = [];
   }
 
   return (
@@ -160,6 +170,7 @@ export default async function DashboardPage() {
       stocks={JSON.parse(JSON.stringify(stocks))}
       salaryHistory={JSON.parse(JSON.stringify(salaryHistory))}
       expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
+      cleaningLogsRecent={JSON.parse(JSON.stringify(cleaningLogsRecent))}
     />
   );
 }

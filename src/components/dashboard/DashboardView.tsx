@@ -91,6 +91,7 @@ export function DashboardView({
   stocks,
   salaryHistory,
   expenseRequestsMonth,
+  cleaningLogsRecent,
 }: {
   role: string;
   units: Unit[];
@@ -105,6 +106,7 @@ export function DashboardView({
   salaryHistory: SalaryHistoryEntry[];
   stocks: Stock[];
   expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
+  cleaningLogsRecent: { id: string; unitId: string; startedAt: string; endedAt: string | null; employee: { name: string } | null }[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -211,6 +213,19 @@ export function DashboardView({
   const pendingExpenseRequests = useMemo(
     () => expenseRequestsMonth.filter((e) => e.status === "PENDING"),
     [expenseRequestsMonth]
+  );
+
+  // Feeds "Needs your attention" — a clean marked done 10 minutes or less
+  // after being started. Not proof anything's wrong (a small Daycation
+  // turnover unit can genuinely be quick), just worth a glance — flags,
+  // never blocks or auto-penalizes.
+  const quickCleans = useMemo(
+    () =>
+      cleaningLogsRecent
+        .filter((c) => c.endedAt)
+        .map((c) => ({ ...c, minutes: Math.round((new Date(c.endedAt!).getTime() - new Date(c.startedAt).getTime()) / 60000) }))
+        .filter((c) => c.minutes >= 0 && c.minutes <= 10),
+    [cleaningLogsRecent]
   );
 
   // Realized vs Forecast — the two figures replace the old single "Net
@@ -575,6 +590,20 @@ export function DashboardView({
       });
     }
 
+    if (quickCleans.length > 0) {
+      const desc = quickCleans
+        .map((c) => `${c.employee?.name ?? "Unassigned"} — ${unitShortName(c.unitId)} (${c.minutes === 0 ? "instant" : `${c.minutes} min`})`)
+        .join(", ");
+      items.push({
+        id: "attn-quick-cleans",
+        dot: "bg-rausch",
+        title: `${quickCleans.length} clean${quickCleans.length === 1 ? "" : "s"} marked done unusually fast`,
+        desc: `Started and marked clean within 10 minutes — worth a second look: ${desc}.`,
+        tag: "Housekeeping",
+        href: "/housekeeping",
+      });
+    }
+
     if (lateCleaningUnits.length > 0) {
       const desc = lateCleaningUnits
         .map((u) => `${u.unit.shortName} — checked out ${fmtDate(u.checkoutAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}, next guest ${fmtDate(u.nextCheckInAt, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}`)
@@ -662,7 +691,7 @@ export function DashboardView({
 
     return items.slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
