@@ -159,6 +159,16 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
     [units, unitFilter]
   );
 
+  // Clicking a unit's row header "focuses" the calendar on just that unit —
+  // reuses the same unitFilter the Filters panel already drives (picking
+  // exactly one unit there is the same state), so every other part of the
+  // page (the grid, "Today at a glance", "Upcoming check-ins") narrows to
+  // match for free, with one obvious way back out.
+  const focusedUnit = unitFilter && unitFilter.size === 1 ? units.find((u) => unitFilter.has(u.id)) ?? null : null;
+  function focusUnit(unitId: string) {
+    setUnitFilter(new Set([unitId]));
+  }
+
   const filteredBlocks = useMemo(() => {
     const q = search.trim().toLowerCase();
     return blocks.filter((b) => {
@@ -183,10 +193,11 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       else if (e.key === "ArrowRight") { setAnchor((a) => new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, 1))); }
       else if (e.key === "t" || e.key === "T") { setAnchor(manilaToday()); }
       else if (e.key === "/") { e.preventDefault(); setFiltersOpen(true); requestAnimationFrame(() => searchInputRef.current?.focus()); }
+      else if (e.key === "Escape" && focusedUnit) { setUnitFilter(null); }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [focusedUnit]);
 
   const days = useMemo(() => {
     const y = anchor.getUTCFullYear(), m = anchor.getUTCMonth();
@@ -299,9 +310,21 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
     <div className="mx-auto max-w-[1400px] px-4 py-9 sm:px-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-[24px] font-extrabold tracking-tight">Availability Calendar</h1>
+          {focusedUnit ? (
+            <button
+              onClick={() => setUnitFilter(null)}
+              className="mb-1.5 flex items-center gap-1.5 text-[13px] font-bold text-rausch hover:underline"
+            >
+              <ArrowLeftIcon className="h-3.5 w-3.5" /> All units
+            </button>
+          ) : null}
+          <h1 className="text-[24px] font-extrabold tracking-tight">
+            {focusedUnit ? `Unit ${focusedUnit.unitNumber} · ${focusedUnit.shortName}` : "Availability Calendar"}
+          </h1>
           <p className="mt-1 text-[13px] text-[var(--gray)]">
-            {visibleUnits.length === units.length ? `${units.length} units` : `${visibleUnits.length} of ${units.length} units`} · read-only occupancy overview — log or edit bookings from the Bookings page
+            {focusedUnit
+              ? "read-only occupancy overview — log or edit bookings from the Bookings page"
+              : `${visibleUnits.length === units.length ? `${units.length} units` : `${visibleUnits.length} of ${units.length} units`} · read-only occupancy overview — log or edit bookings from the Bookings page`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -459,10 +482,14 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                 const rowHeight = lanesForUnit(u.id) * LANE_H;
                 return (
                 <div key={u.id} className="flex border-b border-[var(--line)] last:border-0" style={{ minHeight: rowHeight }}>
-                  <div
-                    className="sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2"
+                  <button
+                    type="button"
+                    onClick={() => focusUnit(u.id)}
+                    disabled={!!focusedUnit}
+                    className="sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition hover:bg-[var(--bg-2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ink)] disabled:cursor-default disabled:hover:bg-[var(--card)]"
                     style={{ width: SIDEBAR_W }}
-                    title={`Unit ${u.unitNumber} · ${u.shortName} · Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
+                    title={focusedUnit ? undefined : `View Unit ${u.unitNumber} · ${u.shortName} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
+                    aria-label={focusedUnit ? undefined : `Focus calendar on Unit ${u.unitNumber}, ${u.shortName}`}
                   >
                     <div className="flex min-w-0 items-center gap-1.5">
                       <span className="flex-none rounded bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">{u.unitNumber}</span>
@@ -476,7 +503,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                         🌙 {typeCounts.Night}
                       </span>
                     </div>
-                  </div>
+                  </button>
                   <div className="relative flex flex-1">
                     {days.map((d) => (
                       <div
