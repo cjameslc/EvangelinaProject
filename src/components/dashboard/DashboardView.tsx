@@ -310,6 +310,7 @@ export function DashboardView({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [earningsCollapsed, setEarningsCollapsed] = useState(false);
+  const [periodNavOpen, setPeriodNavOpen] = useState(false);
 
   const periodRange = useMemo(
     () => periodRangeFor(rangeType, periodOffset, customRange),
@@ -1019,20 +1020,22 @@ export function DashboardView({
       </div>
 
       <Accordion title="Earnings" sub={periodLabel}>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5">
-            {rangeType !== "custom" && (
-              <button onClick={() => setPeriodOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous period"><ArrowLeftIcon className="h-4 w-4" /></button>
-            )}
-            <span className="min-w-[170px] text-center text-[14.5px] font-extrabold">{periodLabel}</span>
-            {rangeType !== "custom" && (
-              <button onClick={() => setPeriodOffset((o) => o + 1)} className="btn-icon !h-9 !w-9" aria-label="Next period"><ArrowRightIcon className="h-4 w-4" /></button>
-            )}
-          </div>
+        {/* Collapsed by default — the accordion header above already shows
+            periodLabel, so a big always-visible nav bar repeating it was
+            pure redundancy that ate space on mobile. Icon-only (not
+            repeating the label a second time here) — tap to reveal the
+            period nav + Filters when you actually need them. */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <button
+            onClick={() => setPeriodNavOpen((v) => !v)}
+            aria-label="Change period"
+            aria-expanded={periodNavOpen}
+            title="Change period"
+            className={cn("btn-icon !h-8 !w-8", periodNavOpen && "border-[var(--ink)]")}
+          >
+            <FilterIcon className="h-3.5 w-3.5" />
+          </button>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setFiltersOpen((v) => !v)} className={cn("btn btn-sm", filtersOpen && "border-[var(--ink)]")}>
-              <FilterIcon className="h-3.5 w-3.5" /> Filters
-            </button>
             <button onClick={exportExcel} className="btn-icon !h-9 !w-9" aria-label="Excel report" title="Download this month's report as a spreadsheet">
               <FileSpreadsheetIcon className="h-4 w-4" />
             </button>
@@ -1044,6 +1047,21 @@ export function DashboardView({
             </button>
           </div>
         </div>
+
+        {periodNavOpen && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {rangeType !== "custom" && (
+              <button onClick={() => setPeriodOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous period"><ArrowLeftIcon className="h-4 w-4" /></button>
+            )}
+            <span className="min-w-[150px] text-center text-[14.5px] font-extrabold">{periodLabel}</span>
+            {rangeType !== "custom" && (
+              <button onClick={() => setPeriodOffset((o) => o + 1)} className="btn-icon !h-9 !w-9" aria-label="Next period"><ArrowRightIcon className="h-4 w-4" /></button>
+            )}
+            <button onClick={() => setFiltersOpen((v) => !v)} className={cn("btn btn-sm", filtersOpen && "border-[var(--ink)]")}>
+              <FilterIcon className="h-3.5 w-3.5" /> Filters
+            </button>
+          </div>
+        )}
 
         {!earningsCollapsed && (
           <>
