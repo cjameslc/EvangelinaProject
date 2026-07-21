@@ -11,7 +11,7 @@ import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon,
 import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
-import { canEditBookings, isReadOnlyFinancials } from "@/lib/rbac";
+import { canEditBookings, canEditSpecificBooking, isReadOnlyFinancials } from "@/lib/rbac";
 import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
@@ -144,41 +144,41 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     refresh();
   }
 
-  const stats = useMemo(() => {
-    const total = bookings.length;
-    const collected = bookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount ?? 0), 0);
-    const unpaidList = bookings.filter((b) => !b.paid);
-    const unpaid = unpaidList.reduce((s, b) => s + b.amount, 0);
-    const thisMonthIso = dayOf(new Date()).slice(0, 7);
-    const thisMonth = bookings.filter((b) => b.date.slice(0, 7) === thisMonthIso).length;
-    return { total, thisMonth, collected, unpaid, unpaidCount: unpaidList.length };
-  }, [bookings]);
-
-  // Booking insights (Rooms logged per booker + Where the money went) are
-  // always scoped to a single Sunday-Saturday week, navigable via
-  // insightsWeekOffset — an all-time total isn't actionable for "who's
-  // pulling their weight this week", which is what this section is for.
-  const [insightsWeekOffset, setInsightsWeekOffset] = useState(0);
-  const insightsWeekRange = useMemo(() => {
+  // Total bookings / collected / unpaid / units logged, and the Booking
+  // insights section below (Rooms logged per booker + Where the money
+  // went), are all scoped to a single Sunday-Saturday week, navigable via
+  // weekOffset — one filter driving every metric on this page, so "this
+  // week" always means the same thing wherever you look on it.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const weekRange = useMemo(() => {
     const startOfToday = new Date(`${dayOf(new Date())}T00:00:00Z`);
     const start = new Date(startOfToday);
-    start.setUTCDate(start.getUTCDate() - start.getUTCDay() + insightsWeekOffset * 7);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay() + weekOffset * 7);
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + 7);
     return { start, end };
-  }, [insightsWeekOffset]);
-  const insightsWeekLabel = useMemo(() => {
-    const endInclusive = new Date(insightsWeekRange.end);
+  }, [weekOffset]);
+  const weekLabel = useMemo(() => {
+    const endInclusive = new Date(weekRange.end);
     endInclusive.setUTCDate(endInclusive.getUTCDate() - 1);
-    const sameMonth = insightsWeekRange.start.getUTCMonth() === endInclusive.getUTCMonth();
-    const startStr = fmtDate(insightsWeekRange.start, { month: "short", day: "numeric", timeZone: "UTC" });
+    const sameMonth = weekRange.start.getUTCMonth() === endInclusive.getUTCMonth();
+    const startStr = fmtDate(weekRange.start, { month: "short", day: "numeric", timeZone: "UTC" });
     const endStr = fmtDate(endInclusive, sameMonth ? { day: "numeric", timeZone: "UTC" } : { month: "short", day: "numeric", timeZone: "UTC" });
     return `${startStr} – ${endStr}`;
-  }, [insightsWeekRange]);
+  }, [weekRange]);
   const weekBookings = useMemo(
-    () => bookings.filter((b) => { const d = new Date(b.date); return d >= insightsWeekRange.start && d < insightsWeekRange.end; }),
-    [bookings, insightsWeekRange]
+    () => bookings.filter((b) => { const d = new Date(b.date); return d >= weekRange.start && d < weekRange.end; }),
+    [bookings, weekRange]
   );
+
+  const stats = useMemo(() => {
+    const total = weekBookings.length;
+    const collected = weekBookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount ?? 0), 0);
+    const unpaidList = weekBookings.filter((b) => !b.paid);
+    const unpaid = unpaidList.reduce((s, b) => s + b.amount, 0);
+    const unitsLogged = new Set(weekBookings.map((b) => b.unitId)).size;
+    return { total, collected, unpaid, unpaidCount: unpaidList.length, unitsLogged };
+  }, [weekBookings]);
 
   // Rooms logged per booker — grouped with the full list of bookings behind
   // each name (date, unit, stay type), so the count isn't a dead end; tap a
@@ -447,22 +447,23 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         </div>
       </div>
 
+      <div className="mb-4 flex items-center justify-center gap-1.5">
+        <button onClick={() => setWeekOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous week"><ArrowLeftIcon className="h-4 w-4" /></button>
+        <span className="min-w-[150px] text-center text-[14px] font-extrabold">{weekLabel}</span>
+        <button onClick={() => setWeekOffset((o) => o + 1)} disabled={weekOffset >= 0} className="btn-icon !h-9 !w-9" aria-label="Next week"><ArrowRightIcon className="h-4 w-4" /></button>
+        {weekOffset !== 0 && (
+          <button onClick={() => setWeekOffset(0)} className="btn-sm btn-ghost ml-1">This week</button>
+        )}
+      </div>
+
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Total bookings" value={stats.total} sub={`${stats.thisMonth} this month`} />
+        <StatCard label="Total bookings" value={stats.total} sub={weekLabel} />
         <StatCard label="Total collected" value={peso(stats.collected)} sub="paid so far" />
         <StatCard label="Unpaid" value={peso(stats.unpaid)} sub={`${stats.unpaidCount} bookings`} warn />
-        <StatCard label="Units logged" value={new Set(bookings.map((b) => b.unitId)).size} sub="across bookers" />
+        <StatCard label="Units logged" value={stats.unitsLogged} sub="across bookers" />
       </div>
 
       <Accordion title="Booking insights" sub="who's booking, who's collecting">
-        <div className="mb-4 flex items-center justify-center gap-1.5">
-          <button onClick={() => setInsightsWeekOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous week"><ArrowLeftIcon className="h-4 w-4" /></button>
-          <span className="min-w-[150px] text-center text-[14px] font-extrabold">{insightsWeekLabel}</span>
-          <button onClick={() => setInsightsWeekOffset((o) => o + 1)} disabled={insightsWeekOffset >= 0} className="btn-icon !h-9 !w-9" aria-label="Next week"><ArrowRightIcon className="h-4 w-4" /></button>
-          {insightsWeekOffset !== 0 && (
-            <button onClick={() => setInsightsWeekOffset(0)} className="btn-sm btn-ghost ml-1">This week</button>
-          )}
-        </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div>
             <h3 className="mb-1 text-sm font-extrabold">Rooms logged per booker</h3>
@@ -597,7 +598,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-blue" /> Check-out
                       </div>
                       {checkouts.map((b) => (
-                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEdit} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
@@ -607,7 +608,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-green" /> Check-in
                       </div>
                       {checkins.map((b) => (
-                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEdit} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
