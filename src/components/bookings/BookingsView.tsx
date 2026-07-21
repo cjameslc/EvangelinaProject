@@ -7,7 +7,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -154,12 +154,38 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return { total, thisMonth, collected, unpaid, unpaidCount: unpaidList.length };
   }, [bookings]);
 
+  // Booking insights (Rooms logged per booker + Where the money went) are
+  // always scoped to a single Sunday-Saturday week, navigable via
+  // insightsWeekOffset — an all-time total isn't actionable for "who's
+  // pulling their weight this week", which is what this section is for.
+  const [insightsWeekOffset, setInsightsWeekOffset] = useState(0);
+  const insightsWeekRange = useMemo(() => {
+    const startOfToday = new Date(`${dayOf(new Date())}T00:00:00Z`);
+    const start = new Date(startOfToday);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay() + insightsWeekOffset * 7);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 7);
+    return { start, end };
+  }, [insightsWeekOffset]);
+  const insightsWeekLabel = useMemo(() => {
+    const endInclusive = new Date(insightsWeekRange.end);
+    endInclusive.setUTCDate(endInclusive.getUTCDate() - 1);
+    const sameMonth = insightsWeekRange.start.getUTCMonth() === endInclusive.getUTCMonth();
+    const startStr = fmtDate(insightsWeekRange.start, { month: "short", day: "numeric", timeZone: "UTC" });
+    const endStr = fmtDate(endInclusive, sameMonth ? { day: "numeric", timeZone: "UTC" } : { month: "short", day: "numeric", timeZone: "UTC" });
+    return `${startStr} – ${endStr}`;
+  }, [insightsWeekRange]);
+  const weekBookings = useMemo(
+    () => bookings.filter((b) => { const d = new Date(b.date); return d >= insightsWeekRange.start && d < insightsWeekRange.end; }),
+    [bookings, insightsWeekRange]
+  );
+
   // Rooms logged per booker — grouped with the full list of bookings behind
   // each name (date, unit, stay type), so the count isn't a dead end; tap a
   // name to see exactly which bookings make it up.
   const byBooker = useMemo(() => {
     const map = new Map<string, Booking[]>();
-    bookings.forEach((b) => {
+    weekBookings.forEach((b) => {
       // Airbnb-imported bookings never have a human booker — that's not the
       // same "nobody logged this" gap as a manually-entered booking missing
       // one, so give it its own label instead of lumping both under Unassigned.
@@ -168,7 +194,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       map.get(n)!.push(b);
     });
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [bookings]);
+  }, [weekBookings]);
 
   type MethodKey = "Cash" | "GCash" | "BankTransfer" | "Other";
   const METHOD_KEYS: MethodKey[] = ["Cash", "GCash", "BankTransfer", "Other"];
@@ -188,7 +214,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       const key: MethodKey = (method === "Cash" || method === "GCash" || method === "BankTransfer") ? method : "Other";
       entry.byMethod[key] += amount;
     }
-    bookings.forEach((b) => {
+    weekBookings.forEach((b) => {
       if (b.paid) {
         const name = b.receivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
         const method = b.method ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
@@ -199,7 +225,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       if (dpName) add(dpName, b.dpAmount ?? 0, dpMethod);
     });
     return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
-  }, [bookings]);
+  }, [weekBookings]);
 
   const [expandedBookers, setExpandedBookers] = useState<Set<string>>(new Set());
   const [expandedReceivers, setExpandedReceivers] = useState<Set<string>>(new Set());
@@ -429,6 +455,14 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       </div>
 
       <Accordion title="Booking insights" sub="who's booking, who's collecting">
+        <div className="mb-4 flex items-center justify-center gap-1.5">
+          <button onClick={() => setInsightsWeekOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous week"><ArrowLeftIcon className="h-4 w-4" /></button>
+          <span className="min-w-[150px] text-center text-[14px] font-extrabold">{insightsWeekLabel}</span>
+          <button onClick={() => setInsightsWeekOffset((o) => o + 1)} disabled={insightsWeekOffset >= 0} className="btn-icon !h-9 !w-9" aria-label="Next week"><ArrowRightIcon className="h-4 w-4" /></button>
+          {insightsWeekOffset !== 0 && (
+            <button onClick={() => setInsightsWeekOffset(0)} className="btn-sm btn-ghost ml-1">This week</button>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div>
             <h3 className="mb-1 text-sm font-extrabold">Rooms logged per booker</h3>

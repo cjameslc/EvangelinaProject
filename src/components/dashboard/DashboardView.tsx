@@ -10,8 +10,9 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
 import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
+import { attentionKey } from "@/lib/attentionKey";
 import { cn } from "@/lib/utils";
-import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
@@ -92,6 +93,7 @@ export function DashboardView({
   salaryHistory,
   expenseRequestsMonth,
   cleaningLogsRecent,
+  dismissedAttentionKeys,
 }: {
   role: string;
   units: Unit[];
@@ -107,9 +109,20 @@ export function DashboardView({
   stocks: Stock[];
   expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
   cleaningLogsRecent: { id: string; unitId: string; startedAt: string; endedAt: string | null; employee: { name: string } | null }[];
+  dismissedAttentionKeys: string[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set(dismissedAttentionKeys));
+
+  async function dismissItem(key: string) {
+    setDismissedKeys((prev) => new Set(prev).add(key));
+    try {
+      await fetch("/api/attention/dismiss", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+    } catch {
+      // Best-effort — it'll just reappear on next load if this failed, not worth surfacing an error for.
+    }
+  }
 
   // Only count the remaining-balance amount once it's actually paid — an
   // unpaid balance isn't collected revenue yet, same convention already
@@ -689,9 +702,12 @@ export function DashboardView({
       items.push({ id: "attn-stock", dot: "bg-amber", title: "Supplies below minimum", desc: `${lowStock.map((s) => s.name).join(", ")} need restocking.`, tag: "Stock", href: "/housekeeping" });
     }
 
-    return items.slice(0, 8);
+    return items
+      .map((item) => ({ ...item, key: attentionKey(item.id, item.desc) }))
+      .filter((item) => !dismissedKeys.has(item.key))
+      .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, dismissedKeys]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
@@ -1258,13 +1274,23 @@ export function DashboardView({
                   {item.href && <ArrowRightIcon className="h-3.5 w-3.5 flex-none text-[var(--gray)]" />}
                 </>
               );
-              return item.href ? (
-                <Link key={item.id} href={item.href} className="flex items-start gap-3 rounded-lg py-3 -mx-2 px-2 first:pt-3 last:pb-3 transition hover:bg-[var(--bg-2)]">
-                  {content}
-                </Link>
-              ) : (
-                <div key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  {content}
+              return (
+                <div key={item.id} className="flex items-start gap-2 py-3 first:pt-3 last:pb-3">
+                  {item.href ? (
+                    <Link href={item.href} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg -mx-2 px-2 py-1 transition hover:bg-[var(--bg-2)]">
+                      {content}
+                    </Link>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 items-start gap-3">{content}</div>
+                  )}
+                  <button
+                    onClick={() => dismissItem(item.key)}
+                    aria-label="Mark as addressed"
+                    title="Mark as addressed"
+                    className="btn-icon !h-7 !w-7 flex-none"
+                  >
+                    <CheckIcon className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               );
             })}

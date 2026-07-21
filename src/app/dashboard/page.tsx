@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
-import { prismaPool } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { dashboardUnitWhere, dashboardUnitIdWhere } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
@@ -117,6 +117,14 @@ export default async function DashboardPage() {
   // never be the thing standing between a new month and its bills existing.
   await ensureRecurringBillsForMonth(monthStart).catch(() => {});
 
+  // Uncached, every request — a dismissal should disappear from "Needs your
+  // attention" immediately, not wait out the dashboard-data cache's 45s
+  // window. Cheap: a handful of rows at most.
+  const dismissedAttentionKeys = await prisma.dismissedAttentionItem
+    .findMany({ select: { key: true } })
+    .then((rows) => rows.map((r) => r.key))
+    .catch(() => []);
+
   let units: any[] = [];
   let bookingsWeek: any[] = [];
   let bookingsMonth: any[] = [];
@@ -171,6 +179,7 @@ export default async function DashboardPage() {
       salaryHistory={JSON.parse(JSON.stringify(salaryHistory))}
       expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
       cleaningLogsRecent={JSON.parse(JSON.stringify(cleaningLogsRecent))}
+      dismissedAttentionKeys={dismissedAttentionKeys}
     />
   );
 }

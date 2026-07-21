@@ -39,6 +39,7 @@ model User {
   weeklyExpensesAdded WeeklyExpense[]
   reviewedExpenseRequests ExpenseRequest[]
   markedPayrollPayments PayrollPayment[]
+  dismissedAttentionItems DismissedAttentionItem[]
 
   @@map("users")
 }
@@ -600,4 +601,22 @@ model AuditLog {
   @@index([createdAt])
   @@index([action, createdAt])
   @@map("audit_log")
+}
+
+// Dashboard "Needs your attention" cards are aggregate/recomputed-every-load
+// (e.g. "attn-pastdue" bundles every currently past-due booking into one
+// card, not one row per booking), so there's no natural per-record id to
+// mark done. Instead `key` is a fingerprint of the item's id + its exact
+// description text — dismissing hides that specific combination of
+// underlying issues, but the moment the set changes (a new booking goes
+// past due, one gets resolved) the fingerprint changes and the card comes
+// back, correctly, as a "new" instance of the issue.
+model DismissedAttentionItem {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  dismissedById String?
+  dismissedBy   User?    @relation(fields: [dismissedById], references: [id], onDelete: SetNull)
+  dismissedAt   DateTime @default(now())
+
+  @@map("dismissed_attention_items")
 }
