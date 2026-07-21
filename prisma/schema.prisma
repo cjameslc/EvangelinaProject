@@ -345,6 +345,13 @@ model Booking {
   proofUrl        String?
   paid            Boolean       @default(false)
 
+  // Set via the Booker "Today" quick actions — an actual arrival/departure
+  // timestamp, independent of date/checkOutDate (the *planned* stay).
+  // Both null until tapped; nothing else in the app depends on them, so
+  // they're purely additive.
+  checkedInAt     DateTime?
+  checkedOutAt    DateTime?
+
   // Airbnb iCal sync
   source          String @default("MANUAL")
   externalUid     String?       // iCal UID from the imported VEVENT (source = AIRBNB)

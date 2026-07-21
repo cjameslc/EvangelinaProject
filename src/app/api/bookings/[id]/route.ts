@@ -23,6 +23,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const data: any = { ...body };
   if (body.date) data.date = new Date(body.date);
   if (body.checkOutDate !== undefined) data.checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
+  if (body.checkedInAt !== undefined) data.checkedInAt = body.checkedInAt ? new Date(body.checkedInAt) : null;
+  if (body.checkedOutAt !== undefined) data.checkedOutAt = body.checkedOutAt ? new Date(body.checkedOutAt) : null;
 
   // Same range-overlap guard as creating a booking — re-checked against every
   // other booking on the unit whenever the date range or stay type changes,

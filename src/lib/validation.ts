@@ -28,6 +28,12 @@ export const bookingSchema = z.object({
   method: z.enum(["Cash", "GCash", "BankTransfer"]).nullable().optional(),
   proofUrl: z.string().nullable().optional(),
   paid: z.boolean().optional(),
+  // Set by the Booker "Today" quick-actions (src/components/bookings/BookingsView.tsx)
+  // — a lightweight arrival/departure timestamp, independent of the
+  // date/checkOutDate fields which describe the planned stay, not what
+  // actually happened.
+  checkedInAt: z.string().nullable().optional(),
+  checkedOutAt: z.string().nullable().optional(),
 });
 
 export const unitSchema = z.object({

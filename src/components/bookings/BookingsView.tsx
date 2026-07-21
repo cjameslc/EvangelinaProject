@@ -8,10 +8,11 @@ import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
-import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
+import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditBookings, isReadOnlyFinancials } from "@/lib/rbac";
+import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
@@ -27,7 +28,9 @@ type Booking = {
   dpAmount: number | null; dpReceivedById: string | null; dpReceivedBy: Employee | null; dpMethod: string | null;
   amount: number; receivedById: string | null; receivedBy: Employee | null; method: string | null; paid: boolean;
   source?: string; conflict?: boolean;
+  checkedInAt?: string | null; checkedOutAt?: string | null;
 };
+type HkState = { unitId: string; status: string };
 
 // Business runs in Manila (UTC+8). Using toISOString() (UTC) to bucket days
 // would put "today" a full calendar day behind during Philippine early-morning
@@ -45,7 +48,7 @@ function effectiveRange(b: Booking) {
   return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
 }
 
-export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null }) {
+export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [] }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[] }) {
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
@@ -298,6 +301,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         const { inIso, outIso } = effectiveRange(b);
         return inIso <= todayIso && todayIso < outIso;
       });
+      const roomStatus = hkStates.find((s) => s.unitId === unit.id)?.status ?? null;
       if (current) {
         const outTime = fmtTimeStr(current.checkOutTime);
         const { outIso } = effectiveRange(current);
@@ -309,16 +313,45 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         return {
           unit, occupied: true,
           detail: `${current.guests.join(", ") || "Guest"} · ${untilText}`,
+          arrival: current, departure: null, roomStatus,
         };
       }
       const checkedOutToday = unitBookings.find((b) => effectiveRange(b).outIso === todayIso);
       if (checkedOutToday) {
         const outTime = fmtTimeStr(checkedOutToday.checkOutTime);
-        return { unit, occupied: false, detail: outTime ? `Available from ${outTime}` : "Checked out today · available now" };
+        return {
+          unit, occupied: false,
+          detail: outTime ? `Available from ${outTime}` : "Checked out today · available now",
+          arrival: null, departure: checkedOutToday, roomStatus,
+        };
       }
-      return { unit, occupied: false, detail: "Available all day" };
+      return { unit, occupied: false, detail: "Available all day", arrival: null, departure: null, roomStatus };
     });
-  }, [bookings, units]);
+  }, [bookings, units, hkStates]);
+
+  async function markCheckedIn(booking: Booking) {
+    const iso = new Date().toISOString();
+    setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, checkedInAt: iso } : b)));
+    const { queued } = await fetchOrQueue({
+      url: `/api/bookings/${booking.id}`,
+      method: "PATCH",
+      bodyJson: { checkedInAt: iso },
+      label: `Check-in — ${booking.guests[0] ?? booking.id}`,
+    });
+    toast(queued ? "Checked in — will sync when back online" : "Guest checked in ✓");
+  }
+
+  async function markCheckedOut(booking: Booking) {
+    const iso = new Date().toISOString();
+    setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, checkedOutAt: iso } : b)));
+    const { queued } = await fetchOrQueue({
+      url: `/api/bookings/${booking.id}`,
+      method: "PATCH",
+      bodyJson: { checkedOutAt: iso },
+      label: `Check-out — ${booking.guests[0] ?? booking.id}`,
+    });
+    toast(queued ? "Checked out — will sync when back online" : "Guest checked out ✓");
+  }
 
   return (
     <div className="mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
@@ -345,17 +378,44 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           {dailyReport.map((r) => (
             <div
               key={r.unit.id}
-              className={`flex items-center gap-3 rounded-xl border p-3 ${r.occupied ? "border-rausch/25 bg-rausch/5" : "border-green/25 bg-green/5"}`}
+              className={`flex flex-col gap-2 rounded-xl border p-3 ${r.occupied ? "border-rausch/25 bg-rausch/5" : "border-green/25 bg-green/5"}`}
             >
-              <span className={`h-2.5 w-2.5 flex-none rounded-full ${r.occupied ? "bg-rausch" : "bg-green"}`} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13.5px] font-extrabold">Unit {r.unit.unitNumber} · {r.unit.shortName}</div>
-                <div className="truncate text-[12px] text-[var(--gray)]">{r.detail}</div>
-                <div className="truncate text-[11px] text-[var(--gray)]">Owner: {r.unit.owners?.length ? r.unit.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}</div>
+              <div className="flex items-center gap-3">
+                <span className={`h-2.5 w-2.5 flex-none rounded-full ${r.occupied ? "bg-rausch" : "bg-green"}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13.5px] font-extrabold">Unit {r.unit.unitNumber} · {r.unit.shortName}</div>
+                  <div className="truncate text-[12px] text-[var(--gray)]">{r.detail}</div>
+                  <div className="truncate text-[11px] text-[var(--gray)]">Owner: {r.unit.owners?.length ? r.unit.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}</div>
+                </div>
+                <span className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${r.occupied ? "bg-rausch/15 text-rausch" : "bg-green/15 text-green"}`}>
+                  {r.occupied ? "Occupied" : "Open"}
+                </span>
               </div>
-              <span className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${r.occupied ? "bg-rausch/15 text-rausch" : "bg-green/15 text-green"}`}>
-                {r.occupied ? "Occupied" : "Open"}
-              </span>
+
+              {(r.roomStatus || r.arrival || r.departure) && (
+                <div className="flex flex-wrap items-center gap-1.5 pl-5">
+                  {r.roomStatus && (
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide",
+                        r.roomStatus === "clean" ? "bg-teal/15 text-teal" : r.roomStatus === "cleaning" ? "bg-amber/15 text-amber" : "bg-[var(--bg-2)] text-[var(--gray)]"
+                      )}
+                    >
+                      {r.roomStatus === "clean" ? "Room clean" : r.roomStatus === "cleaning" ? "Being cleaned" : "Needs cleaning"}
+                    </span>
+                  )}
+                  {canEdit && r.arrival && (
+                    r.arrival.checkedInAt
+                      ? <span className="text-[10.5px] font-bold text-teal">Checked in {fmtTime(r.arrival.checkedInAt)}</span>
+                      : <button onClick={() => markCheckedIn(r.arrival!)} className="btn-sm btn-ghost !px-2 !py-1 text-[11px]">Check in</button>
+                  )}
+                  {canEdit && r.departure && (
+                    r.departure.checkedOutAt
+                      ? <span className="text-[10.5px] font-bold text-teal">Checked out {fmtTime(r.departure.checkedOutAt)}</span>
+                      : <button onClick={() => markCheckedOut(r.departure!)} className="btn-sm btn-ghost !px-2 !py-1 text-[11px]">Check out</button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
