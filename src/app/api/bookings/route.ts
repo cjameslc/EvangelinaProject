@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
   if (ownEmployee) body.bookerId = ownEmployee.id;
 
-  const result = await createBookingRecord(user.id, body);
+  const result = await createBookingRecord(user, body);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json(result.booking, { status: 201 });
 }

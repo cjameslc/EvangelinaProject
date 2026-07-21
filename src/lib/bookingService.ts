@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { logAudit } from "@/lib/session";
+import { logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
 import { syncCalendarMirror, bookingsConflict } from "@/lib/calendarMirror";
 
@@ -13,12 +13,24 @@ export type CreateBookingResult =
 /**
  * The single place a Booking row is ever created — the manual "New booking"
  * form (POST /api/bookings) and the Excel/CSV importer both call this same
- * function, so every side effect (the overlap guard, the mirrored
- * CalendarBlock, the audit log entry) is identical no matter which path a
- * booking came in through. Never duplicate this logic elsewhere — if a new
- * caller needs to create a booking, it calls this.
+ * function, so every side effect (the overlap guard, the unit-scope check,
+ * the mirrored CalendarBlock, the audit log entry) is identical no matter
+ * which path a booking came in through. Never duplicate this logic
+ * elsewhere — if a new caller needs to create a booking, it calls this.
  */
-export async function createBookingRecord(userId: string, body: BookingInput): Promise<CreateBookingResult> {
+export async function createBookingRecord(
+  user: { id: string; role: string; ownedUnitIds: string[] },
+  body: BookingInput
+): Promise<CreateBookingResult> {
+  // A Co-owner can only ever be scoped to their own units on reads (every
+  // list query already filters via unitWhere) — this is the write-side
+  // equivalent: canEditBookings() lets a Co-owner call this endpoint at
+  // all, but nothing stopped them creating a booking for a unit that isn't
+  // theirs until this check existed.
+  if (!isUnitInScope(user, body.unitId)) {
+    return { ok: false, error: "You don't have access to that unit." };
+  }
+
   const dayStart = new Date(body.date);
   const checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   const stayType = normalizeStayTypeForPlatform(body.platform, body.stayType);
@@ -71,6 +83,6 @@ export async function createBookingRecord(userId: string, body: BookingInput): P
   // those to pick it up immediately.
   await syncCalendarMirror(booking);
 
-  await logAudit(userId, "booking.create", "Booking", booking.id, { unitId: booking.unitId, amount: booking.amount });
+  await logAudit(user.id, "booking.create", "Booking", booking.id, { unitId: booking.unitId, amount: booking.amount });
   return { ok: true, booking };
 }

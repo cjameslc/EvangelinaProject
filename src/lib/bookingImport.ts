@@ -194,7 +194,7 @@ async function transformRow(
  * result. A bad row is skipped with a reason, not fatal to the rest of the
  * import.
  */
-export async function importBookingRows(userId: string, rawRows: Record<string, string>[]): Promise<ImportSummary> {
+export async function importBookingRows(user: { id: string; role: string; ownedUnitIds: string[] }, rawRows: Record<string, string>[]): Promise<ImportSummary> {
   const units = await prisma.unit.findMany({ select: { id: true, unitNumber: true, nightlyRate: true } });
   const unitsByNumber = new Map(units.map((u) => [u.unitNumber.toLowerCase(), { id: u.id, nightlyRate: u.nightlyRate }]));
   const employees = await prisma.employee.findMany({ where: { active: true }, select: { id: true, name: true } });
@@ -212,7 +212,7 @@ export async function importBookingRows(userId: string, rawRows: Record<string, 
       skipped++;
       continue;
     }
-    const result = await createBookingRecord(userId, transformed.input);
+    const result = await createBookingRecord(user, transformed.input);
     if (!result.ok) {
       results.push({ row: rowNum, status: "skipped", reason: result.error, raw });
       skipped++;

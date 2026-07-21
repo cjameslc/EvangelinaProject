@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { calendarBlockSchema } from "@/lib/validation";
 import { canEditBookings } from "@/lib/rbac";
 
@@ -9,7 +9,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
 
+  const existing = await prisma.calendarBlock.findUnique({ where: { id: params.id }, select: { unitId: true } });
+  if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+
   const body = calendarBlockSchema.partial().parse(await req.json());
+  if (body.unitId && !isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
   const data: any = { ...body };
   if (body.date) data.date = new Date(body.date);
   if (body.endDate) data.endDate = new Date(body.endDate);
@@ -23,6 +28,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+
+  const existing = await prisma.calendarBlock.findUnique({ where: { id: params.id }, select: { unitId: true } });
+  if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
 
   await prisma.calendarBlock.delete({ where: { id: params.id } });
   await logAudit(user.id, "calendar.delete", "CalendarBlock", params.id);

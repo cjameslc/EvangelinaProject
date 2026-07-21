@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
 import { canEditBookings } from "@/lib/rbac";
 import { syncCalendarMirror, bookingsConflict } from "@/lib/calendarMirror";
@@ -12,8 +12,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
+  // canEditBookings() lets a Co-owner call this at all, but says nothing
+  // about which unit's bookings they may touch — that's this check. A
+  // unitId change (moving the booking to a different unit) is checked
+  // against the new unit too, once `body` is parsed below.
+  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
 
   const body = bookingSchema.partial().parse(await req.json());
+  if (body.unitId && !isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
   const data: any = { ...body };
   if (body.date) data.date = new Date(body.date);
   if (body.checkOutDate !== undefined) data.checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
@@ -51,6 +57,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+
+  const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true } });
+  if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
+  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
 
   // The mirrored CalendarBlock cascades away with it (onDelete: Cascade on
   // the bookingId relation), so /calendar never shows an orphaned entry.

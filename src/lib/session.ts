@@ -46,6 +46,20 @@ export function unitIdWhere(user: { role: string; ownedUnitIds: string[] }) {
 }
 
 /**
+ * Write-path guard: is this specific unit inside what the user may touch?
+ * `unitWhere`/`unitIdWhere` filter list queries so a Co-owner only ever
+ * *sees* their own units — but that filter does nothing on a mutation
+ * targeting one exact unitId (create a booking/calendar block for it, or
+ * edit/delete an existing row that belongs to it), since there's no list to
+ * filter. Every write route that accepts a unitId, or looks one up off an
+ * existing row before mutating it, must check this explicitly.
+ */
+export function isUnitInScope(user: { role: string; ownedUnitIds: string[] }, unitId: string | null | undefined): boolean {
+  const scope = unitScope(user.role as any, user.ownedUnitIds);
+  return scope === "all" || (!!unitId && scope.includes(unitId));
+}
+
+/**
  * Dashboard-only scoping: unlike {@link unitWhere}, an Owner/Admin with units
  * explicitly assigned to them sees only their own portfolio here — their
  * unrestricted "all" access on every other page (Bookings, Calendar,

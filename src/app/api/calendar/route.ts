@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, unitWhere, logAudit } from "@/lib/session";
+import { requireUser, unitWhere, logAudit, isUnitInScope } from "@/lib/session";
 import { calendarBlockSchema } from "@/lib/validation";
 import { canEditBookings } from "@/lib/rbac";
 
@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
 
   const body = calendarBlockSchema.parse(await req.json());
+  if (!isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
+
   const block = await prisma.calendarBlock.create({
     data: {
       unitId: body.unitId,

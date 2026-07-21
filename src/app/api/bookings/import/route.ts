@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many rows in one file (max 2000) — split it into smaller batches." }, { status: 400 });
   }
 
-  const summary = await importBookingRows(user.id, rows);
+  const summary = await importBookingRows(user, rows);
 
   await logAudit(user.id, "booking.import", "Booking", "bulk", {
     fileName: file.name,
