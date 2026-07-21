@@ -47,8 +47,8 @@ export default function GuestLoginPage() {
         ) : (
           <form onSubmit={onSubmit} className="card space-y-4 p-6">
             <div className="space-y-1.5">
-              <label className="field-label">Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" />
+              <label htmlFor="guest-login-email" className="field-label">Email</label>
+              <input id="guest-login-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" />
             </div>
             {error && <p className="text-[13px] font-semibold text-rausch">{error}</p>}
             <button type="submit" disabled={loading} className="btn-primary w-full justify-center">

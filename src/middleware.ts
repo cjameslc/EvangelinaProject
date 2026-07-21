@@ -33,7 +33,14 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      // "/" is the public guest homepage now — letting an unauthenticated
+      // request through here (instead of the usual !!token gate) is what
+      // makes that possible. The middleware function above still runs for
+      // authenticated staff hitting "/", so the mustChangePassword redirect
+      // is unaffected; src/app/page.tsx itself handles the staff-vs-guest
+      // branch (redirect staff to their role's page, render the guest
+      // homepage otherwise).
+      authorized: ({ token, req }) => req.nextUrl.pathname === "/" || !!token,
     },
     pages: { signIn: "/login" },
   }

@@ -54,11 +54,18 @@ export function Navbar() {
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-3 px-4 sm:px-6">
-        <Link href="/dashboard" className="flex flex-none items-center gap-2 font-extrabold text-rausch">
+        <Link href={session ? "/dashboard" : "/"} className="flex flex-none items-center gap-2 font-extrabold text-rausch">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/branding/logo.jpg" alt="Evangelina's Staycation" className="h-8 w-8 rounded-lg object-cover" />
           <span className="hidden text-[16px] tracking-tight sm:inline">Evangelina&rsquo;s Staycation</span>
         </Link>
+
+        {!session && (
+          <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
+            <Link href="/" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">Explore</Link>
+            <Link href="/my-bookings" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">My bookings</Link>
+          </div>
+        )}
 
         {session && (
           <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
@@ -119,6 +126,12 @@ export function Navbar() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {!session && (
+            <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
+              Employee login
+            </Link>
+          )}
+
           <button onClick={toggle} className="btn-icon" aria-label="Toggle theme">
             {theme === "dark" ? <SunIcon className="h-[18px] w-[18px]" /> : <MoonIcon className="h-[18px] w-[18px]" />}
           </button>

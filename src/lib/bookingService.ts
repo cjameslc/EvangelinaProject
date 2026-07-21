@@ -13,26 +13,14 @@ export type CreateBookingResult =
   | { ok: false; error: string };
 
 /**
- * The single place a Booking row is ever created — the manual "New booking"
- * form (POST /api/bookings) and the Excel/CSV importer both call this same
- * function, so every side effect (the overlap guard, the unit-scope check,
- * the mirrored CalendarBlock, the audit log entry) is identical no matter
- * which path a booking came in through. Never duplicate this logic
- * elsewhere — if a new caller needs to create a booking, it calls this.
+ * Shared by both createBookingRecord (staff) and createGuestBooking (Guest
+ * Portal) — the overlap guard, the actual row, the mirrored CalendarBlock,
+ * and the notify() event are identical either way. Only the caller-specific
+ * bits (unit-scope check + audit log for staff; guestId for guests) live
+ * outside this function, so there is exactly one creation path underneath,
+ * not two copies of it.
  */
-export async function createBookingRecord(
-  user: { id: string; role: string; ownedUnitIds: string[] },
-  body: BookingInput
-): Promise<CreateBookingResult> {
-  // A Co-owner can only ever be scoped to their own units on reads (every
-  // list query already filters via unitWhere) — this is the write-side
-  // equivalent: canEditBookings() lets a Co-owner call this endpoint at
-  // all, but nothing stopped them creating a booking for a unit that isn't
-  // theirs until this check existed.
-  if (!isUnitInScope(user, body.unitId)) {
-    return { ok: false, error: "You don't have access to that unit." };
-  }
-
+async function createBookingCore(body: BookingInput & { guestId?: string | null }): Promise<CreateBookingResult> {
   const dayStart = new Date(body.date);
   const checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   const stayType = normalizeStayTypeForPlatform(body.platform, body.stayType);
@@ -73,6 +61,8 @@ export async function createBookingRecord(
       method: body.method || null,
       proofUrl: body.proofUrl || null,
       paid: body.paid ?? false,
+      guestId: body.guestId ?? null,
+      specialRequest: (body as any).specialRequest || null,
     },
   });
 
@@ -82,8 +72,46 @@ export async function createBookingRecord(
   // step exists elsewhere in the app), so nothing else needs to run here for
   // those to pick it up immediately.
   await syncCalendarMirror(booking);
-
-  await logAudit(user.id, "booking.create", "Booking", booking.id, { unitId: booking.unitId, amount: booking.amount });
   await notify({ type: "booking.created", bookingId: booking.id });
+
   return { ok: true, booking };
+}
+
+/**
+ * The single place a staff-side Booking row is ever created — the manual
+ * "New booking" form (POST /api/bookings) and the Excel/CSV importer both
+ * call this same function, so every side effect (the overlap guard, the
+ * unit-scope check, the mirrored CalendarBlock, the audit log entry) is
+ * identical no matter which path a booking came in through. Never
+ * duplicate this logic elsewhere — if a new caller needs to create a
+ * booking, it calls this (staff) or createGuestBooking (Guest Portal).
+ */
+export async function createBookingRecord(
+  user: { id: string; role: string; ownedUnitIds: string[] },
+  body: BookingInput
+): Promise<CreateBookingResult> {
+  // A Co-owner can only ever be scoped to their own units on reads (every
+  // list query already filters via unitWhere) — this is the write-side
+  // equivalent: canEditBookings() lets a Co-owner call this endpoint at
+  // all, but nothing stopped them creating a booking for a unit that isn't
+  // theirs until this check existed.
+  if (!isUnitInScope(user, body.unitId)) {
+    return { ok: false, error: "You don't have access to that unit." };
+  }
+
+  const result = await createBookingCore(body);
+  if (result.ok) {
+    await logAudit(user.id, "booking.create", "Booking", result.booking.id, { unitId: result.booking.unitId, amount: result.booking.amount });
+  }
+  return result;
+}
+
+/**
+ * Guest Portal booking creation — no unit-scope check (any active unit is
+ * publicly bookable by any guest, unlike a Co-owner's staff-side scope),
+ * no staff audit-log entry (there's no acting staff user), always
+ * attributed to the given guestId instead of a bookerId.
+ */
+export async function createGuestBooking(guestId: string, body: BookingInput & { specialRequest?: string | null }): Promise<CreateBookingResult> {
+  return createBookingCore({ ...body, guestId, bookerId: null, cleanerId: null });
 }

@@ -9,5 +9,5 @@ export { quotePrice, type PriceQuote } from "@/lib/bookingEngine/pricingService"
 export { getUnitOccupiedRanges, getPublicOccupiedDates } from "@/lib/bookingEngine/calendarService";
 export { findOrCreateGuestByEmail, getGuestBookings, getGuestBooking } from "@/lib/bookingEngine/guestService";
 export { notify, type NotificationEvent } from "@/lib/bookingEngine/notificationService";
-export { createBookingRecord, type BookingInput, type CreateBookingResult } from "@/lib/bookingService";
+export { createBookingRecord, createGuestBooking, type BookingInput, type CreateBookingResult } from "@/lib/bookingService";
 export { bookingsConflict, nightsFor, occupiedRange, calendarBlockEndDate } from "@/lib/stayRange";

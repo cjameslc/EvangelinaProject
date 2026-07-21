@@ -34,6 +34,8 @@ export const bookingSchema = z.object({
   // actually happened.
   checkedInAt: z.string().nullable().optional(),
   checkedOutAt: z.string().nullable().optional(),
+  // Guest Portal only — a free-text note the guest adds when booking.
+  specialRequest: z.string().nullable().optional(),
 });
 
 export const unitSchema = z.object({
