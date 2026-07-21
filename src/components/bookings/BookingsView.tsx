@@ -7,7 +7,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -150,6 +150,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   // weekOffset — one filter driving every metric on this page, so "this
   // week" always means the same thing wherever you look on it.
   const [weekOffset, setWeekOffset] = useState(0);
+  const [weekNavOpen, setWeekNavOpen] = useState(false);
   const weekRange = useMemo(() => {
     const startOfToday = new Date(`${dayOf(new Date())}T00:00:00Z`);
     const start = new Date(startOfToday);
@@ -447,14 +448,29 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         </div>
       </div>
 
-      <div className="mb-4 flex items-center justify-center gap-1.5">
-        <button onClick={() => setWeekOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous week"><ArrowLeftIcon className="h-4 w-4" /></button>
-        <span className="min-w-[150px] text-center text-[14px] font-extrabold">{weekLabel}</span>
-        <button onClick={() => setWeekOffset((o) => o + 1)} disabled={weekOffset >= 0} className="btn-icon !h-9 !w-9" aria-label="Next week"><ArrowRightIcon className="h-4 w-4" /></button>
-        {weekOffset !== 0 && (
-          <button onClick={() => setWeekOffset(0)} className="btn-sm btn-ghost ml-1">This week</button>
-        )}
+      {/* Collapsed by default — a quiet "Jul 19 – 25" pill, not a prominent
+          filter bar, since most visits just want this week and shouldn't be
+          reminded there's a filter at all. Tap it to reveal the week
+          navigator when you actually need a different week. */}
+      <div className="mb-2 flex justify-end">
+        <button
+          onClick={() => setWeekNavOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
+        >
+          <FilterIcon className="h-3 w-3" />
+          {weekLabel}
+        </button>
       </div>
+      {weekNavOpen && (
+        <div className="mb-4 flex items-center justify-center gap-1.5">
+          <button onClick={() => setWeekOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous week"><ArrowLeftIcon className="h-4 w-4" /></button>
+          <span className="min-w-[150px] text-center text-[14px] font-extrabold">{weekLabel}</span>
+          <button onClick={() => setWeekOffset((o) => o + 1)} disabled={weekOffset >= 0} className="btn-icon !h-9 !w-9" aria-label="Next week"><ArrowRightIcon className="h-4 w-4" /></button>
+          {weekOffset !== 0 && (
+            <button onClick={() => setWeekOffset(0)} className="btn-sm btn-ghost ml-1">This week</button>
+          )}
+        </div>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total bookings" value={stats.total} sub={weekLabel} />
