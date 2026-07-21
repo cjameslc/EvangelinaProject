@@ -5,6 +5,7 @@ import { BILL_TYPES } from "@/lib/constants";
 import { peso, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
+import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
 import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
 import { UploadIcon, EditIcon, TrashIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
@@ -226,7 +227,10 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
         {isCustom && (
           <div>
             <label className="field-label">Bill name</label>
-            <input value={label} onChange={(e) => setLabel(e.target.value)} className="field-input mt-1.5" />
+            <div className="mt-1.5 flex gap-2">
+              <input value={label} onChange={(e) => setLabel(e.target.value)} className="field-input flex-1" />
+              <EmojiPickerButton onSelect={(emoji) => setLabel((v) => v + emoji)} />
+            </div>
           </div>
         )}
         <div>
@@ -304,7 +308,10 @@ function AddBillModal({ units, defaultUnitId, onClose, onSaved }: { units: Unit[
       <div className="space-y-4">
         <div>
           <label className="field-label">What&rsquo;s this for?</label>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} className="field-input mt-1.5" placeholder="e.g. Cable TV, Pest control" />
+          <div className="mt-1.5 flex gap-2">
+            <input value={label} onChange={(e) => setLabel(e.target.value)} className="field-input flex-1" placeholder="e.g. Cable TV, Pest control" />
+            <EmojiPickerButton onSelect={(emoji) => setLabel((v) => v + emoji)} />
+          </div>
         </div>
         <div>
           <label className="field-label">Amount due (₱)</label>

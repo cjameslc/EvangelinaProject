@@ -347,7 +347,7 @@ export function HousekeepingView({
       </Accordion>
 
       <Accordion title="Supplies & stocks" sub="set the count per unit">
-        <StockPanel units={units} stocks={stocks} canEdit={canEdit} onChanged={refreshStocks} />
+        <StockPanel units={units} stocks={stocks} canEdit={canEdit} canDelete={false} onChanged={refreshStocks} />
       </Accordion>
 
       <Accordion title="💳 Bills tracker" sub="association dues, utilities & subscriptions">

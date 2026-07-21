@@ -4,13 +4,23 @@ import { useState } from "react";
 import { TrashIcon, PlusIcon } from "@/components/ui/Icons";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
+import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 
 type Unit = { id: string; name: string; shortName: string };
 type Stock = { id: string; unitId: string; name: string; count: number };
 
-export function StockPanel({ units, stocks, canEdit, onChanged }: { units: Unit[]; stocks: Stock[]; canEdit: boolean; onChanged: () => void }) {
+export function StockPanel({
+  units, stocks, canEdit, canDelete = canEdit, onChanged,
+}: {
+  units: Unit[]; stocks: Stock[]; canEdit: boolean;
+  /** Separate from canEdit — Housekeeping can adjust quantities and add
+   * items, but removing a supply item entirely is Admin-only, regardless of
+   * who's viewing this same panel from the Housekeeping page. */
+  canDelete?: boolean;
+  onChanged: () => void;
+}) {
   const toast = useToast();
   const [openUnit, setOpenUnit] = useState<string | null>(units[0]?.id ?? null);
   const [newItem, setNewItem] = useState<Record<string, string>>({});
@@ -72,7 +82,7 @@ export function StockPanel({ units, stocks, canEdit, onChanged }: { units: Unit[
                       <span className="grid h-9 w-11 place-items-center border-x border-[var(--line-2)] text-[14px] font-extrabold">{s.count}</span>
                       <button disabled={!canEdit} onClick={() => setCount(s.id, s.count + 1)} className="h-9 w-8 text-lg font-bold hover:bg-[var(--bg-2)] disabled:opacity-40">+</button>
                     </div>
-                    {canEdit && (
+                    {canDelete && (
                       <button onClick={() => removeItem(s.id)} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
                     )}
                   </div>
@@ -80,6 +90,7 @@ export function StockPanel({ units, stocks, canEdit, onChanged }: { units: Unit[
                 {canEdit && (
                   <div className="mt-2 flex gap-2">
                     <input value={newItem[u.id] ?? ""} onChange={(e) => setNewItem((s) => ({ ...s, [u.id]: e.target.value }))} placeholder="Add a supply item…" className="field-input flex-1" onKeyDown={(e) => e.key === "Enter" && addItem(u.id)} />
+                    <EmojiPickerButton onSelect={(emoji) => setNewItem((s) => ({ ...s, [u.id]: (s[u.id] ?? "") + emoji }))} />
                     <button onClick={() => addItem(u.id)} className="btn-icon"><PlusIcon className="h-4 w-4" /></button>
                   </div>
                 )}
@@ -137,7 +148,10 @@ function BulkAddStockModal({ units, onClose, onSaved }: { units: Unit[]; onClose
       <div className="space-y-4">
         <div>
           <label className="field-label">Item name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className="field-input mt-1.5" placeholder="e.g. Tissue rolls" />
+          <div className="mt-1.5 flex gap-2">
+            <input value={name} onChange={(e) => setName(e.target.value)} className="field-input flex-1" placeholder="e.g. Tissue rolls" />
+            <EmojiPickerButton onSelect={(emoji) => setName((v) => v + emoji)} />
+          </div>
         </div>
         <div>
           <label className="field-label">Apply to</label>
