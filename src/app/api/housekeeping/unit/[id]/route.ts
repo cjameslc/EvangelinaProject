@@ -45,23 +45,37 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // Mirror onto the calendar so /calendar shows a unit is currently being
   // cleaned — same mirroring pattern used for bookings (syncCalendarMirror).
-  if (body.start) await openCleaningCalendarBlock(params.id, data.startedAt);
+  if (body.start) await openCleaningCalendarBlock(params.id, data.startedAt, body.bookingId ?? null);
   if (body.status === "todo") await clearCleaningCalendarBlock(params.id);
 
   // When a clean finishes, write a permanent log entry (attributed to
   // whoever's logged in — the person actually doing the clean) and close
-  // off the calendar's in-progress marker.
+  // off the calendar's in-progress marker. One cleaning per checkout: if a
+  // log already exists for this booking's checkout (a double-click, or a
+  // repeated Start/Finish cycle on the same pending checkout), update that
+  // same row instead of inserting a new one. Only cleans with no bookingId
+  // (nothing scheduled) always create fresh — there's no id to dedupe on.
   if (body.status === "clean" && body.end) {
     const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-    await prisma.cleaningLog.create({
-      data: {
-        unitId: params.id,
-        employeeId: employee?.id ?? null,
-        startedAt: state.startedAt ?? new Date(),
-        endedAt: state.endedAt ?? new Date(),
-        photoUrls: (state.photoUrls.length ? state.photoUrls : null) as any,
-      },
-    });
+    const logData = {
+      unitId: params.id,
+      employeeId: employee?.id ?? null,
+      startedAt: state.startedAt ?? new Date(),
+      endedAt: state.endedAt ?? new Date(),
+      photoUrls: (state.photoUrls.length ? state.photoUrls : null) as any,
+    };
+    if (body.bookingId) {
+      // bookingId is a unique column — this upsert is atomic, so even two
+      // Finish requests landing at the exact same moment (a genuine
+      // simultaneous double-click) still resolve to one row, not a race.
+      await prisma.cleaningLog.upsert({
+        where: { bookingId: body.bookingId },
+        update: logData,
+        create: { ...logData, bookingId: body.bookingId },
+      });
+    } else {
+      await prisma.cleaningLog.create({ data: { ...logData, bookingId: null } });
+    }
     await closeCleaningCalendarBlock(params.id, state.endedAt ?? new Date());
   }
 

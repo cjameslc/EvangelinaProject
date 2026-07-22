@@ -28,19 +28,37 @@ export async function syncCalendarMirror(booking: MirrorableBooking) {
 
 // Mirrors a unit's live "cleaning in progress" state onto the calendar as a
 // Cleaning-type CalendarBlock, so /calendar shows it immediately — the same
-// mirroring idea as syncCalendarMirror above, just keyed off "the currently
-// open cleaning block for this unit" (endDate: null) instead of a bookingId,
-// since a clean has no Booking row of its own to hang a unique key off.
+// mirroring idea as syncCalendarMirror above. When a bookingId is known
+// (which checkout this clean is for), it's keyed off cleaningBookingId — a
+// unique column — so repeated Start/Finish cycles for the SAME checkout
+// upsert one row instead of piling up duplicate tiles. Without a bookingId
+// (legacy call sites, or a clean not tied to any specific checkout) it falls
+// back to the old "currently open block for this unit" behavior.
 
 /** Called when a housekeeper clicks "Start cleaning" — opens a new Cleaning
  * block dated `startedAt`, left open-ended until the clean finishes. Clears
- * any stale open block first (e.g. a previous session reset without
- * finishing) so a unit never shows two overlapping "cleaning" bars. */
-export async function openCleaningCalendarBlock(unitId: string, startedAt: Date) {
-  await prisma.calendarBlock.deleteMany({ where: { unitId, type: "Cleaning", endDate: null } });
-  await prisma.calendarBlock.create({
-    data: { unitId, type: "Cleaning", date: startedAt, endDate: null, guest: "Cleaning in progress", status: "confirmed" },
+ * any other stale open block for this unit first (e.g. a previous session
+ * reset without finishing, or a different checkout) so a unit never shows
+ * two overlapping "cleaning" bars. */
+export async function openCleaningCalendarBlock(unitId: string, startedAt: Date, bookingId?: string | null) {
+  const staleOpen = await prisma.calendarBlock.findMany({
+    where: { unitId, type: "Cleaning", endDate: null },
+    select: { id: true, cleaningBookingId: true },
   });
+  const staleIds = staleOpen.filter((b) => !bookingId || b.cleaningBookingId !== bookingId).map((b) => b.id);
+  if (staleIds.length) await prisma.calendarBlock.deleteMany({ where: { id: { in: staleIds } } });
+
+  if (bookingId) {
+    await prisma.calendarBlock.upsert({
+      where: { cleaningBookingId: bookingId },
+      update: { date: startedAt, endDate: null, guest: "Cleaning in progress", status: "confirmed" },
+      create: { unitId, type: "Cleaning", date: startedAt, endDate: null, guest: "Cleaning in progress", status: "confirmed", cleaningBookingId: bookingId },
+    });
+  } else {
+    await prisma.calendarBlock.create({
+      data: { unitId, type: "Cleaning", date: startedAt, endDate: null, guest: "Cleaning in progress", status: "confirmed" },
+    });
+  }
 }
 
 /** Called when a housekeeper marks a unit clean — closes off the open

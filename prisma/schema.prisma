@@ -398,7 +398,9 @@ model Booking {
   paymentVerificationStatus String?
   paymentVerificationNote   String?
 
-  calendarBlock   CalendarBlock?
+  calendarBlock   CalendarBlock?  @relation("BookingCalendarBlock")
+  cleaningBlock   CalendarBlock?  @relation("BookingCleaningBlock")
+  cleaningLogs    CleaningLog[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -426,7 +428,16 @@ model CalendarBlock {
   // generated from, so edits/deletes on the booking can keep it in sync
   // instead of leaving a stale or orphaned block on the calendar.
   bookingId  String?  @unique
-  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking    Booking? @relation("BookingCalendarBlock", fields: [bookingId], references: [id], onDelete: Cascade)
+
+  // Ties the Cleaning-type mirror block to the specific checkout it's
+  // cleaning for, so a repeated Start/Finish cycle for the same checkout
+  // upserts this one row (via this unique key) instead of piling up
+  // duplicate "Cleaned" tiles on the calendar. Null for cleans not tied to
+  // a specific checkout (legacy rows, or a room cleaned with nothing
+  // scheduled) — those keep the old delete-then-create behavior.
+  cleaningBookingId String?  @unique
+  cleaningBooking   Booking? @relation("BookingCleaningBlock", fields: [cleaningBookingId], references: [id], onDelete: Cascade)
 
   @@index([unitId, date])
   @@map("calendar_blocks")
@@ -479,6 +490,12 @@ model CleaningLog {
   // — the permanent record, unlike the state row which gets reset per
   // session. Null (not "[]") for logs written before this field existed.
   photoUrls  String?
+  // The specific booking checkout this clean satisfies — lets a repeated
+  // "Mark clean" for the same checkout update this same row instead of
+  // creating a new one. Null for cleans not tied to a specific checkout
+  // (legacy rows, or a room cleaned with nothing scheduled).
+  bookingId  String?   @unique
+  booking    Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([unitId, startedAt])
   @@index([employeeId])
