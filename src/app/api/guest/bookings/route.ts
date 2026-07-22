@@ -34,12 +34,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Special request is too long." }, { status: 400 });
   }
 
-  const unit = await prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true, nightlyRate: true } });
+  const unit = await prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true } });
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
+
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
 
   // Price is always computed server-side from the real Booking Engine quote
   // — never trust a client-supplied amount for what a guest pays.
-  const quote = quotePrice(unit, stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null);
+  const quote = quotePrice(stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null, settings, settings.dpFee);
 
   const guest = await findOrCreateGuestByEmail(email, name.trim());
 

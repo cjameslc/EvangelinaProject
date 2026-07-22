@@ -20,16 +20,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid check-out date." }, { status: 400 });
   }
 
-  const units = await prisma.unit.findMany({
-    where: { active: true },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, shortName: true, unitNumber: true, nightlyRate: true, photoUrl: true },
-  });
+  const [units, settings] = await Promise.all([
+    prisma.unit.findMany({
+      where: { active: true },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, shortName: true, unitNumber: true, photoUrl: true },
+    }),
+    prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+  ]);
 
   const availability = await checkAvailabilityForUnits(
     units.map((u) => u.id),
     { date, checkOutDate, stayType }
   );
+
+  // Same rate table for every unit — see pricingService.ts.
+  const quote = quotePrice(stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null, settings, settings.dpFee);
 
   const results = units.map((u) => ({
     unitId: u.id,
@@ -37,7 +43,7 @@ export async function GET(req: NextRequest) {
     unitNumber: u.unitNumber,
     photoUrl: u.photoUrl,
     available: availability[u.id],
-    quote: quotePrice({ nightlyRate: u.nightlyRate }, stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null),
+    quote,
   }));
 
   return NextResponse.json({ results });

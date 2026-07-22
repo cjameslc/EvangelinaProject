@@ -594,6 +594,18 @@ model Settings {
   bookerCommission       Int @default(100) // per booking logged
   auditorWeeklyRate      Int @default(0)   // flat weekly rate for Auditor-role staff
 
+  // Guest Portal accommodation rates — Daycation and Night stay (both 12hrs)
+  // use the 12h rate, Full stay (21hrs) uses the 21h rate; weekend = Fri/Sat/Sun
+  // check-in (Asia/Manila). See src/lib/pricing/rates.ts for the actual quote
+  // math — this is the only place these figures live, so Admin can retune
+  // them without a code deploy.
+  weekdayRate12h         Int @default(1499)
+  weekdayRate21h         Int @default(1699)
+  weekendRate12h         Int @default(1699)
+  weekendRate21h         Int @default(1899)
+  // 10% off weekday (Mon-Thu) Night-stay bookings only.
+  weekdayNightPromoPct   Int @default(10)
+
   updatedAt     DateTime @updatedAt
 
   @@map("settings")

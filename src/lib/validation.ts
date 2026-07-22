@@ -168,6 +168,11 @@ export const settingsSchema = z.object({
   housekeepingNightBonus: z.number().int().nonnegative().optional(),
   bookerCommission: z.number().int().nonnegative().optional(),
   auditorWeeklyRate: z.number().int().nonnegative().optional(),
+  weekdayRate12h: z.number().int().positive().optional(),
+  weekdayRate21h: z.number().int().positive().optional(),
+  weekendRate12h: z.number().int().positive().optional(),
+  weekendRate21h: z.number().int().positive().optional(),
+  weekdayNightPromoPct: z.number().int().min(0).max(100).optional(),
 });
 
 export const auditFindingCreateSchema = z.object({

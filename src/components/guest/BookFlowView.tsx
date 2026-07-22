@@ -7,7 +7,8 @@ import { peso } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 
 type StayType = "Daycation" | "Night" | "Full";
-type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: { nights: number; total: number } };
+type Quote = { nights: number; standardTotal: number; discountPct: number; discountAmount: number; total: number; dpAmount: number; balanceDue: number };
+type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: Quote };
 
 export function BookFlowView() {
   const searchParams = useSearchParams();
@@ -150,7 +151,21 @@ export function BookFlowView() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-extrabold">{r.shortName}</div>
-                <div className="text-[13px] text-[var(--gray)]">{r.available ? `${peso(r.quote.total)} total` : "Not available for these dates"}</div>
+                {r.available ? (
+                  <div className="text-[13px] text-[var(--gray)]">
+                    {r.quote.discountPct > 0 ? (
+                      <>
+                        <span className="line-through">{peso(r.quote.standardTotal)}</span>{" "}
+                        <span className="font-bold text-rausch">{peso(r.quote.total)} total</span>{" "}
+                        <span className="text-[11px] font-bold text-teal">−{r.quote.discountPct}% off</span>
+                      </>
+                    ) : (
+                      `${peso(r.quote.total)} total`
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[13px] text-[var(--gray)]">Not available for these dates</div>
+                )}
               </div>
               <button disabled={!r.available} onClick={() => chooseUnit(r)} className="btn-primary flex-none disabled:opacity-40">
                 Select
@@ -164,7 +179,14 @@ export function BookFlowView() {
         <form onSubmit={confirm} className="mt-6 space-y-4">
           <div className="card p-4">
             <div className="font-extrabold">{selected.shortName}</div>
-            <div className="text-[13px] text-[var(--gray)]">{STAY_TYPES[stayType].label} · {peso(selected.quote.total)} total</div>
+            <div className="text-[13px] text-[var(--gray)]">{STAY_TYPES[stayType].label} · {selected.quote.nights} night{selected.quote.nights === 1 ? "" : "s"}</div>
+            <div className="mt-3 space-y-1 border-t border-[var(--line)] pt-3 text-[13.5px]">
+              <div className="flex justify-between"><span className="text-[var(--gray)]">Standard rate</span><span className={selected.quote.discountPct > 0 ? "line-through text-[var(--gray)]" : "font-bold"}>{peso(selected.quote.standardTotal)}</span></div>
+              {selected.quote.discountPct > 0 && (
+                <div className="flex justify-between text-teal"><span>Weekday night promo (−{selected.quote.discountPct}%)</span><span>−{peso(selected.quote.discountAmount)}</span></div>
+              )}
+              <div className="flex justify-between text-[15px] font-extrabold"><span>Total</span><span>{peso(selected.quote.total)}</span></div>
+            </div>
           </div>
           <div className="card space-y-4 p-5">
             <div>
