@@ -24,11 +24,19 @@ const NIGHT_EARLIEST_MINUTES = 17 * 60; // 5:00 PM
  * only makes sense from evening onward. Full stay (21hr) and any future
  * date are unrestricted; "until 7am the next day" describes how a Night
  * stay naturally concludes, not an additional cutoff to enforce here.
+ *
+ * Flexible has no fixed window — for today, the only real requirement is
+ * that the guest's own chosen check-in time hasn't already passed.
  */
-export function isStayTypeBookableNow(stayType: StayType, dateStr: string): boolean {
+export function isStayTypeBookableNow(stayType: StayType, dateStr: string, checkInTime?: string | null): boolean {
   if (dateStr !== manilaTodayISO()) return true;
   const nowMinutes = manilaNowMinutes();
   if (stayType === "Daycation") return nowMinutes < DAYCATION_CUTOFF_MINUTES;
   if (stayType === "Night") return nowMinutes >= NIGHT_EARLIEST_MINUTES;
+  if (stayType === "Flexible") {
+    if (!checkInTime) return false;
+    const [h, m] = checkInTime.split(":").map(Number);
+    return h * 60 + m > nowMinutes;
+  }
   return true;
 }

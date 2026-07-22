@@ -10,7 +10,7 @@ import { RateBreakdown } from "@/components/guest/RateBreakdown";
 import { manilaTodayISO } from "@/lib/manilaTime";
 import type { PriceQuote } from "@/lib/pricing/rates";
 
-type StayType = "Daycation" | "Night" | "Full";
+type StayType = "Daycation" | "Night" | "Full" | "Flexible";
 type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: PriceQuote };
 
 function nextDay(dateStr: string): string {
@@ -32,6 +32,10 @@ export function BookFlowView() {
   });
   const [checkOutDate, setCheckOutDate] = useState(searchParams?.get("checkOut") ?? "");
   const [stayType, setStayType] = useState<StayType>("Full");
+  // Flexible only — any check-in/check-out time within the same day, unlike
+  // Daycation/Night's fixed windows.
+  const [checkInTime, setCheckInTime] = useState("");
+  const [checkOutTime, setCheckOutTime] = useState("");
   const [results, setResults] = useState<QuoteResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
   const [selected, setSelected] = useState<QuoteResult | null>(null);
@@ -54,11 +58,16 @@ export function BookFlowView() {
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
     if (!date || loadingResults) return;
+    if (stayType === "Flexible" && (!checkInTime || !checkOutTime)) {
+      setError("Pick a check-in and check-out time.");
+      return;
+    }
     setLoadingResults(true);
     setError("");
     try {
       const params = new URLSearchParams({ date, stayType });
-      if (stayType !== "Daycation" && checkOutDate) params.set("checkOutDate", checkOutDate);
+      if (stayType !== "Daycation" && stayType !== "Flexible" && checkOutDate) params.set("checkOutDate", checkOutDate);
+      if (stayType === "Flexible") { params.set("checkInTime", checkInTime); params.set("checkOutTime", checkOutTime); }
       const res = await fetch(`/api/guest/booking-quote?${params}`);
       const j = await res.json();
       if (!res.ok) { setError(j.error ?? "Couldn't check availability."); return; }
@@ -90,7 +99,9 @@ export function BookFlowView() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          unitId: selected.unitId, date, checkOutDate: stayType === "Daycation" ? null : checkOutDate, stayType,
+          unitId: selected.unitId, date, checkOutDate: stayType === "Daycation" || stayType === "Flexible" ? null : checkOutDate, stayType,
+          checkInTime: stayType === "Flexible" ? checkInTime : null,
+          checkOutTime: stayType === "Flexible" ? checkOutTime : null,
           name, email, phone, pax: pax || null, specialRequest: specialRequest || null, paymentType,
         }),
       });
@@ -227,11 +238,11 @@ export function BookFlowView() {
       {(step === "search" || step === "select") && (
         <form onSubmit={search} className="card mt-5 space-y-4 p-5">
           <div className="flex flex-wrap gap-1.5">
-            {(["Daycation", "Night", "Full"] as StayType[]).map((st) => (
+            {(["Daycation", "Night", "Full", "Flexible"] as StayType[]).map((st) => (
               <Pill key={st} on={stayType === st} onClick={() => setStayType(st)}>{STAY_TYPES[st].label}</Pill>
             ))}
           </div>
-          <div className={`grid gap-3 ${stayType === "Daycation" ? "grid-cols-1" : "grid-cols-2"}`}>
+          <div className={`grid gap-3 ${stayType === "Daycation" || stayType === "Flexible" ? "grid-cols-1" : "grid-cols-2"}`}>
             <div className="min-w-0">
               <label htmlFor="book-checkin" className="field-label">Check-in</label>
               <input id="book-checkin" type="date" required min={today} value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1 w-full" />
@@ -250,6 +261,19 @@ export function BookFlowView() {
               </div>
             )}
           </div>
+          {stayType === "Flexible" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0">
+                <label htmlFor="book-checkin-time" className="field-label">Check-in time</label>
+                <input id="book-checkin-time" type="time" required value={checkInTime} onChange={(e) => setCheckInTime(e.target.value)} className="field-input mt-1 w-full" />
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="book-checkout-time" className="field-label">Check-out time</label>
+                <input id="book-checkout-time" type="time" required value={checkOutTime} onChange={(e) => setCheckOutTime(e.target.value)} className="field-input mt-1 w-full" />
+              </div>
+              <p className="col-span-2 text-[11px] text-[var(--gray)]">Same day only — pick any time range that works for you.</p>
+            </div>
+          )}
           {error && <p className="text-[13px] font-semibold text-rausch">{error}</p>}
           <button type="submit" disabled={loadingResults} className="btn-primary w-full justify-center">
             {loadingResults ? "Checking…" : "Check availability"}
@@ -299,7 +323,10 @@ export function BookFlowView() {
         <form onSubmit={confirm} className="mt-6 space-y-4">
           <div className="card p-4">
             <div className="font-extrabold">{selected.shortName}</div>
-            <div className="text-[13px] text-[var(--gray)]">{STAY_TYPES[stayType].label} · {selected.quote.nights} night{selected.quote.nights === 1 ? "" : "s"}</div>
+            <div className="text-[13px] text-[var(--gray)]">
+              {STAY_TYPES[stayType].label}
+              {stayType === "Flexible" ? ` · ${checkInTime}–${checkOutTime}` : ` · ${selected.quote.nights} night${selected.quote.nights === 1 ? "" : "s"}`}
+            </div>
             <div className="mt-3 border-t border-[var(--line)] pt-3">
               <RateBreakdown {...selected.quote} />
             </div>

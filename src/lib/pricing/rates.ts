@@ -39,21 +39,35 @@ function baseRateForNight(stayType: StayType, date: Date, rates: RateTable): num
   return weekend ? rates.weekendRate12h : rates.weekdayRate12h;
 }
 
+// Flexible has no fixed window, so "does this resemble a Night stay" (for
+// promo eligibility only — the base rate is the same 12h tier either way)
+// is decided by whether its chosen check-in time falls at/after this same
+// 5pm cutoff bookingWindow.ts uses for the same-day Night-booking rule.
+const NIGHT_LIKE_CUTOFF_MINUTES = 17 * 60;
+function isNightLikeTime(checkInTime?: string | null): boolean {
+  if (!checkInTime) return false;
+  const [h, m] = checkInTime.split(":").map(Number);
+  return h * 60 + m >= NIGHT_LIKE_CUTOFF_MINUTES;
+}
+
 /**
  * Guest-facing quote, priced night by night so a stay spanning a
  * weekday→weekend boundary charges each night at its own rate rather than
- * just the check-in day's rate. The 10% weekday-night promo applies only to
- * Night-stay nights landing on a weekday (Mon-Thu) — Daycation and Full
- * stays are never discounted, matching the spec exactly.
+ * just the check-in day's rate. The 10% weekday-night promo applies to
+ * Night-stay nights landing on a weekday (Mon-Thu), and to a Flexible stay
+ * whose chosen check-in time is evening-or-later on a weekday (same rate as
+ * "whichever type it resembles") — Daycation and Full stays are never
+ * discounted, matching the spec exactly.
  *
  * Amounts are whole pesos (rounded), matching this app's existing money
  * convention for Booking.amount/Settings rates (unlike the newer centavo-
  * precise Analytics fields) — so a 10% discount on ₱1,699 rounds to ₱170,
  * not the fractional ₱169.90 in the spec's illustrative example.
  */
-export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | null, rates: RateTable, dpFee: number): PriceQuote {
+export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | null, rates: RateTable, dpFee: number, checkInTime?: string | null): PriceQuote {
   const { start, end } = occupiedRange(stayType, date, checkOutDate);
   const nights = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
+  const promoEligibleType = stayType === "Night" || (stayType === "Flexible" && isNightLikeTime(checkInTime));
 
   let standardTotal = 0;
   let discountAmount = 0;
@@ -61,7 +75,7 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
   for (let i = 0; i < nights; i++) {
     const rate = baseRateForNight(stayType, cursor, rates);
     standardTotal += rate;
-    if (stayType === "Night" && !isManilaWeekend(cursor)) {
+    if (promoEligibleType && !isManilaWeekend(cursor)) {
       discountAmount += Math.round((rate * rates.weekdayNightPromoPct) / 100);
     }
     cursor.setUTCDate(cursor.getUTCDate() + 1);

@@ -12,7 +12,9 @@ import type { StayType } from "@/lib/bookingEngine/availabilityService";
  * the actually-persisted Booking.checkOutDate can never disagree.
  */
 export function normalizeGuestCheckOutDate(stayType: StayType, date: Date, checkOutDate: Date | null): Date | null {
-  if (stayType === "Daycation") return null;
+  // Same-day only, like Daycation — Flexible's whole point is a same-day
+  // time window, never a client-chosen later checkout date.
+  if (stayType === "Daycation" || stayType === "Flexible") return null;
 
   const nextDay = new Date(date);
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);

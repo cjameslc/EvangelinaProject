@@ -21,6 +21,6 @@ export type { PriceQuote, RateTable };
  * identically for the same date/stayType. See src/lib/pricing/rates.ts for
  * the actual day-of-week/duration/promo math.
  */
-export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | null, rates: RateTable, dpFee: number): PriceQuote {
-  return computeQuote(stayType, date, checkOutDate, rates, dpFee);
+export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | null, rates: RateTable, dpFee: number, checkInTime?: string | null): PriceQuote {
+  return computeQuote(stayType, date, checkOutDate, rates, dpFee, checkInTime);
 }

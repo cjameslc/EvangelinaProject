@@ -12,7 +12,7 @@ import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
-const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full"];
+const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full", "Flexible"];
 
 function isValidDateString(value: unknown): value is string {
   return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
-  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType } = body;
+  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType, checkInTime, checkOutTime } = body;
   if (typeof unitId !== "string" || !unitId || !isValidDateString(date) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "Missing or invalid unit, date, or stay type." }, { status: 400 });
   }
@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
   }
   if (checkOutDate !== undefined && checkOutDate !== null && !isValidDateString(checkOutDate)) {
     return NextResponse.json({ error: "Invalid check-out date." }, { status: 400 });
+  }
+  if (stayType === "Flexible" && (typeof checkInTime !== "string" || !checkInTime || typeof checkOutTime !== "string" || !checkOutTime)) {
+    return NextResponse.json({ error: "A Flexible stay needs both a check-in and check-out time." }, { status: 400 });
   }
   if (typeof name !== "string" || !name.trim()) return NextResponse.json({ error: "Enter your name." }, { status: 400 });
   if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
@@ -58,7 +61,7 @@ export async function POST(req: NextRequest) {
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
   // Same-day booking window — deliberately the exact same generic message
   // as "unit not found," so this never reads as its own distinct rule.
-  if (!isStayTypeBookableNow(stayType, date)) {
+  if (!isStayTypeBookableNow(stayType, date, checkInTime)) {
     return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
   }
 
@@ -71,7 +74,7 @@ export async function POST(req: NextRequest) {
 
   // Price is always computed server-side from the real Booking Engine quote
   // — never trust a client-supplied amount for what a guest pays.
-  const quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee);
+  const quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee, checkInTime);
 
   // Same bookingSchema every staff-side booking is validated against — no
   // reason the guest path should skip real shape/type validation just
@@ -81,6 +84,8 @@ export async function POST(req: NextRequest) {
     date,
     checkOutDate: normalizedCheckOutDateStr,
     stayType,
+    checkInTime: stayType === "Flexible" ? checkInTime : null,
+    checkOutTime: stayType === "Flexible" ? checkOutTime : null,
     guests: [name.trim()],
     pax: paxNumber,
     contactNumber: phone.trim(),
