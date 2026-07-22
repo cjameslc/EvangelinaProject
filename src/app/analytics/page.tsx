@@ -14,6 +14,8 @@ import { GuestSection } from "@/components/analytics/sections/GuestSection";
 import { HousekeepingSection } from "@/components/analytics/sections/HousekeepingSection";
 import { StaffSection } from "@/components/analytics/sections/StaffSection";
 import { UnitPerformanceSection } from "@/components/analytics/sections/UnitPerformanceSection";
+import { ExportMenu } from "@/components/analytics/ExportMenu";
+import { AutoRefresh } from "@/components/analytics/AutoRefresh";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -42,8 +44,16 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6">
-      <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
-      <p className="mt-1 text-sm text-[var(--gray)]">Executive, Revenue, Financial, Booking, Occupancy, Guest, Housekeeping, and Staff analytics for your portfolio.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
+          <p className="mt-1 text-sm text-[var(--gray)]">Executive, Revenue, Financial, Booking, Occupancy, Guest, Housekeeping, and Staff analytics for your portfolio.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <AutoRefresh />
+          <ExportMenu />
+        </div>
+      </div>
 
       <div className="mt-5">
         <AnalyticsFilterBar units={availableUnits} />
