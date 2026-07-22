@@ -360,6 +360,10 @@ model Booking {
   guestId         String?
   guest           Guest?        @relation(fields: [guestId], references: [id], onDelete: SetNull)
   specialRequest  String?
+  // Guest-initiated cancellation — set instead of deleting the row, so a
+  // guest still sees a cancelled stay in their booking history. Staff's
+  // existing DELETE endpoint is unchanged (hard delete, unrelated to this).
+  cancelledAt     DateTime?
 
   // Airbnb iCal sync
   source          String @default("MANUAL")
@@ -636,12 +640,13 @@ model DismissedAttentionItem {
 // The two auth systems share nothing — no session, no cookie, no code path
 // — specifically so guest work can never regress staff login.
 model Guest {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  phone     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  name                String?
+  phone               String?
+  emailNotifications  Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   bookings  Booking[]
 

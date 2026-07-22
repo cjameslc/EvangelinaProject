@@ -1,12 +1,20 @@
 import Link from "next/link";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
+import { isBookingCompleted } from "@/lib/bookingStatus";
 import { peso, fmtDate } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 
-// Functionally real (reads through the Booking Engine's guestService)
-// but visually minimal — Phase D (Guest Portal) gives this the full
-// Airbnb-inspired treatment: status grouping, invoices, cancel/modify.
+function statusOf(b: { date: string; checkOutDate: string | null; cancelledAt: string | null }) {
+  if (b.cancelledAt) return "cancelled";
+  if (isBookingCompleted(b)) return "completed";
+  if (new Date(b.date) <= new Date()) return "active";
+  return "upcoming";
+}
+
+const STATUS_LABEL: Record<string, string> = { upcoming: "Upcoming", active: "Active", completed: "Completed", cancelled: "Cancelled" };
+const STATUS_COLOR: Record<string, string> = { upcoming: "text-rausch bg-rausch/10", active: "text-teal bg-teal/10", completed: "text-[var(--gray)] bg-[var(--bg-2)]", cancelled: "text-amber bg-amber/10" };
+
 export default async function MyBookingsPage() {
   const guest = await getCurrentGuest();
   if (!guest) {
@@ -19,30 +27,49 @@ export default async function MyBookingsPage() {
   }
 
   const bookings = await getGuestBookings(guest.id);
+  const grouped: Record<string, typeof bookings> = { upcoming: [], active: [], completed: [], cancelled: [] };
+  for (const b of bookings) grouped[statusOf(b as any)].push(b);
 
   return (
     <div className="mx-auto max-w-[700px] px-4 py-9 sm:px-6">
-      <h1 className="text-[24px] font-extrabold tracking-tight">My bookings</h1>
-      <p className="mt-1 text-[13.5px] text-[var(--gray)]">Signed in as {guest.email}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-[24px] font-extrabold tracking-tight">My bookings</h1>
+          <p className="mt-1 text-[13.5px] text-[var(--gray)]">Signed in as {guest.email}</p>
+        </div>
+        <Link href="/account" className="btn btn-sm">My account</Link>
+      </div>
 
       {bookings.length === 0 ? (
-        <p className="mt-8 text-[14px] text-[var(--gray)]">No bookings yet.</p>
+        <div className="mt-8 text-center">
+          <p className="text-[14px] text-[var(--gray)]">No bookings yet.</p>
+          <Link href="/" className="btn-primary mt-3 inline-flex">Browse listings</Link>
+        </div>
       ) : (
-        <div className="mt-6 space-y-3">
-          {bookings.map((b) => (
-            <div key={b.id} className="card p-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-extrabold">{b.unit.shortName}</span>
-                <span className="text-[12px] font-bold text-[var(--gray)]">{STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}</span>
-              </div>
-              <div className="mt-1 text-[13px] text-[var(--gray)]">{fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</div>
-              <div className="mt-2 flex items-center justify-between text-[13.5px]">
-                <span className={b.paid ? "font-bold text-green" : "font-bold text-amber"}>{b.paid ? "Paid" : "Payment pending"}</span>
-                <span className="font-extrabold">{peso(b.amount)}</span>
+        (["upcoming", "active", "completed", "cancelled"] as const).map((group) =>
+          grouped[group].length === 0 ? null : (
+            <div key={group} className="mt-7">
+              <h2 className="mb-2.5 text-[12px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{STATUS_LABEL[group]} ({grouped[group].length})</h2>
+              <div className="space-y-3">
+                {grouped[group].map((b) => (
+                  <Link key={b.id} href={`/my-bookings/${b.id}`} className="card block p-4 transition hover:border-[var(--ink)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-extrabold">{b.unit.shortName}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase ${STATUS_COLOR[statusOf(b as any)]}`}>{STATUS_LABEL[statusOf(b as any)]}</span>
+                    </div>
+                    <div className="mt-1 text-[13px] text-[var(--gray)]">
+                      {fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · {STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-[13.5px]">
+                      <span className={b.paid ? "font-bold text-green" : "font-bold text-amber"}>{b.paid ? "Paid" : "Payment pending"}</span>
+                      <span className="font-extrabold">{peso(b.amount)}</span>
+                    </div>
+                  </Link>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )
+        )
       )}
     </div>
   );
