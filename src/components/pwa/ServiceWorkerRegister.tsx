@@ -14,9 +14,17 @@ export function ServiceWorkerRegister() {
 
     if (!("serviceWorker" in navigator)) return;
 
+    // A page's very first load is never itself SW-controlled — clients.claim()
+    // in sw.js's activate handler still fires "controllerchange" once that
+    // first install finishes, which is NOT an update, just normal first-visit
+    // setup. Reloading on it force-refreshes every single first-time visitor
+    // shortly after page load, potentially interrupting whatever they were
+    // doing (typing, submitting a form). Only a real update — an existing
+    // controller being replaced by a new one — should trigger a reload.
+    const hadControllerBefore = !!navigator.serviceWorker.controller;
     let refreshed = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshed) return;
+      if (refreshed || !hadControllerBefore) return;
       refreshed = true;
       window.location.reload();
     });
