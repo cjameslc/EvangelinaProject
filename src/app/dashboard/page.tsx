@@ -60,9 +60,12 @@ const getDashboardData = unstable_cache(
       // for the Earnings "Salary" line. The full manual-entry editor now
       // lives on the Admin page's Weekly report tab.
       prismaPool[7].weeklyExpense.findMany({ orderBy: { date: "desc" }, take: 300, include: { targetEmployee: { select: { id: true, name: true, role: true } }, addedBy: { select: { id: true, name: true } } } }),
-      // Feeds the "Needs your attention" card — open Critical/Warning findings only.
+      // Feeds the "Needs your attention" card — every open (unresolved)
+      // finding from the Auditor page. Positive findings are commendations,
+      // not something needing action, so they're excluded here even though
+      // they're still "a finding" on the Auditor page itself.
       prismaPool[8].auditFinding.findMany({
-        where: { ...findingsWhere, resolved: false, severity: { in: ["Critical", "Warning"] } },
+        where: { ...findingsWhere, resolved: false, severity: { in: ["Critical", "Warning", "Minor"] } },
         orderBy: { createdAt: "desc" },
         take: 20,
         include: {

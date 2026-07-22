@@ -624,7 +624,7 @@ export function DashboardView({
     attentionFindings.forEach((f) => {
       items.push({
         id: f.id,
-        dot: f.severity === "Critical" ? "bg-rausch" : "bg-amber",
+        dot: f.severity === "Critical" ? "bg-rausch" : f.severity === "Warning" ? "bg-amber" : "bg-blue",
         title: f.title,
         desc: f.notes || f.recommendedAction || `${f.unit?.shortName ?? "All units"}${f.employee ? ` · ${f.employee.name}` : ""}`,
         tag: "Auditor",
