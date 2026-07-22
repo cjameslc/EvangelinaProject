@@ -9,6 +9,9 @@ import type { DashboardPeriodType } from "@/lib/payroll";
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
+/** The Manila calendar day (YYYY-MM-DD) a given instant falls on — exported for chart bucketing (revenueSeries etc.), which needs the same timezone rule every period boundary already uses. */
+export const manilaDayKey = dayOf;
+
 export type AnalyticsPeriodType = DashboardPeriodType | "quarterly";
 
 export function periodRangeFor(
