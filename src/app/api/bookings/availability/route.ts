@@ -93,6 +93,15 @@ export async function GET(req: NextRequest) {
     // Same day, every unit × every stay type (not just what was asked for) —
     // surfaces "this unit's booked, but Unit X is free" and "Full's taken,
     // but Daycation/Night are open" in one pass.
+    // Bug fix: the old exclusion clause was meant to skip re-listing the
+    // exact (unit, stay type) combo already shown as unavailable up top, but
+    // its `unitId || r.unitId` trick collapsed to "same stay type" whenever
+    // no specific unit was requested — silently hiding every OTHER unit
+    // that's genuinely free for the same stay type ("any unit" + "Full"
+    // would filter out every free Full-stay unit, showing only Daycation/
+    // Night alternatives). For a specific-unit request the exact combo is
+    // always unavailable here already (or this branch wouldn't run at all),
+    // so `r.available` alone already excludes it — no extra clause needed.
     sameDayOtherOptions = units.flatMap((u) =>
       STAY_TYPE_KEYS.map((st) => ({
         unitId: u.id,
@@ -101,7 +110,15 @@ export async function GET(req: NextRequest) {
         date: isoOf(date),
         available: isFree(u.id, st, date),
       }))
-    ).filter((r) => r.available && !(r.unitId === (unitId || r.unitId) && stayType && r.stayType === stayType && !unitId));
+    ).filter((r) => r.available);
+    // The result is capped (below) to keep the chat bubble short, so without
+    // this the stay type actually asked about can get pushed out entirely by
+    // "other stay type, same unit" rows listed first — surface matches on
+    // the requested stay type before anything else. Stable sort: unit order
+    // within each group is unchanged.
+    if (stayType) {
+      sameDayOtherOptions.sort((a, b) => (a.stayType === stayType ? 0 : 1) - (b.stayType === stayType ? 0 : 1));
+    }
 
     // Nearby dates for the FIRST requested unit+stayType only (the specific
     // thing that was actually asked about) — only meaningful when a single

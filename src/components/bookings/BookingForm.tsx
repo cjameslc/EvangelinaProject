@@ -252,6 +252,10 @@ export function BookingForm({
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!v.date) e.date = "Pick a date.";
+    // Auto-suggested the moment a stay type is picked (see smartSchedule) —
+    // only ever blank if checkout was manually cleared, so this rarely
+    // actually blocks anyone, but check-in and check-out are both required.
+    if (!v.checkOutDate) e.checkOutDate = "Pick a check-out date.";
     if (!v.unitId) e.unitId = "Choose a unit.";
     if (!v.stayType) e.stayType = "Choose a stay type.";
     if (conflict) e.unitId = "This unit is already booked during the selected schedule.";
@@ -310,7 +314,8 @@ export function BookingForm({
             />
           </div>
           {err("date")}
-          <p className="mt-1 text-[12px] text-[var(--gray)]">Leave checkout unset for a same-day (Daycation) or next-day (Night/Full) stay — it&rsquo;s auto-suggested from the stay type below. Pick one for multi-night stays.</p>
+          {err("checkOutDate")}
+          <p className="mt-1 text-[12px] text-[var(--gray)]">Check-out is auto-suggested once you pick a stay type below (same-day for Daycation, next-day for Night/Full) — adjust it for multi-night stays. Both check-in and check-out are required.</p>
         </div>
 
         <div>

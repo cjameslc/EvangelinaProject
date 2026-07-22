@@ -205,7 +205,7 @@ function ResultBubble({
   return (
     <div className="space-y-2.5">
       <div className="font-bold text-rausch">
-        ❌ {unitIdRequested ? "Not available" : "Nothing free"} on {fmtDate(data.date, { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}.
+        ❌ {unitIdRequested ? "Not available" : sameDayOtherOptions.length > 0 ? "Not every unit is free" : "Nothing free"} on {fmtDate(data.date, { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}.
       </div>
 
       {sameDayOtherOptions.length > 0 && (
