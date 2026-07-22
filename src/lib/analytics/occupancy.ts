@@ -108,3 +108,75 @@ export function computeADR(bookings: OccupancyBooking[], periodStart: Date, peri
 export function computeRevPAR(revenueCentavos: number, availableNights: number): number {
   return availableNights > 0 ? Math.round(revenueCentavos / availableNights / 100) : 0;
 }
+
+export type CalendarCellStatus = "booked" | "maintenance" | "cleaning" | "available";
+export type CalendarCell = { unitId: string; dateKey: string; status: CalendarCellStatus };
+
+/** Cap on the calendar grid's day span — a year-long grid at 5 units × 365 days is ~1800 cells, unreadable and not worth rendering; the UI shows a "pick a shorter range" message past this instead. */
+export const OCCUPANCY_CALENDAR_MAX_DAYS = 92;
+
+/**
+ * A unit × day grid for the Occupancy Calendar — one cell per unit per
+ * day, status in priority order Booked > Maintenance > Cleaning >
+ * Available (a checkout-day cleaning block shouldn't hide that the room
+ * was actually occupied that night). `periodStart`/`periodEnd` should
+ * already be capped to OCCUPANCY_CALENDAR_MAX_DAYS by the caller.
+ */
+export function occupancyCalendarGrid(params: {
+  unitIds: string[];
+  periodStart: Date;
+  periodEnd: Date;
+  bookings: OccupancyBooking[];
+  maintenanceBlocks: OccupancyBlock[];
+  cleaningBlocks: OccupancyBlock[];
+}): CalendarCell[] {
+  const { unitIds, periodStart, periodEnd, bookings, maintenanceBlocks, cleaningBlocks } = params;
+  const days = daysInRange({ start: periodStart, end: periodEnd });
+
+  const cellsByUnit = new Map<string, Map<string, CalendarCellStatus>>();
+  for (const unitId of unitIds) {
+    const dayMap = new Map<string, CalendarCellStatus>();
+    for (let i = 0; i < days; i++) {
+      const d = new Date(periodStart.getTime() + i * 86400000);
+      dayMap.set(d.toISOString().slice(0, 10), "available");
+    }
+    cellsByUnit.set(unitId, dayMap);
+  }
+
+  const markRange = (unitId: string, start: Date, end: Date, status: CalendarCellStatus, priority: CalendarCellStatus[]) => {
+    const dayMap = cellsByUnit.get(unitId);
+    if (!dayMap) return;
+    const s = start.getTime() > periodStart.getTime() ? start : periodStart;
+    const e = end.getTime() < periodEnd.getTime() ? end : periodEnd;
+    for (let t = s.getTime(); t < e.getTime(); t += 86400000) {
+      const key = new Date(t).toISOString().slice(0, 10);
+      const current = dayMap.get(key);
+      if (current === undefined) continue;
+      // Only overwrite if the new status outranks what's already there.
+      if (priority.indexOf(status) < priority.indexOf(current)) dayMap.set(key, status);
+    }
+  };
+  const rank: CalendarCellStatus[] = ["booked", "maintenance", "cleaning", "available"];
+
+  for (const b of bookings) {
+    if (b.cancelledAt) continue;
+    const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
+    markRange(b.unitId, start, end, "booked", rank);
+  }
+  for (const blk of maintenanceBlocks) {
+    const start = new Date(blk.date);
+    const end = blk.endDate ? new Date(blk.endDate) : new Date(start.getTime() + 86400000);
+    markRange(blk.unitId, start, end, "maintenance", rank);
+  }
+  for (const blk of cleaningBlocks) {
+    const start = new Date(blk.date);
+    const end = blk.endDate ? new Date(blk.endDate) : new Date(start.getTime() + 86400000);
+    markRange(blk.unitId, start, end, "cleaning", rank);
+  }
+
+  const cells: CalendarCell[] = [];
+  for (const [unitId, dayMap] of cellsByUnit) {
+    for (const [dateKey, status] of dayMap) cells.push({ unitId, dateKey, status });
+  }
+  return cells;
+}

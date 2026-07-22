@@ -8,6 +8,8 @@ import { AnalyticsFilterBar } from "@/components/analytics/AnalyticsFilterBar";
 import { KpiRow } from "@/components/analytics/KpiRow";
 import { RevenueSection } from "@/components/analytics/sections/RevenueSection";
 import { FinancialSection } from "@/components/analytics/sections/FinancialSection";
+import { BookingSection } from "@/components/analytics/sections/BookingSection";
+import { OccupancySection } from "@/components/analytics/sections/OccupancySection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -37,7 +39,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
-      <p className="mt-1 text-sm text-[var(--gray)]">Executive KPIs, Revenue, and Financial for your portfolio — Booking, Occupancy, Guest, Housekeeping, and Staff sections are coming in later phases.</p>
+      <p className="mt-1 text-sm text-[var(--gray)]">Executive KPIs, Revenue, Financial, Booking, and Occupancy for your portfolio — Guest, Housekeeping, and Staff sections are coming in later phases.</p>
 
       <div className="mt-5">
         <AnalyticsFilterBar units={availableUnits} />
@@ -56,6 +58,18 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`financial-${JSON.stringify(filters)}`}>
           <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`booking-${JSON.stringify(filters)}`}>
+          <BookingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`occupancy-${JSON.stringify(filters)}`}>
+          <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
       </div>
     </div>
