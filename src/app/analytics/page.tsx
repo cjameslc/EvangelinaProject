@@ -10,6 +10,9 @@ import { RevenueSection } from "@/components/analytics/sections/RevenueSection";
 import { FinancialSection } from "@/components/analytics/sections/FinancialSection";
 import { BookingSection } from "@/components/analytics/sections/BookingSection";
 import { OccupancySection } from "@/components/analytics/sections/OccupancySection";
+import { GuestSection } from "@/components/analytics/sections/GuestSection";
+import { HousekeepingSection } from "@/components/analytics/sections/HousekeepingSection";
+import { StaffSection } from "@/components/analytics/sections/StaffSection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -39,7 +42,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-extrabold tracking-tight">Analytics</h1>
-      <p className="mt-1 text-sm text-[var(--gray)]">Executive KPIs, Revenue, Financial, Booking, and Occupancy for your portfolio — Guest, Housekeeping, and Staff sections are coming in later phases.</p>
+      <p className="mt-1 text-sm text-[var(--gray)]">Executive, Revenue, Financial, Booking, Occupancy, Guest, Housekeeping, and Staff analytics for your portfolio.</p>
 
       <div className="mt-5">
         <AnalyticsFilterBar units={availableUnits} />
@@ -70,6 +73,24 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`occupancy-${JSON.stringify(filters)}`}>
           <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`guest-${JSON.stringify(filters)}`}>
+          <GuestSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`hk-${JSON.stringify(filters)}`}>
+          <HousekeepingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
+          <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
       </div>
     </div>

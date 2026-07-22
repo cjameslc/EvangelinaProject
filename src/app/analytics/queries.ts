@@ -5,9 +5,12 @@ import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, type AnalyticsPeri
 import { computeOccupancy, computeADR, computeRevPAR, occupancyCalendarGrid, OCCUPANCY_CALENDAR_MAX_DAYS, type CalendarCell } from "@/lib/analytics/occupancy";
 import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
-import { guestRepeatRate } from "@/lib/analytics/guests";
+import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
 import { netProfitCentavos, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos } from "@/lib/analytics/financials";
+import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot } from "@/lib/analytics/housekeeping";
+import { staffPerformance } from "@/lib/analytics/staff";
+import type { PayrollRates } from "@/lib/payroll";
 
 export type AnalyticsFilters = {
   preset: AnalyticsPeriodPreset;
@@ -474,5 +477,176 @@ export async function getOccupancyAnalytics(user: { role: string; ownedUnitIds: 
     forecastPct: forecast.forecastCentavos, // reusing the generic forecaster for a plain percentage, not centavos, despite the field name
     forecastMethod: forecast.method,
     forecastConfidence: forecast.confidence,
+  };
+}
+
+async function fetchGuestData(
+  role: string,
+  ownedUnitIds: string[],
+  preset: AnalyticsPeriodPreset,
+  customStart: string,
+  customEnd: string,
+  filterUnitIdsJoined: string
+) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+  const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
+
+  const guestSelect = { guestId: true, contactNumber: true, guests: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, pax: true } as const;
+  const [periodBookings, allTimeBookings] = await Promise.all([
+    prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: guestSelect }),
+    // Lifetime Value is, by definition, not scoped to the selected period —
+    // this is the one Analytics query that deliberately ignores the filter
+    // bar's period (still respects the Unit filter).
+    prismaPool[1].booking.findMany({ where: bookingUnitWhere, select: guestSelect }),
+  ]);
+  return JSON.parse(JSON.stringify({ periodBookings, allTimeBookings }));
+}
+
+const cachedFetchGuestData = unstable_cache(fetchGuestData, ["analytics-guests"], { revalidate: 60 });
+
+export type GuestAnalytics = {
+  repeatRatePct: number;
+  newGuestCount: number;
+  returningGuestCount: number;
+  avgGuestsPerBooking: number;
+  topGuests: { key: string; name: string; totalCentavos: number; bookingCount: number }[];
+  frequentGuests: { key: string; name: string; totalCentavos: number; bookingCount: number }[];
+};
+
+export async function getGuestAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<GuestAnalytics> {
+  const data = await cachedFetchGuestData(
+    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+  );
+  const { periodBookings, allTimeBookings } = data;
+  const repeat = guestRepeatRate(periodBookings);
+  return {
+    repeatRatePct: repeat.repeatRatePct,
+    newGuestCount: repeat.newGuestCount,
+    returningGuestCount: repeat.returningGuestCount,
+    avgGuestsPerBooking: avgGuestsPerBooking(periodBookings),
+    topGuests: topGuestsFn(allTimeBookings, 5),
+    frequentGuests: frequentGuestsFn(allTimeBookings, 5),
+  };
+}
+
+async function fetchHousekeepingData(
+  role: string,
+  ownedUnitIds: string[],
+  preset: AnalyticsPeriodPreset,
+  customStart: string,
+  customEnd: string,
+  filterUnitIdsJoined: string
+) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const where = effective ? { unitId: { in: effective } } : {};
+  const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
+
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const [logs, states, employees, units] = await Promise.all([
+    prismaPool[0].cleaningLog.findMany({ where: { ...where, startedAt: { gte: current.start, lt: current.end } }, select: { unitId: true, employeeId: true, startedAt: true, endedAt: true } }),
+    // Room-readiness is a "right now" snapshot, not period-scoped — same
+    // reasoning as Financial's Pending Expenses.
+    prismaPool[1].housekeepingUnitState.findMany({ where, select: { unitId: true, status: true, startedAt: true } }),
+    // Not filtered to role="HOUSEKEEPING" — a CleaningLog can be attributed
+    // to anyone who actually performed the clean (e.g. an Owner covering a
+    // quick clean themselves), and excluding them from this lookup would
+    // show their name as "Unknown" instead of who it actually was.
+    prismaPool[2].employee.findMany({ where: { active: true }, select: { id: true, name: true } }),
+    prismaPool[3].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true } }),
+  ]);
+  return JSON.parse(JSON.stringify({ logs, states, employees, units }));
+}
+
+const cachedFetchHousekeepingData = unstable_cache(fetchHousekeepingData, ["analytics-housekeeping"], { revalidate: 60 });
+
+export type HousekeepingAnalytics = {
+  completed: number;
+  pending: number;
+  avgDurationMinutes: number;
+  roomsReady: number;
+  roomsCleaning: number;
+  roomsTodo: number;
+  delayed: { unitId: string; minutesElapsed: number }[];
+  cleanerPerformance: { employeeId: string; name: string; completedCount: number; avgDurationMinutes: number }[];
+};
+
+export async function getHousekeepingAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<HousekeepingAnalytics> {
+  const data = await cachedFetchHousekeepingData(
+    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+  );
+  const { logs, states, employees, units } = data;
+  const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, u.shortName]));
+  const stats = cleaningStats(logs);
+  const rooms = roomsReadySnapshot(states);
+  return {
+    completed: stats.completed,
+    pending: stats.pending,
+    avgDurationMinutes: stats.avgDurationMinutes,
+    roomsReady: rooms.clean,
+    roomsCleaning: rooms.cleaning,
+    roomsTodo: rooms.todo,
+    delayed: delayedCleanings(states, 90).map((d) => ({ unitId: unitLabels[d.unitId] ?? d.unitId, minutesElapsed: d.minutesElapsed })),
+    cleanerPerformance: cleanerPerformance(logs, employees),
+  };
+}
+
+async function fetchStaffData(
+  role: string,
+  ownedUnitIds: string[],
+  preset: AnalyticsPeriodPreset,
+  customStart: string,
+  customEnd: string,
+  filterUnitIdsJoined: string
+) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+  const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
+
+  const [bookings, cleaningLogs, expenses, employees, settings] = await Promise.all([
+    prismaPool[0].booking.findMany({
+      where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } },
+      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true },
+    }),
+    prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
+    prismaPool[2].weeklyExpense.findMany({ where: { date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),
+    prismaPool[3].employee.findMany({ select: { id: true, name: true, role: true, active: true } }),
+    prismaPool[4].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+  ]);
+  return JSON.parse(JSON.stringify({ bookings, cleaningLogs, expenses, employees, settings }));
+}
+
+const cachedFetchStaffData = unstable_cache(fetchStaffData, ["analytics-staff"], { revalidate: 60 });
+
+export type StaffAnalyticsRow = {
+  employeeId: string; name: string; role: string; bookingsLogged: number; cleaningsCompleted: number;
+  commissionEarnedCentavos: number; totalEarnedCentavos: number; activitiesPerDay: number; subtitle: string;
+};
+export type StaffDrillDownBooking = { id: string; date: string; stayType: string; bookerId: string | null; cleanerId: string | null };
+export type StaffAnalytics = { rows: StaffAnalyticsRow[]; bookings: StaffDrillDownBooking[] };
+
+export async function getStaffAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<StaffAnalytics> {
+  const data = await cachedFetchStaffData(
+    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+  );
+  const { bookings, cleaningLogs, expenses, employees, settings } = data;
+  const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
+  const periodDays = daysInRange(current);
+  const rates: PayrollRates = {
+    housekeepingDayRate: settings.housekeepingDayRate,
+    housekeepingNightBonus: settings.housekeepingNightBonus,
+    bookerCommission: settings.bookerCommission,
+    auditorWeeklyRate: settings.auditorWeeklyRate,
+  };
+  const rows = staffPerformance(employees, bookings, cleaningLogs, expenses, rates, periodDays / 7, periodDays);
+  return {
+    rows,
+    bookings: bookings.map((b: any) => ({ id: b.id, date: b.date, stayType: b.stayType, bookerId: b.bookerId, cleanerId: b.cleanerId })),
   };
 }
