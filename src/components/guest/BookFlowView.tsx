@@ -32,7 +32,7 @@ export function BookFlowView() {
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
   const [confirmationNumber, setConfirmationNumber] = useState<string | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
-  const [proofUploaded, setProofUploaded] = useState(false);
+  const [proofResult, setProofResult] = useState<{ status: string; note: string } | null>(null);
   const [proofError, setProofError] = useState("");
 
   async function search(e?: React.FormEvent) {
@@ -104,8 +104,9 @@ export function BookFlowView() {
       fd.append("file", file);
       fd.append("field", paymentType === "down_payment" ? "dpProofUrl" : "proofUrl");
       const res = await fetch(`/api/guest/bookings/${confirmedBookingId}/payment-proof`, { method: "POST", body: fd });
-      if (!res.ok) { const j = await res.json().catch(() => null); setProofError(j?.error ?? "Couldn't upload proof."); return; }
-      setProofUploaded(true);
+      const j = await res.json().catch(() => null);
+      if (!res.ok) { setProofError(j?.error ?? "Couldn't upload proof."); return; }
+      setProofResult({ status: j.status, note: j.note });
     } catch {
       setProofError("Couldn't upload proof. Please try again.");
     } finally {
@@ -134,13 +135,20 @@ export function BookFlowView() {
           )}
         </div>
 
-        {proofUploaded ? (
-          <div className="card mt-4 p-4 text-[13.5px] text-teal">Payment proof uploaded — we'll confirm it shortly.</div>
-        ) : (
+        {proofResult?.status === "auto_approved" && (
+          <div className="card mt-4 p-4 text-[13.5px] text-teal">✓ {proofResult.note}</div>
+        )}
+        {proofResult?.status === "needs_review" && (
+          <div className="card mt-4 p-4 text-[13.5px] text-amber">{proofResult.note}</div>
+        )}
+        {(!proofResult || proofResult.status === "rejected") && (
           <div className="card mt-4 space-y-2 p-4 text-left">
+            {proofResult?.status === "rejected" && (
+              <p className="text-[13px] font-semibold text-rausch">{proofResult.note}</p>
+            )}
             <p className="text-[13px] text-[var(--gray)]">Paid already via GCash or bank transfer? Upload your receipt now so we can confirm it right away.</p>
             <label className="btn-primary w-full cursor-pointer justify-center">
-              {uploadingProof ? "Uploading…" : "Upload payment proof"}
+              {uploadingProof ? "Checking…" : "Upload payment proof"}
               <input type="file" accept="image/*" className="hidden" disabled={uploadingProof} onChange={uploadProofNow} />
             </label>
             {proofError && <p className="text-[13px] font-semibold text-rausch">{proofError}</p>}
@@ -148,7 +156,7 @@ export function BookFlowView() {
         )}
 
         <button onClick={() => setStep("done")} className="btn btn-sm mt-4">
-          {proofUploaded ? "Continue" : "I'll pay later"}
+          {proofResult ? "Continue" : "I'll pay later"}
         </button>
       </div>
     );
@@ -169,8 +177,10 @@ export function BookFlowView() {
             <p className="mt-1 text-[12.5px] text-[var(--gray)]">Save this — with your email, it signs you back in to manage this booking.</p>
           </div>
         )}
-        {proofUploaded ? (
-          <p className="mt-4 text-[13.5px] text-teal">Payment proof received — we'll confirm it shortly.</p>
+        {proofResult?.status === "auto_approved" ? (
+          <p className="mt-4 text-[13.5px] text-teal">✓ {proofResult.note}</p>
+        ) : proofResult ? (
+          <p className="mt-4 text-[13.5px] text-amber">{proofResult.note}</p>
         ) : paymentType === "down_payment" ? (
           <p className="mt-4 text-[13.5px] text-[var(--gray)]">
             {peso(selected.quote.dpAmount)} down payment still due — {peso(selected.quote.balanceDue)} balance due later. Manage this anytime from My bookings.

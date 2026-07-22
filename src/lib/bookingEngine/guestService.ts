@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/bookingEngine/notificationService";
+import { analyzePaymentScreenshot } from "@/lib/ai/paymentVerification";
 
 const publicBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, stayType: true,
@@ -59,11 +60,47 @@ export async function getGuestProfile(guestId: string) {
   return prisma.guest.findUnique({ where: { id: guestId }, select: { id: true, email: true, name: true, phone: true, emailNotifications: true } });
 }
 
-export async function setGuestPaymentProof(guestId: string, bookingId: string, field: "proofUrl" | "dpProofUrl", url: string) {
-  const booking = await prisma.booking.findFirst({ where: { id: bookingId, guestId }, select: { id: true } });
+/**
+ * Uploads + AI-checks a payment screenshot in one step. dpAmount/paid are
+ * only ever written here, on a confident auto_approved match — never on
+ * upload alone. That keeps the existing revenue formula
+ * (collectedRevenueCentavos: dpAmount is always "collected") correct with
+ * zero special-casing, matching how staff-entered bookings already work.
+ */
+export async function verifyGuestPaymentProof(
+  guestId: string,
+  bookingId: string,
+  field: "proofUrl" | "dpProofUrl",
+  url: string,
+  imageBase64: string,
+  mimeType: string
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, guestId },
+    select: { id: true, amount: true, intendedDpAmount: true },
+  });
   if (!booking) return { ok: false as const, error: "Booking not found." };
-  await prisma.booking.update({ where: { id: bookingId }, data: { [field]: url } });
-  return { ok: true as const };
+
+  const expectedAmount = field === "dpProofUrl" ? (booking.intendedDpAmount ?? 0) : booking.amount;
+  const result = await analyzePaymentScreenshot(imageBase64, mimeType, expectedAmount);
+
+  const data: Record<string, unknown> = {
+    [field]: url,
+    paymentVerificationStatus: result.status,
+    paymentVerificationNote: result.note,
+  };
+  if (result.status === "auto_approved") {
+    if (field === "dpProofUrl") {
+      data.dpAmount = expectedAmount;
+      data.amount = booking.amount - expectedAmount;
+    } else {
+      data.paid = true;
+    }
+  }
+  await prisma.booking.update({ where: { id: bookingId }, data });
+  if (result.status === "auto_approved") await notify({ type: "payment.received", bookingId });
+
+  return { ok: true as const, status: result.status, note: result.note };
 }
 
 export async function getGuestNotifications(guestId: string) {

@@ -163,17 +163,22 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         )}
         {!booking.paid && !booking.cancelledAt && (
           <div className="mt-3">
-            {(dpPending ? booking.dpProofUrl : booking.proofUrl) ? (
-              <p className="text-[13px] text-[var(--gray)]">Payment proof uploaded — we'll confirm it shortly.</p>
-            ) : (
-              <>
-                <p className="mb-2 text-[13px] text-[var(--gray)]">Already paid via GCash or bank transfer? Upload your receipt so we can confirm it.</p>
-                <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn btn-sm">
-                  {uploading ? "Uploading…" : `Upload ${dpPending ? "down payment" : "payment"} proof`}
-                </button>
-                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={uploadProof} />
-              </>
+            {booking.paymentVerificationStatus === "needs_review" && (
+              <p className="mb-2 text-[13px] font-semibold text-amber">{booking.paymentVerificationNote}</p>
             )}
+            {booking.paymentVerificationStatus === "rejected" && (
+              <p className="mb-2 text-[13px] font-semibold text-rausch">{booking.paymentVerificationNote}</p>
+            )}
+            {booking.paymentVerificationStatus === "auto_approved" && !dpPending && !!booking.dpAmount && (
+              <p className="mb-2 text-[13px] font-semibold text-teal">✓ Down payment confirmed — upload proof of the remaining balance when ready.</p>
+            )}
+            {!(dpPending ? booking.dpProofUrl : booking.proofUrl) && (
+              <p className="mb-2 text-[13px] text-[var(--gray)]">Already paid via GCash or bank transfer? Upload your receipt so we can confirm it.</p>
+            )}
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn btn-sm">
+              {uploading ? "Checking…" : `Upload ${dpPending ? "down payment" : "payment"} proof`}
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={uploadProof} />
           </div>
         )}
       </div>
