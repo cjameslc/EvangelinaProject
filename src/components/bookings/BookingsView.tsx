@@ -344,6 +344,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       if (bDate < dateRange.start || bDate >= dateRange.end) return false;
       if (statusFilter === "unpaid" && b.paid) return false;
       if (statusFilter === "paid" && !b.paid) return false;
+      if (statusFilter === "cancelled" && !b.cancelledAt) return false;
+      if (statusFilter === "pastdue" && !isPastDue(b)) return false;
       if (platformFilter !== "all" && b.platform !== platformFilter) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -668,6 +670,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           <option value="all">All statuses</option>
           <option value="unpaid">Unpaid only</option>
           <option value="paid">Paid only</option>
+          <option value="pastdue">Past due</option>
+          <option value="cancelled">Cancelled</option>
         </select>
         <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All platforms</option>
