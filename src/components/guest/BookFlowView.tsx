@@ -5,10 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { Pill } from "@/components/ui/Pill";
 import { peso } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
+import { resizeImageForUpload } from "@/lib/imageResize";
+import { RateBreakdown } from "@/components/guest/RateBreakdown";
+import type { PriceQuote } from "@/lib/pricing/rates";
 
 type StayType = "Daycation" | "Night" | "Full";
-type Quote = { nights: number; standardTotal: number; discountPct: number; discountAmount: number; total: number; dpAmount: number; balanceDue: number };
-type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: Quote };
+type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: PriceQuote };
 
 export function BookFlowView() {
   const searchParams = useSearchParams();
@@ -100,8 +102,9 @@ export function BookFlowView() {
     setUploadingProof(true);
     setProofError("");
     try {
+      const resized = await resizeImageForUpload(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", resized);
       fd.append("field", paymentType === "down_payment" ? "dpProofUrl" : "proofUrl");
       const res = await fetch(`/api/guest/bookings/${confirmedBookingId}/payment-proof`, { method: "POST", body: fd });
       const j = await res.json().catch(() => null);
@@ -268,12 +271,8 @@ export function BookFlowView() {
           <div className="card p-4">
             <div className="font-extrabold">{selected.shortName}</div>
             <div className="text-[13px] text-[var(--gray)]">{STAY_TYPES[stayType].label} · {selected.quote.nights} night{selected.quote.nights === 1 ? "" : "s"}</div>
-            <div className="mt-3 space-y-1 border-t border-[var(--line)] pt-3 text-[13.5px]">
-              <div className="flex justify-between"><span className="text-[var(--gray)]">Standard rate</span><span className={selected.quote.discountPct > 0 ? "line-through text-[var(--gray)]" : "font-bold"}>{peso(selected.quote.standardTotal)}</span></div>
-              {selected.quote.discountPct > 0 && (
-                <div className="flex justify-between text-teal"><span>Weekday night promo (−{selected.quote.discountPct}%)</span><span>−{peso(selected.quote.discountAmount)}</span></div>
-              )}
-              <div className="flex justify-between text-[15px] font-extrabold"><span>Total</span><span>{peso(selected.quote.total)}</span></div>
+            <div className="mt-3 border-t border-[var(--line)] pt-3">
+              <RateBreakdown {...selected.quote} />
             </div>
           </div>
           <div className="card space-y-3 p-5">

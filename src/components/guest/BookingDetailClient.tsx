@@ -5,6 +5,8 @@ import { useRef, useState } from "react";
 import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { isBookingCompleted } from "@/lib/bookingStatus";
+import { resizeImageForUpload } from "@/lib/imageResize";
+import { RateBreakdown } from "@/components/guest/RateBreakdown";
 
 type Booking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -32,6 +34,12 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
   const dpPending = booking.paymentType === "down_payment" && !booking.dpAmount;
   const uploadField: "proofUrl" | "dpProofUrl" = dpPending ? "dpProofUrl" : "proofUrl";
   const amountDueNow = dpPending ? (booking.intendedDpAmount ?? booking.amount) : booking.amount;
+  // amount already reflects any confirmed down payment being subtracted
+  // (see bookingService.ts), so total = amount + dpAmount in every case —
+  // computed once here rather than repeating the formula in the visible
+  // card and the PDF export.
+  const totalAmount = booking.amount + (booking.dpAmount ?? 0);
+  const discountAmount = (booking.originalAmount ?? 0) - totalAmount;
 
   async function cancel() {
     if (cancelling || !confirm("Cancel this booking? This can't be undone.")) return;
@@ -55,8 +63,9 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
     setUploading(true);
     setError("");
     try {
+      const resized = await resizeImageForUpload(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", resized);
       fd.append("field", uploadField);
       const res = await fetch(`/api/guest/bookings/${booking.id}/payment-proof`, { method: "POST", body: fd });
       if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't upload proof."); return; }
@@ -92,8 +101,8 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         ["Stay type", STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType],
         ["Check-in", fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })],
         ["Check-out", booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"],
-        ...(booking.discountPct ? [["Standard rate", peso(booking.originalAmount)], [`Weekday night promo (-${booking.discountPct}%)`, `-${peso((booking.originalAmount ?? 0) - booking.amount - (booking.dpAmount ?? 0))}`]] : []),
-        ["Total amount", peso((booking.amount) + (booking.dpAmount ?? 0))],
+        ...(booking.discountPct ? [["Standard rate", peso(booking.originalAmount)], [`Weekday night promo (-${booking.discountPct}%)`, `-${peso(discountAmount)}`]] : []),
+        ["Total amount", peso(totalAmount)],
         ["Down payment received", booking.dpAmount ? peso(booking.dpAmount) : "—"],
         ["Balance", peso(booking.amount)],
         ["Payment status", booking.paid ? "Paid" : "Pending"],
@@ -134,13 +143,12 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Check-in</div><div className="font-extrabold">{fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}{booking.checkInTime && ` · ${fmtTimeStr(booking.checkInTime)}`}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Check-out</div><div className="font-extrabold">{booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"}{booking.checkOutTime && ` · ${fmtTimeStr(booking.checkOutTime)}`}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Guests</div><div className="font-extrabold">{booking.guests.join(", ")}{booking.pax ? ` · ${booking.pax} pax` : ""}</div></div>
-        <div><div className="text-[11px] font-bold text-[var(--gray)]">Total</div><div className="font-extrabold">{peso(booking.amount + (booking.dpAmount ?? 0))}</div></div>
+        <div><div className="text-[11px] font-bold text-[var(--gray)]">Total</div><div className="font-extrabold">{peso(totalAmount)}</div></div>
       </div>
 
       {!!booking.discountPct && (
-        <div className="card mt-3 p-4 text-[13.5px]">
-          <div className="flex justify-between"><span className="text-[var(--gray)]">Standard rate</span><span className="line-through text-[var(--gray)]">{peso(booking.originalAmount)}</span></div>
-          <div className="flex justify-between text-teal"><span>Weekday night promo (−{booking.discountPct}%)</span><span>−{peso((booking.originalAmount ?? 0) - booking.amount - (booking.dpAmount ?? 0))}</span></div>
+        <div className="card mt-3 p-4">
+          <RateBreakdown standardTotal={booking.originalAmount ?? 0} discountPct={booking.discountPct} discountAmount={discountAmount} total={totalAmount} showTotal={false} />
         </div>
       )}
 

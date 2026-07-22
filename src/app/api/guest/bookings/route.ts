@@ -4,6 +4,7 @@ import { createGuestBooking } from "@/lib/bookingService";
 import { bookingSchema } from "@/lib/validation";
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
+import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
@@ -39,16 +40,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Special request is too long." }, { status: 400 });
   }
 
-  const unit = await prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true, shortName: true } });
+  // None of these three depend on each other — parallelize instead of
+  // three sequential round trips (unit lookup only rarely fails, so the
+  // rare wasted guest upsert on an invalid unitId is worth the latency win
+  // on every valid booking, which is the overwhelming common case).
+  const [unit, settings, guest] = await Promise.all([
+    prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true, shortName: true } }),
+    getCachedBookingSettings(),
+    findOrCreateGuestByEmail(email, name.trim()),
+  ]);
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
-
-  const settings = await prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
 
   // Price is always computed server-side from the real Booking Engine quote
   // — never trust a client-supplied amount for what a guest pays.
   const quote = quotePrice(stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null, settings, settings.dpFee);
-
-  const guest = await findOrCreateGuestByEmail(email, name.trim());
 
   // Same bookingSchema every staff-side booking is validated against — no
   // reason the guest path should skip real shape/type validation just

@@ -1,4 +1,5 @@
 import { askGeminiVision } from "@/lib/ai/geminiClient";
+import { manilaTodayISO } from "@/lib/manilaTime";
 
 export type PaymentVerificationStatus = "auto_approved" | "needs_review" | "rejected";
 export type PaymentVerificationResult = { status: PaymentVerificationStatus; note: string };
@@ -15,10 +16,6 @@ Rules:
 - confidence: "high" only if you can clearly read a specific date AND a specific peso amount. Otherwise "low".
 - date: the transaction/payment date shown, in YYYY-MM-DD format. null if not clearly visible.
 - amount: the payment amount shown, as a plain number in Philippine pesos (no currency symbol, no commas, no centavos separator issues). null if not clearly visible.`;
-
-function manilaTodayISO(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
-}
 
 function parseExtraction(raw: string): { isPaymentConfirmation: boolean; confidence: "high" | "low"; date: string | null; amount: number | null; reasoning: string } | null {
   try {

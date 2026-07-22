@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkAvailabilityForUnits } from "@/lib/bookingEngine/availabilityService";
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
+import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full"];
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
       orderBy: { sortOrder: "asc" },
       select: { id: true, shortName: true, unitNumber: true, photoUrl: true },
     }),
-    prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    getCachedBookingSettings(),
   ]);
 
   const availability = await checkAvailabilityForUnits(

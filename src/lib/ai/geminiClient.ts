@@ -31,25 +31,41 @@ export async function askGemini(systemPrompt: string, userMessage: string): Prom
   return text;
 }
 
+const VISION_TIMEOUT_MS = 20_000;
+
 /**
  * Same REST endpoint as askGemini, but with an inlineData image part added
  * to the user turn — Gemini's generateContent API is multimodal even though
  * nothing in this codebase has sent an image before now. Used by
  * paymentVerification.ts to read an uploaded payment-confirmation
  * screenshot.
+ *
+ * Guest-facing and blocking (the payment step waits on this), so it gets an
+ * explicit timeout — paymentVerification.ts already treats any thrown error
+ * here as "needs_review", so a timeout degrades to manual review rather
+ * than leaving the guest stuck on "Checking…" indefinitely.
  */
 export async function askGeminiVision(systemPrompt: string, userMessage: string, imageBase64: string, mimeType: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userMessage }, { inlineData: { mimeType, data: imageBase64 } }] }],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }, { inlineData: { mimeType, data: imageBase64 } }] }],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const body = await res.text();

@@ -1,4 +1,5 @@
 import { occupiedRange } from "@/lib/stayRange";
+import { isManilaWeekend } from "@/lib/manilaTime";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 export type RateTable = {
@@ -24,26 +25,16 @@ export type PriceQuote = {
 };
 
 /**
- * Weekend = Fri/Sat/Sun check-in, evaluated on the Asia/Manila calendar day
- * (bookings/dates elsewhere in the app are UTC-midnight-stamped local days,
- * so this keeps rate boundaries aligned with what a Manila guest actually
- * experiences as "the weekend").
- */
-const MANILA_WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-
-export function isWeekend(date: Date): boolean {
-  const label = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", weekday: "short" }).format(date);
-  const day = MANILA_WEEKDAY_INDEX[label] ?? date.getUTCDay();
-  return day === 0 || day === 5 || day === 6;
-}
-
-/**
  * Daycation and Night are both "12 Hours" rows in the rate sheet; Full is
  * the "21 Hours" row (see STAY_TYPES in constants.ts — Night: 12hrs, Full:
  * 21hrs). No per-unit variation — one rate table for the whole property.
+ * Weekend/weekday (Fri/Sat/Sun vs Mon-Thu) is evaluated on the Asia/Manila
+ * calendar day via isManilaWeekend — bookings/dates elsewhere in the app
+ * are UTC-midnight-stamped local days, so this keeps rate boundaries
+ * aligned with what a Manila guest actually experiences as "the weekend."
  */
 function baseRateForNight(stayType: StayType, date: Date, rates: RateTable): number {
-  const weekend = isWeekend(date);
+  const weekend = isManilaWeekend(date);
   if (stayType === "Full") return weekend ? rates.weekendRate21h : rates.weekdayRate21h;
   return weekend ? rates.weekendRate12h : rates.weekdayRate12h;
 }
@@ -70,7 +61,7 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
   for (let i = 0; i < nights; i++) {
     const rate = baseRateForNight(stayType, cursor, rates);
     standardTotal += rate;
-    if (stayType === "Night" && !isWeekend(cursor)) {
+    if (stayType === "Night" && !isManilaWeekend(cursor)) {
       discountAmount += Math.round((rate * rates.weekdayNightPromoPct) / 100);
     }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
