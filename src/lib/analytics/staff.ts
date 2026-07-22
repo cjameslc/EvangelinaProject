@@ -9,6 +9,9 @@ export type StaffBooking = {
   checkOutDate: string | null;
   checkOutTime: string | null;
   paid: boolean;
+  cancelledAt: string | null;
+  dpAmount: number | null;
+  refundedAt: string | null;
 };
 export type StaffCleaningLog = { employeeId: string | null; startedAt: string };
 export type StaffExpense = { note: string; amount: number; targetEmployeeId: string | null };

@@ -7,7 +7,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -30,6 +30,8 @@ type Booking = {
   source?: string; conflict?: boolean;
   checkedInAt?: string | null; checkedOutAt?: string | null;
   cancelledAt?: string | null; cancellationReason?: string | null;
+  refundedAt?: string | null; refundReason?: string | null;
+  notes?: string | null;
 };
 type HkState = { unitId: string; status: string };
 
@@ -174,6 +176,23 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     refresh();
   }
 
+  // Marking a booking refunded is the one thing that reverses commission —
+  // a cancellation alone doesn't, as long as the deposit was kept (see
+  // isCommissionEligible in @/lib/bookingStatus).
+  async function refundBooking(id: string) {
+    const reason = prompt("Reason for marking this booking refunded? (required)");
+    if (reason === null) return;
+    if (!reason.trim()) { toast("A reason is required to mark a booking refunded.", true); return; }
+    const res = await fetch(`/api/bookings/${id}/refund`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't mark booking refunded", true); return; }
+    toast("Booking marked refunded");
+    refresh();
+  }
+
   // Total bookings / collected / unpaid / units logged, and the Booking
   // insights section below (Rooms logged per booker + Where the money
   // went), are all scoped to a single Sunday-Saturday week, navigable via
@@ -197,19 +216,23 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     const endStr = fmtDate(endInclusive, sameMonth ? { day: "numeric", timeZone: "UTC" } : { month: "short", day: "numeric", timeZone: "UTC" });
     return `${startStr} – ${endStr}`;
   }, [weekRange]);
-  // Cancelled bookings are excluded here — everything downstream of
-  // weekBookings (stats, Rooms logged per booker, Where the money went) is a
-  // money/activity figure, and a cancelled booking earns/counts nothing,
-  // same rule /api/my-earnings applies.
+  // Cancellation alone no longer excludes a booking from money figures — a
+  // cancelled booking whose deposit was kept (never refunded) still counts
+  // as real revenue, same rule /api/my-earnings applies for commission (see
+  // isCommissionEligible in @/lib/bookingStatus). Only a refund removes
+  // money that was actually returned to the guest.
   const weekBookings = useMemo(
-    () => bookings.filter((b) => !b.cancelledAt && new Date(b.date) >= weekRange.start && new Date(b.date) < weekRange.end),
+    () => bookings.filter((b) => new Date(b.date) >= weekRange.start && new Date(b.date) < weekRange.end),
     [bookings, weekRange]
   );
 
   const stats = useMemo(() => {
     const total = weekBookings.length;
-    const collected = weekBookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount ?? 0), 0);
-    const unpaidList = weekBookings.filter((b) => !b.paid);
+    const collected = weekBookings.reduce((s, b) => s + (b.refundedAt ? 0 : (b.paid ? b.amount : 0) + (b.dpAmount ?? 0)), 0);
+    // "Unpaid, needs follow-up" only makes sense for a still-active booking —
+    // a cancelled-and-never-paid booking has no guest coming to chase payment
+    // from.
+    const unpaidList = weekBookings.filter((b) => !b.paid && !b.cancelledAt);
     const unpaid = unpaidList.reduce((s, b) => s + b.amount, 0);
     const unitsLogged = new Set(weekBookings.map((b) => b.unitId)).size;
     return { total, collected, unpaid, unpaidCount: unpaidList.length, unitsLogged };
@@ -260,6 +283,9 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       entry.byMethod[key] += amount;
     }
     insightBookings.forEach((b) => {
+      // Refunded money was given back — it never belongs in "where the
+      // money went" regardless of paid/cancelled status.
+      if (b.refundedAt) return;
       if (b.paid) {
         const name = b.receivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
         const method = b.method ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
@@ -657,7 +683,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         <>
           <div className="mb-3 flex items-center justify-between text-[13px] font-semibold text-[var(--gray)]">
             <span>{filtered.length} booking{filtered.length !== 1 ? "s" : ""} shown</span>
-            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.cancelledAt).reduce((s, b) => s + b.amount, 0))} total</span>
+            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.refundedAt).reduce((s, b) => s + b.amount, 0))} total</span>
           </div>
           <div className="space-y-5">
             {pagedAgenda.map(([iso, { checkins, checkouts, occupied }]) => (
@@ -673,7 +699,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-blue" /> Check-out
                       </div>
                       {checkouts.map((b) => (
-                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
@@ -683,7 +709,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-green" /> Check-in
                       </div>
                       {checkins.map((b) => (
-                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
@@ -734,7 +760,7 @@ function isPastDue(b: Booking) {
 }
 
 function BookingLine({
-  b, kind, canEdit, canDelete, onEdit, onCancel, onDelete,
+  b, kind, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
@@ -742,6 +768,7 @@ function BookingLine({
   canDelete: boolean;
   onEdit: () => void;
   onCancel: () => void;
+  onRefund: () => void;
   onDelete: () => void;
 }) {
   const time = fmtTimeStr(kind === "checkin" ? b.checkInTime : b.checkOutTime);
@@ -780,22 +807,34 @@ function BookingLine({
         ) : (
           <Tag variant="unpaid">Unpaid</Tag>
         )}
+        {b.refundedAt && <Tag variant="refunded">Refunded</Tag>}
         <div className="text-right text-[12.5px] font-bold">
           <span className="text-[var(--gray)]">Balance </span>
           <span className={b.paid ? "text-green" : "text-rausch"}>{peso(b.paid ? 0 : b.amount)}</span>
         </div>
+        {b.notes && <div className="max-w-[200px] text-right text-[11px] text-[var(--gray)]">📝 {b.notes}</div>}
         {b.cancelledAt && b.cancellationReason && (
-          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">&ldquo;{b.cancellationReason}&rdquo;</div>
+          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">Cancelled: &ldquo;{b.cancellationReason}&rdquo;</div>
         )}
-        {!b.cancelledAt && (canEdit || canDelete) && (
+        {b.refundedAt && b.refundReason && (
+          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">Refunded: &ldquo;{b.refundReason}&rdquo;</div>
+        )}
+        {(canEdit || canDelete) && (
           <div className="flex gap-1">
-            {canEdit && (
+            {!b.cancelledAt && canEdit && (
               <>
                 <button onClick={onEdit} title="Edit booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
                 <button onClick={onCancel} title="Cancel booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-amber/10 hover:text-amber"><CloseIcon className="h-4 w-4" /></button>
               </>
             )}
-            {canDelete && (
+            {/* Refund is independent of cancellation — a booking can be
+                cancelled with the deposit kept (no refund) or refunded
+                without being cancelled at all. Only shown once money was
+                actually collected and hasn't already been marked refunded. */}
+            {canEdit && !b.refundedAt && (b.paid || (b.dpAmount ?? 0) > 0) && (
+              <button onClick={onRefund} title="Mark refunded" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-violet/10 hover:text-violet"><RefreshIcon className="h-4 w-4" /></button>
+            )}
+            {!b.cancelledAt && canDelete && (
               <button onClick={onDelete} title="Delete booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
             )}
           </div>
@@ -842,6 +881,7 @@ function toPayload(v: BookingFormValue) {
     receivedById: v.receivedById || null,
     method: v.method || null,
     paid: v.paid,
+    notes: v.notes || null,
   };
 }
 
@@ -867,5 +907,6 @@ function fromBooking(b: Booking): Partial<BookingFormValue> {
     receivedById: b.receivedById ?? "",
     method: (b.method as any) ?? "",
     paid: b.paid,
+    notes: b.notes ?? "",
   };
 }

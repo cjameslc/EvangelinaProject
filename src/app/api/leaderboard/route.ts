@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
+import { isCommissionEligible } from "@/lib/bookingStatus";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -33,17 +34,25 @@ const getRankedLeaderboard = unstable_cache(
     const [bookings, bonusAwards] = await Promise.all([
       // Only this month's bookings are needed for the ranking below — the
       // previous version pulled every booking ever made and filtered in JS.
+      // No cancelledAt filter — a cancelled booking can still be
+      // commission-eligible (see isCommissionEligible), so it has to stay in
+      // this set; completedThisMonth below explicitly excludes it instead,
+      // to keep Elite Challenge ranking exactly as before.
       prisma.booking.findMany({
-        where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
-        select: { bookerId: true, date: true, checkOutDate: true },
+        where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart } },
+        select: { bookerId: true, date: true, checkOutDate: true, cancelledAt: true, paid: true, dpAmount: true, refundedAt: true },
       }),
       prisma.eliteBookerAward.findMany({ where: { employeeId: { in: bookerIds }, month: monthStart } }),
     ]);
 
     return bookers
       .map((b) => {
-        const completedThisMonth = bookings.filter((bk) => bk.bookerId === b.id && isBookingCompleted(bk, now)).length;
-        const commissionThisMonth = completedThisMonth * settings.bookerCommission;
+        const completedThisMonth = bookings.filter((bk) => bk.bookerId === b.id && !bk.cancelledAt && isBookingCompleted(bk, now)).length;
+        // Real commission — independent of the ranking above (see
+        // isCommissionEligible: paid, or a cancelled booking whose deposit
+        // wasn't refunded).
+        const commissionEligibleThisMonth = bookings.filter((bk) => bk.bookerId === b.id && isCommissionEligible(bk)).length;
+        const commissionThisMonth = commissionEligibleThisMonth * settings.bookerCommission;
         const bonusThisMonth = bonusAwards
           .filter((a) => a.employeeId === b.id)
           .reduce((s, a) => s + a.amount, 0);

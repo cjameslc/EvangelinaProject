@@ -53,6 +53,9 @@ export const bookingSchema = z.object({
   discountPct: z.number().int().min(0).max(100).nullable().optional(),
   paymentType: z.enum(["full", "down_payment"]).optional(),
   intendedDpAmount: z.number().int().nonnegative().nullable().optional(),
+  // Free-text notes the booker adds when logging a booking — staff-only,
+  // distinct from specialRequest (guest-submitted via the Guest Portal).
+  notes: z.string().nullable().optional(),
 });
 
 // Staff-side cancellation — POST /api/bookings/[id]/cancel. A separate
@@ -61,6 +64,13 @@ export const bookingSchema = z.object({
 // (unlike every other free-text field in bookingSchema, which are optional).
 export const bookingCancelSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required to cancel a booking."),
+});
+
+// Staff-side refund — POST /api/bookings/[id]/refund. Same shape/rationale
+// as bookingCancelSchema: the only path allowed to set refundedAt/
+// refundReason, reason always mandatory.
+export const bookingRefundSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required to mark a booking refunded."),
 });
 
 export const unitSchema = z.object({

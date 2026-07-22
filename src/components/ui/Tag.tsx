@@ -17,6 +17,7 @@ const STYLES: Record<string, string> = {
   cleaning: "bg-teal/15 text-teal",
   clean: "bg-green/15 text-green",
   cancelled: "bg-[var(--bg-2)] text-[var(--gray)] line-through",
+  refunded: "bg-violet/15 text-violet",
 };
 
 export function Tag({ variant, children }: { variant: string; children: React.ReactNode }) {

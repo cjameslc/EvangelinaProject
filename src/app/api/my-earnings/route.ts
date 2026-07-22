@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
+import { isCommissionEligible } from "@/lib/bookingStatus";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -67,14 +68,13 @@ export async function GET(req: NextRequest) {
   if (isEliteChallengeEligible) await syncEliteBookerAwards();
 
   const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
-    // cancelledAt: null — a cancelled booking earns no commission/cleaning
-    // credit; excluding it here means every figure below (this week, this
-    // month, lifetime, payroll history) reflects a cancellation immediately,
-    // with no separate "deduct" step needed, same as everything else on
-    // this page being a live-recomputed view (see the module comment above).
+    // No cancelledAt filter here — a cancelled booking can still be
+    // commission-eligible (see isCommissionEligible: money kept, not
+    // refunded), so cancelled bookings have to stay in this set. dpAmount +
+    // refundedAt are selected because isCommissionEligible needs both.
     prisma.booking.findMany({
-      where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }], cancelledAt: null },
-      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true, paid: true },
+      where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
+      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
       orderBy: { date: "desc" },
     }),
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
@@ -89,13 +89,16 @@ export async function GET(req: NextRequest) {
   ]);
 
   const now = new Date();
-  const completedBookings = allBookingsForEmployee.filter((b) => isBookingCompleted(b, now));
+  // "Completed" here is about the stay having actually finished — used for
+  // achievements (First Booking, 10 Bookings, ...) and Housekeeping's
+  // cleaning-day stats, neither of which this task touches. A cancelled
+  // booking never counts as "completed" work, same as before.
+  const completedBookings = allBookingsForEmployee.filter((b) => !b.cancelledAt && isBookingCompleted(b, now));
   const bookedByThisEmployee = completedBookings.filter((b) => b.bookerId === employee!.id);
   const cleanedByThisEmployee = completedBookings.filter((b) => b.cleanerId === employee!.id);
-  // Commission-eligible: booked by this employee, fully paid, and the stay
-  // has checked out — same "paid & checked out" gate computeTeamBreakdown
-  // applies to the weekly/monthly figures below, used here for the lifetime total.
-  const commissionEligibleLifetime = bookedByThisEmployee.filter((b) => b.paid);
+  // Commission-eligible: see isCommissionEligible — paid (no more waiting on
+  // checkout), or a cancelled booking whose deposit was kept, never refunded.
+  const commissionEligibleLifetime = allBookingsForEmployee.filter((b) => b.bookerId === employee!.id && isCommissionEligible(b));
 
   // ---- This week (matches "Your team" / Admin Staff tab exactly) ----
   const weekStart = manilaWeekStart(0);
@@ -103,7 +106,7 @@ export async function GET(req: NextRequest) {
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
   const weekBookingsNormalized = allBookingsForEmployee
     .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; })
-    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
+    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
   const cleaningDaysThisWeek = new Set(
     cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= weekStart && d < weekEnd; }).map((c) => dayOf(new Date(c.startedAt)))
   ).size;
@@ -128,7 +131,7 @@ export async function GET(req: NextRequest) {
   const monthExpensesNormalized = expenses
     .filter((e) => e.date.toISOString().slice(0, 7) === thisMonthIso)
     .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
-  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
+  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
   const thisMonthActivity = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisMonth,
     weekBookings: monthBookingsNormalized,
@@ -160,9 +163,9 @@ export async function GET(req: NextRequest) {
     const weeksSinceCreated = Math.max(1, Math.round((now.getTime() - new Date(employee.createdAt).getTime()) / (7 * 86400000)));
     lifetimeActivity = weeksSinceCreated * rates.auditorWeeklyRate;
   }
-  // Booking commission — whoever booked it earns this once paid & checked
-  // out, regardless of role (see computeTeamBreakdown for the weekly/monthly
-  // version of the same rule).
+  // Booking commission — see isCommissionEligible (paid, or cancelled with
+  // the deposit kept and not refunded), regardless of role (see
+  // computeTeamBreakdown for the weekly/monthly version of the same rule).
   lifetimeActivity += commissionEligibleLifetime.length * rates.bookerCommission;
   // Old flat-rate "Salary" WeeklyExpense top-ups are excluded here too, same
   // as computeTeamBreakdown's weekly/monthly figures — only real deductions
@@ -175,7 +178,13 @@ export async function GET(req: NextRequest) {
   // tiers/rewards/slot pool for everyone in it. ----
   let eliteChallenge: any = null;
   if (isEliteChallengeEligible) {
-    const completedThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && isBookingCompleted(b, now)).length;
+    // Elite tier progress stays checked-out/not-cancelled gated (unchanged
+    // scope — a separate reward system from the flat ₱/booking commission).
+    // estimatedCommission below is the one figure on this card that IS the
+    // real commission rule, so it has to use isCommissionEligible instead or
+    // it'd silently disagree with thisMonthActivity.total above.
+    const completedThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && !b.cancelledAt && isBookingCompleted(b, now)).length;
+    const commissionEligibleThisMonth = monthBookings.filter((b) => b.bookerId === employee!.id && isCommissionEligible(b)).length;
 
     // Everyone else's counts + awards this month, to compute rank and
     // remaining slots per tier without exposing their identities beyond
@@ -225,7 +234,7 @@ export async function GET(req: NextRequest) {
       progressPct: nextTierDef ? Math.min(100, Math.round((completedThisMonth / nextTierDef.tier) * 100)) : 100,
       slotsRemainingForNextTier: nextTierSlots ? Math.max(0, nextTierSlots.slotsTotal - nextTierSlots.slotsTaken) : 0,
       slotsTotalForNextTier: nextTierSlots?.slotsTotal ?? 0,
-      estimatedCommission: completedThisMonth * rates.bookerCommission,
+      estimatedCommission: commissionEligibleThisMonth * rates.bookerCommission,
       potentialBonus: nextTierDef?.amount ?? 0,
       tiers: tiersWithSlots,
     };
@@ -264,7 +273,7 @@ export async function GET(req: NextRequest) {
     wEnd.setUTCDate(wEnd.getUTCDate() + 7);
     const wBookings = allBookingsForEmployee
       .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= wStart && d < wEnd; })
-      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid }));
+      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
     const wCleaningDays = new Set(
       cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= wStart && d < wEnd; }).map((c) => dayOf(new Date(c.startedAt)))
     ).size;
@@ -279,7 +288,7 @@ export async function GET(req: NextRequest) {
       weekEnd: new Date(wEnd.getTime() - 86400000).toISOString(),
       salary: wSalary,
       activity: wActivity.total,
-      bookingCount: wBookings.filter((b) => b.bookerId === employee!.id).length,
+      bookingCount: wBookings.filter((b) => b.bookerId === employee!.id && isCommissionEligible(b)).length,
       bonuses: wAwards.reduce((s, a) => s + a.amount, 0),
       total: wSalary + wActivity.total + wAwards.reduce((s, a) => s + a.amount, 0),
       status: i === 0 ? "Current period" : "Historical",

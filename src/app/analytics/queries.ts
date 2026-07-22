@@ -611,13 +611,15 @@ async function fetchStaffData(
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
   const [bookings, cleaningLogs, expenses, employees, settings] = await Promise.all([
-    // cancelledAt: null — a cancelled booking earns no commission/cleaning
-    // credit, same rule computeTeamBreakdown itself applies via
-    // NormalizedBooking.cancelledAt; excluded at the source here too so a
-    // cancelled booking never even reaches staffPerformance().
+    // No cancelledAt filter — a cancelled booking can still be
+    // commission-eligible (see isCommissionEligible in bookingStatus.ts:
+    // paid, or a cancelled booking whose deposit wasn't refunded), so it has
+    // to reach computeTeamBreakdown/staffPerformance rather than being
+    // excluded at the source. dpAmount + refundedAt selected because
+    // isCommissionEligible needs both.
     prismaPool[0].booking.findMany({
-      where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end }, cancelledAt: null },
-      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true },
+      where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } },
+      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
     prismaPool[2].weeklyExpense.findMany({ where: { date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),

@@ -78,6 +78,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
       discountPct: body.discountPct ?? null,
       paymentType: body.paymentType ?? "full",
       intendedDpAmount: body.intendedDpAmount ?? null,
+      notes: body.notes || null,
     },
   });
 

@@ -42,6 +42,7 @@ export type BookingFormValue = {
   receivedById: string;
   method: "Cash" | "GCash" | "BankTransfer" | "";
   paid: boolean;
+  notes: string;
 };
 
 const EMPTY: BookingFormValue = {
@@ -50,6 +51,7 @@ const EMPTY: BookingFormValue = {
   totalAmount: null,
   dpAmount: null, dpReceivedById: "", dpMethod: "",
   amount: null, receivedById: "", method: "", paid: false,
+  notes: "",
 };
 
 /** Smart defaults per stay type — Daycation runs same-day 8am-8pm; Night/Full
@@ -442,6 +444,16 @@ export function BookingForm({
           <label className="field-label">Contact number <span className="text-rausch">*</span></label>
           <input value={v.contactNumber} onChange={(e) => set("contactNumber", e.target.value)} className="field-input mt-1.5" placeholder="0917 123 4567" />
           {err("contactNumber")}
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="field-label">Notes</label>
+          <textarea
+            value={v.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            className="field-input mt-1.5 min-h-[64px] resize-y"
+            placeholder="Anything worth flagging about this booking — internal, not shown to the guest"
+          />
         </div>
 
         <div className="sm:col-span-2">

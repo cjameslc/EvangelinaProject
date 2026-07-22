@@ -361,13 +361,30 @@ model Booking {
   guest           Guest?        @relation(fields: [guestId], references: [id], onDelete: SetNull)
   specialRequest  String?
   // Cancellation — set instead of deleting the row, so a guest still sees a
-  // cancelled stay in their booking history, and so a cancelled staff
-  // booking's commission is reversed rather than silently vanishing. A
-  // Booker can only ever cancel (not hard-delete) their own bookings — see
+  // cancelled stay in their booking history, and so staff retain an audit
+  // trail rather than the record silently vanishing. A Booker can only ever
+  // cancel (not hard-delete) their own bookings — see
   // POST /api/bookings/[id]/cancel — and must always give a reason;
-  // OWNER_ADMIN/CO_OWNER still have full DELETE besides.
+  // OWNER_ADMIN/CO_OWNER still have full DELETE besides. Cancelling alone
+  // does NOT reverse commission — see isCommissionEligible() in
+  // bookingStatus.ts: money kept (paid, or a down payment on a cancelled
+  // booking) still earns commission until the booking is separately marked
+  // refunded below.
   cancelledAt       DateTime?
   cancellationReason String?
+  // Refund — independent of cancellation (a booking can be cancelled with
+  // the deposit kept, or refunded without being formally cancelled). This is
+  // a factual record ("the money was given back"), not a payment action
+  // itself — amount/dpAmount/paid are left untouched for audit history, same
+  // as cancelledAt leaves them untouched. Only a refund reverses commission
+  // (see isCommissionEligible()); a cancellation with the deposit kept does
+  // not. Set via POST /api/bookings/[id]/refund, reason always required.
+  refundedAt        DateTime?
+  refundReason      String?
+  // Free-text notes the booker adds when logging a booking (internal, staff-
+  // only — distinct from specialRequest above, which is guest-submitted via
+  // the Guest Portal booking flow).
+  notes             String?
 
   // Airbnb iCal sync
   source          String @default("MANUAL")

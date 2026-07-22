@@ -2,7 +2,7 @@
 // Dashboard's read-only summary and the Admin Weekly Report's full editor —
 // previously duplicated near-verbatim in both places with hardcoded rates.
 
-import { isBookingCompleted } from "@/lib/bookingStatus";
+import { isCommissionEligible } from "@/lib/bookingStatus";
 
 export type PayrollRates = {
   housekeepingDayRate: number;
@@ -13,7 +13,7 @@ export type PayrollRates = {
 
 export type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 
-type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean; cancelledAt?: string | null };
+type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean; cancelledAt?: string | null; dpAmount?: number | null; refundedAt?: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
 
 /** Roles the "Your team" payroll list includes at all. */
@@ -23,10 +23,9 @@ export function isPayrollRole(role: string) {
 
 export function computeTeamBreakdown(
   emp: { id: string; role: string },
-  params: { cleaningDays: number; weekBookings: NormalizedBooking[]; weekExpenses: NormalizedExpense[]; rates: PayrollRates; periodWeeks?: number; now?: Date }
+  params: { cleaningDays: number; weekBookings: NormalizedBooking[]; weekExpenses: NormalizedExpense[]; rates: PayrollRates; periodWeeks?: number }
 ): { total: number; items: TeamLineItem[]; subtitle: string } {
   const { cleaningDays, weekBookings, weekExpenses, rates } = params;
-  const now = params.now ?? new Date();
   // How many weeks the caller's booking/expense window actually spans —
   // 1 for the default "this week" case. Only the Auditor's flat weekly rate
   // needs this: every other line here (day-rate × cleaning days, commission
@@ -73,23 +72,22 @@ export function computeTeamBreakdown(
     roleSubtitle = `₱${rates.auditorWeeklyRate}/week`;
   }
 
-  // Booking commission — whoever is set as the booker earns this, once that
-  // booking is confirmed fully paid AND the stay has checked out (never for
-  // a booking that could still cancel or go unpaid), and only as long as it
-  // hasn't since been cancelled — a cancellation after the fact reverses the
-  // commission rather than leaving it stuck. Applies to anyone who logs a
-  // booking regardless of their primary role — a Housekeeping or Auditor
-  // staffer who books a guest earns the same rate a dedicated Booker would,
-  // since they did the same work.
-  const commissionEligible = weekBookings.filter((b) => b.bookerId === emp.id && b.paid && !b.cancelledAt && isBookingCompleted(b, now));
+  // Booking commission — whoever is set as the booker earns this the moment
+  // the booking is fully paid (no more waiting for checkout), and it stays
+  // earned even if the booking is later cancelled, as long as the money
+  // wasn't refunded — see isCommissionEligible for the exact rule. Applies
+  // to anyone who logs a booking regardless of their primary role — a
+  // Housekeeping or Auditor staffer who books a guest earns the same rate a
+  // dedicated Booker would, since they did the same work.
+  const commissionEligible = weekBookings.filter((b) => b.bookerId === emp.id && isCommissionEligible(b));
   if (commissionEligible.length > 0) {
     items.push({
       label: "Booking commission",
-      detail: `₱${rates.bookerCommission} × ${commissionEligible.length} booking${commissionEligible.length !== 1 ? "s" : ""} (paid & checked out)`,
+      detail: `₱${rates.bookerCommission} × ${commissionEligible.length} booking${commissionEligible.length !== 1 ? "s" : ""} (paid, or cancelled with the deposit kept)`,
       amount: commissionEligible.length * rates.bookerCommission,
     });
   }
-  const subtitle = [roleSubtitle, `₱${rates.bookerCommission}/booking (paid & checked out)`].filter(Boolean).join(" + ");
+  const subtitle = [roleSubtitle, `₱${rates.bookerCommission}/booking (paid, or cancelled with the deposit kept)`].filter(Boolean).join(" + ");
 
   // Manual weekly expenses charged to this employee — ad boosts and similar
   // one-off deductions logged against them. The old flat-rate "Weekly
