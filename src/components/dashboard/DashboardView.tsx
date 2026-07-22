@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
@@ -393,15 +393,21 @@ export function DashboardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueBills]);
 
-  // Data-driven narrative for the Key metrics card — replaces a fixed
-  // caption with 2-4 sentences that actually explain THIS month's numbers,
-  // in a fixed priority order (overdue → break-even → bookings → occupancy
-  // → cash flow → forecast), capped at 4 so it never turns into a wall of
-  // text. "Operating cost" here is the fixed monthly baseline (full staff
-  // salary + this month's bills, paid and pending) — deliberately excludes
+  // Data-driven narrative for the Key metrics card — 2-4 sentences that
+  // actually explain THIS month's numbers, in a fixed priority order
+  // (overdue → break-even → bookings → occupancy → cash flow → forecast).
+  // "Operating cost" here is the fixed monthly baseline (full staff salary
+  // + this month's bills, paid and pending) — deliberately excludes
   // variable ad spend, since that's discretionary, not a fixed cost to
   // break even against.
-  const keyMetricsInsights = useMemo(() => {
+  //
+  // keyMetricsInsights (below) is the instant, always-available fallback —
+  // rendered immediately and kept if the AI call below never lands.
+  // insightMetricsPayload is the same underlying real numbers, reshaped for
+  // the AI insight endpoint to phrase naturally instead of via fixed
+  // templates — see the effect further down that POSTs this and upgrades
+  // the displayed text in place once a response arrives.
+  const { keyMetricsInsights, insightMetricsPayload } = useMemo(() => {
     const insights: string[] = [];
     const operatingCostCentavos = monthlyStaffSalary * 100 + billsPaidMonthCentavos + billsDueMonthCentavos;
     const futureScheduledCentavos = Math.max(0, billsDueMonthCentavos - overdueCentavos);
@@ -418,13 +424,18 @@ export function DashboardView({
     }
 
     // 2. Break-even progress
+    let breakEvenStatus: "early_month" | "no_completed_income" | "remaining" | "covered";
     if (earlyMonth) {
+      breakEvenStatus = "early_month";
       insights.push("Most monthly operating expenses are scheduled for later this month. Current profit is expected to improve as more bookings are confirmed and completed.");
     } else if (completedMonthIncome === 0) {
+      breakEvenStatus = "no_completed_income";
       insights.push("Realized profit is ₱0 because no stays have been completed yet during the selected period.");
     } else if (remainingToBreakEvenCentavos > 0) {
+      breakEvenStatus = "remaining";
       insights.push(`${pesoCentavos(remainingToBreakEvenCentavos)} more revenue is needed to reach this month's break-even point.`);
     } else {
+      breakEvenStatus = "covered";
       insights.push(`This month's operating costs are already fully covered — revenue is covering ${coveragePct}% of monthly operating costs.`);
     }
 
@@ -450,8 +461,41 @@ export function DashboardView({
       insights.push("Current bookings have not yet covered this month's operating costs. Forecast profit will update automatically as new bookings are added and completed.");
     }
 
-    return insights.slice(0, 4);
+    return {
+      keyMetricsInsights: insights.slice(0, 4),
+      insightMetricsPayload: {
+        overdueAmount: overdueCentavos > 0 ? pesoCentavos(overdueCentavos) : null,
+        breakEvenStatus,
+        remainingToBreakEven: breakEvenStatus === "remaining" ? pesoCentavos(remainingToBreakEvenCentavos) : null,
+        coveragePct: breakEvenStatus === "covered" ? coveragePct : null,
+        bookingsCount: bookingsMonth.length,
+        completedRevenue: peso(completedMonthIncome),
+        occupancyPct: occupancy,
+        cashFlowIsZero: monthIncome === 0,
+        forecastIsNegative: forecastProfitCents < 0,
+      },
+    };
   }, [overdueCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, monthlyStaffSalary, completedMonthIncome, forecastProfitCents, monthIncome, occupancy, bookingsMonth]);
+
+  // Upgrades the fallback template text above with a naturally-phrased
+  // Gemini summary of the exact same numbers — never a different set of
+  // facts, just better prose. Fails silently to the fallback (never blocks
+  // the page, never shows an error for a non-critical cosmetic upgrade).
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+  useEffect(() => {
+    setAiInsight(null);
+    let cancelled = false;
+    fetch("/api/dashboard/insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(insightMetricsPayload),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((j) => { if (!cancelled && j?.insight) setAiInsight(j.insight); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(insightMetricsPayload)]);
 
   // The "Upcoming expenses" widget only ever shows bills that are actually
   // overdue — "due soon" (not yet overdue) bills are intentionally left out
@@ -1260,9 +1304,9 @@ export function DashboardView({
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income ÷ available room-nights." infoAlign="right" />
           <StatCard label="Nightly rate (ADR)" value={peso(adr)} sub="revenue ÷ occupied nights" info="This week's booked revenue ÷ actual nights stayed." infoAlign="right" />
         </div>
-        {keyMetricsInsights.length > 0 && (
+        {(aiInsight || keyMetricsInsights.length > 0) && (
           <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
-            <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">{keyMetricsInsights.join(" ")}</p>
+            <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">{aiInsight ?? keyMetricsInsights.join(" ")}</p>
           </div>
         )}
       </Accordion>
