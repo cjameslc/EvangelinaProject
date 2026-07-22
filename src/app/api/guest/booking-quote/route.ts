@@ -4,6 +4,7 @@ import { checkAvailabilityForUnits } from "@/lib/bookingEngine/availabilityServi
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
+import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
@@ -44,6 +45,10 @@ export async function GET(req: NextRequest) {
     units.map((u) => u.id),
     { date, checkOutDate: normalizedCheckOutDateStr, stayType }
   );
+  // Same-day booking window (never surfaced as its own message — an
+  // out-of-window request just reads as ordinary unavailability, same as
+  // a unit that's already booked).
+  const withinWindow = isStayTypeBookableNow(stayType, date);
 
   // Same rate table for every unit — see pricingService.ts.
   const quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee);
@@ -53,7 +58,7 @@ export async function GET(req: NextRequest) {
     shortName: u.shortName,
     unitNumber: u.unitNumber,
     photoUrl: u.photoUrl,
-    available: availability[u.id],
+    available: availability[u.id] && withinWindow,
     quote,
   }));
 

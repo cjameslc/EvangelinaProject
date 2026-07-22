@@ -6,6 +6,7 @@ import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
+import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
@@ -55,6 +56,11 @@ export async function POST(req: NextRequest) {
     findOrCreateGuestByEmail(email, name.trim()),
   ]);
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
+  // Same-day booking window — deliberately the exact same generic message
+  // as "unit not found," so this never reads as its own distinct rule.
+  if (!isStayTypeBookableNow(stayType, date)) {
+    return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
+  }
 
   // Never trust a client-supplied checkOutDate for a Night stay — always
   // exactly one night, ignoring whatever the client sent. This is what
