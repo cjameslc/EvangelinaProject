@@ -611,8 +611,12 @@ async function fetchStaffData(
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
   const [bookings, cleaningLogs, expenses, employees, settings] = await Promise.all([
+    // cancelledAt: null — a cancelled booking earns no commission/cleaning
+    // credit, same rule computeTeamBreakdown itself applies via
+    // NormalizedBooking.cancelledAt; excluded at the source here too so a
+    // cancelled booking never even reaches staffPerformance().
     prismaPool[0].booking.findMany({
-      where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } },
+      where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end }, cancelledAt: null },
       select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),

@@ -55,6 +55,14 @@ export const bookingSchema = z.object({
   intendedDpAmount: z.number().int().nonnegative().nullable().optional(),
 });
 
+// Staff-side cancellation — POST /api/bookings/[id]/cancel. A separate
+// schema (not folded into bookingSchema) since it's the only path allowed
+// to set cancelledAt/cancellationReason, and the reason is mandatory here
+// (unlike every other free-text field in bookingSchema, which are optional).
+export const bookingCancelSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required to cancel a booking."),
+});
+
 export const unitSchema = z.object({
   name: z.string().min(1),
   unitNumber: z.string().min(1),

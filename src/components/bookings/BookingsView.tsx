@@ -7,11 +7,11 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
-import { canEditBookings, canEditSpecificBooking, isReadOnlyFinancials } from "@/lib/rbac";
+import { canEditBookings, canEditSpecificBooking, canDeleteBookings, isReadOnlyFinancials } from "@/lib/rbac";
 import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
@@ -29,6 +29,7 @@ type Booking = {
   amount: number; receivedById: string | null; receivedBy: Employee | null; method: string | null; paid: boolean;
   source?: string; conflict?: boolean;
   checkedInAt?: string | null; checkedOutAt?: string | null;
+  cancelledAt?: string | null; cancellationReason?: string | null;
 };
 type HkState = { unitId: string; status: string };
 
@@ -156,6 +157,23 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     refresh();
   }
 
+  // A Booker can't hard-delete, but can cancel their own booking with a
+  // required reason — reverses their commission on My Earnings immediately
+  // (see /api/my-earnings, which excludes cancelledAt bookings live).
+  async function cancelBooking(id: string) {
+    const reason = prompt("Reason for cancelling this booking? (required)");
+    if (reason === null) return;
+    if (!reason.trim()) { toast("A reason is required to cancel a booking.", true); return; }
+    const res = await fetch(`/api/bookings/${id}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't cancel booking", true); return; }
+    toast("Booking cancelled");
+    refresh();
+  }
+
   // Total bookings / collected / unpaid / units logged, and the Booking
   // insights section below (Rooms logged per booker + Where the money
   // went), are all scoped to a single Sunday-Saturday week, navigable via
@@ -179,8 +197,12 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     const endStr = fmtDate(endInclusive, sameMonth ? { day: "numeric", timeZone: "UTC" } : { month: "short", day: "numeric", timeZone: "UTC" });
     return `${startStr} – ${endStr}`;
   }, [weekRange]);
+  // Cancelled bookings are excluded here — everything downstream of
+  // weekBookings (stats, Rooms logged per booker, Where the money went) is a
+  // money/activity figure, and a cancelled booking earns/counts nothing,
+  // same rule /api/my-earnings applies.
   const weekBookings = useMemo(
-    () => bookings.filter((b) => { const d = new Date(b.date); return d >= weekRange.start && d < weekRange.end; }),
+    () => bookings.filter((b) => !b.cancelledAt && new Date(b.date) >= weekRange.start && new Date(b.date) < weekRange.end),
     [bookings, weekRange]
   );
 
@@ -321,13 +343,18 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       getDay(inIso).checkins.push(b);
       if (outIso !== inIso) {
         getDay(outIso).checkouts.push(b);
-        const cursor = new Date(inIso);
-        cursor.setDate(cursor.getDate() + 1);
-        let guard = 0;
-        while (dayOf(cursor) !== outIso && guard < 60) {
-          getDay(dayOf(cursor)).occupied.push(b);
+        // A cancelled booking still shows its check-in/check-out entries
+        // (audit trail — see the Cancelled tag on BookingLine) but no longer
+        // actually occupies the unit on the days in between.
+        if (!b.cancelledAt) {
+          const cursor = new Date(inIso);
           cursor.setDate(cursor.getDate() + 1);
-          guard++;
+          let guard = 0;
+          while (dayOf(cursor) !== outIso && guard < 60) {
+            getDay(dayOf(cursor)).occupied.push(b);
+            cursor.setDate(cursor.getDate() + 1);
+            guard++;
+          }
         }
       }
     });
@@ -345,7 +372,9 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const dailyReport = useMemo(() => {
     const todayIso = dayOf(new Date());
     return units.map((unit) => {
-      const unitBookings = bookings.filter((b) => b.unitId === unit.id);
+      // A cancelled booking no longer occupies the unit — matches
+      // availabilityService's own cancelledAt: null exclusion server-side.
+      const unitBookings = bookings.filter((b) => b.unitId === unit.id && !b.cancelledAt);
       const current = unitBookings.find((b) => {
         const { inIso, outIso } = effectiveRange(b);
         return inIso <= todayIso && todayIso < outIso;
@@ -628,7 +657,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         <>
           <div className="mb-3 flex items-center justify-between text-[13px] font-semibold text-[var(--gray)]">
             <span>{filtered.length} booking{filtered.length !== 1 ? "s" : ""} shown</span>
-            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.reduce((s, b) => s + b.amount, 0))} total</span>
+            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.cancelledAt).reduce((s, b) => s + b.amount, 0))} total</span>
           </div>
           <div className="space-y-5">
             {pagedAgenda.map(([iso, { checkins, checkouts, occupied }]) => (
@@ -644,7 +673,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-blue" /> Check-out
                       </div>
                       {checkouts.map((b) => (
-                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
@@ -654,7 +683,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         <span className="h-2 w-2 rounded-full bg-green" /> Check-in
                       </div>
                       {checkins.map((b) => (
-                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} onEdit={() => setEditing(b)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
                       ))}
                     </div>
                   )}
@@ -705,12 +734,14 @@ function isPastDue(b: Booking) {
 }
 
 function BookingLine({
-  b, kind, canEdit, onEdit, onDelete,
+  b, kind, canEdit, canDelete, onEdit, onCancel, onDelete,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
   canEdit: boolean;
+  canDelete: boolean;
   onEdit: () => void;
+  onCancel: () => void;
   onDelete: () => void;
 }) {
   const time = fmtTimeStr(kind === "checkin" ? b.checkInTime : b.checkOutTime);
@@ -740,15 +771,33 @@ function BookingLine({
         {sameDay && <Tag variant="day">↩️ Same-day checkout</Tag>}
         {b.conflict && <Tag variant="unpaid">⚠️ Conflict</Tag>}
         {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
-        {pastDue ? <Tag variant="unpaid">⏰ Past due</Tag> : b.paid ? <Tag variant="paid">Paid</Tag> : <Tag variant="unpaid">Unpaid</Tag>}
+        {b.cancelledAt ? (
+          <Tag variant="cancelled">Cancelled</Tag>
+        ) : pastDue ? (
+          <Tag variant="unpaid">⏰ Past due</Tag>
+        ) : b.paid ? (
+          <Tag variant="paid">Paid</Tag>
+        ) : (
+          <Tag variant="unpaid">Unpaid</Tag>
+        )}
         <div className="text-right text-[12.5px] font-bold">
           <span className="text-[var(--gray)]">Balance </span>
           <span className={b.paid ? "text-green" : "text-rausch"}>{peso(b.paid ? 0 : b.amount)}</span>
         </div>
-        {canEdit && (
+        {b.cancelledAt && b.cancellationReason && (
+          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">&ldquo;{b.cancellationReason}&rdquo;</div>
+        )}
+        {!b.cancelledAt && (canEdit || canDelete) && (
           <div className="flex gap-1">
-            <button onClick={onEdit} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
-            <button onClick={onDelete} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+            {canEdit && (
+              <>
+                <button onClick={onEdit} title="Edit booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
+                <button onClick={onCancel} title="Cancel booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-amber/10 hover:text-amber"><CloseIcon className="h-4 w-4" /></button>
+              </>
+            )}
+            {canDelete && (
+              <button onClick={onDelete} title="Delete booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+            )}
           </div>
         )}
       </div>

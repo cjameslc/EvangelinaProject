@@ -34,7 +34,7 @@ const getRankedLeaderboard = unstable_cache(
       // Only this month's bookings are needed for the ranking below — the
       // previous version pulled every booking ever made and filtered in JS.
       prisma.booking.findMany({
-        where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart } },
+        where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
         select: { bookerId: true, date: true, checkOutDate: true },
       }),
       prisma.eliteBookerAward.findMany({ where: { employeeId: { in: bookerIds }, month: monthStart } }),

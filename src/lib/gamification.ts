@@ -35,8 +35,13 @@ export async function syncEliteBookerAwards() {
   const bookers = await prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } });
   if (bookers.length === 0) return;
 
+  // cancelledAt: null — a cancelled booking never counts toward crossing a
+  // tier threshold. Awards already persisted before a booking's later
+  // cancellation are untouched (see the "paid once" guarantee above); this
+  // only affects which bookings are eligible to cross a threshold going
+  // forward.
   const bookings = await prisma.booking.findMany({
-    where: { bookerId: { in: bookers.map((b) => b.id) } },
+    where: { bookerId: { in: bookers.map((b) => b.id) }, cancelledAt: null },
     select: { bookerId: true, date: true, checkOutDate: true },
   });
 

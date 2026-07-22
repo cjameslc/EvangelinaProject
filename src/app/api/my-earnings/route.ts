@@ -67,8 +67,13 @@ export async function GET(req: NextRequest) {
   if (isEliteChallengeEligible) await syncEliteBookerAwards();
 
   const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
+    // cancelledAt: null — a cancelled booking earns no commission/cleaning
+    // credit; excluding it here means every figure below (this week, this
+    // month, lifetime, payroll history) reflects a cancellation immediately,
+    // with no separate "deduct" step needed, same as everything else on
+    // this page being a live-recomputed view (see the module comment above).
     prisma.booking.findMany({
-      where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
+      where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }], cancelledAt: null },
       select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true, paid: true },
       orderBy: { date: "desc" },
     }),
@@ -184,7 +189,7 @@ export async function GET(req: NextRequest) {
       prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
     ]);
     const allMonthBookings = await prisma.booking.findMany({
-      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart } },
+      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
       select: { bookerId: true, date: true, checkOutDate: true },
     });
     const countsByBooker = new Map<string, number>();

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
-import { canEditBookings, canEditSpecificBooking } from "@/lib/rbac";
+import { canEditBookings, canEditSpecificBooking, canDeleteBookings } from "@/lib/rbac";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
@@ -77,17 +77,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
-  if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+  // A Booker no longer gets to hard-delete at all — they cancel instead (see
+  // POST /api/bookings/[id]/cancel), which reverses their own commission
+  // without destroying the payment/audit trail. Every other role
+  // canEditBookings() covers keeps full delete access, unchanged.
+  if (!canDeleteBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
-  if (user.role === "BOOKER") {
-    const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-    if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployee?.id)) {
-      return new Response("Forbidden", { status: 403 });
-    }
-  }
 
   // notify() looks up the booking's guestId to know whether to write a
   // guest notification — has to run before the delete below, or there's

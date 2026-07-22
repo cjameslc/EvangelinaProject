@@ -39,6 +39,15 @@ export function canEditSpecificBooking(role: Role, bookingBookerId: string | nul
   if (role !== "BOOKER") return true;
   return !!ownEmployeeId && bookingBookerId === ownEmployeeId;
 }
+/**
+ * Hard-deleting a booking permanently destroys its record (payment history,
+ * commission trail) — a Booker may cancel a booking they own (with a
+ * required reason, via POST /api/bookings/[id]/cancel), but only
+ * Owner/Admin, Co-owner, and Housekeeping may actually delete the row.
+ */
+export function canDeleteBookings(role: Role) {
+  return canEditBookings(role) && role !== "BOOKER";
+}
 export function canEditHousekeeping(role: Role) {
   return role === "OWNER_ADMIN" || role === "HOUSEKEEPING";
 }

@@ -13,7 +13,7 @@ export type PayrollRates = {
 
 export type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 
-type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean };
+type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean; cancelledAt?: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
 
 /** Roles the "Your team" payroll list includes at all. */
@@ -49,7 +49,7 @@ export function computeTeamBreakdown(
     // earn their own bonus; not scaled by how many qualified beyond 2.
     const eveningCleansByUnitDay = new Map<string, number>();
     weekBookings
-      .filter((b) => b.cleanerId === emp.id && !!b.checkOutTime && b.checkOutTime >= "17:00")
+      .filter((b) => b.cleanerId === emp.id && !b.cancelledAt && !!b.checkOutTime && b.checkOutTime >= "17:00")
       .forEach((b) => {
         const day = (b.checkOutDate ?? b.date).slice(0, 10);
         const key = `${b.unitId}::${day}`;
@@ -75,11 +75,13 @@ export function computeTeamBreakdown(
 
   // Booking commission — whoever is set as the booker earns this, once that
   // booking is confirmed fully paid AND the stay has checked out (never for
-  // a booking that could still cancel or go unpaid). Applies to anyone who
-  // logs a booking regardless of their primary role — a Housekeeping or
-  // Auditor staffer who books a guest earns the same rate a dedicated
-  // Booker would, since they did the same work.
-  const commissionEligible = weekBookings.filter((b) => b.bookerId === emp.id && b.paid && isBookingCompleted(b, now));
+  // a booking that could still cancel or go unpaid), and only as long as it
+  // hasn't since been cancelled — a cancellation after the fact reverses the
+  // commission rather than leaving it stuck. Applies to anyone who logs a
+  // booking regardless of their primary role — a Housekeeping or Auditor
+  // staffer who books a guest earns the same rate a dedicated Booker would,
+  // since they did the same work.
+  const commissionEligible = weekBookings.filter((b) => b.bookerId === emp.id && b.paid && !b.cancelledAt && isBookingCompleted(b, now));
   if (commissionEligible.length > 0) {
     items.push({
       label: "Booking commission",

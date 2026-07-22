@@ -360,10 +360,14 @@ model Booking {
   guestId         String?
   guest           Guest?        @relation(fields: [guestId], references: [id], onDelete: SetNull)
   specialRequest  String?
-  // Guest-initiated cancellation — set instead of deleting the row, so a
-  // guest still sees a cancelled stay in their booking history. Staff's
-  // existing DELETE endpoint is unchanged (hard delete, unrelated to this).
-  cancelledAt     DateTime?
+  // Cancellation — set instead of deleting the row, so a guest still sees a
+  // cancelled stay in their booking history, and so a cancelled staff
+  // booking's commission is reversed rather than silently vanishing. A
+  // Booker can only ever cancel (not hard-delete) their own bookings — see
+  // POST /api/bookings/[id]/cancel — and must always give a reason;
+  // OWNER_ADMIN/CO_OWNER still have full DELETE besides.
+  cancelledAt       DateTime?
+  cancellationReason String?
 
   // Airbnb iCal sync
   source          String @default("MANUAL")
