@@ -72,6 +72,7 @@ export function DashboardView({
   expenseRequestsMonth,
   cleaningLogsRecent,
   calendarBlocksOccupancy,
+  pendingGuestRequests,
   weekRangeStart,
   weekRangeEnd,
   monthRangeStart,
@@ -93,6 +94,7 @@ export function DashboardView({
   expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
   cleaningLogsRecent: { id: string; unitId: string; startedAt: string; endedAt: string | null; employee: { name: string } | null }[];
   calendarBlocksOccupancy: OccupancyBlock[];
+  pendingGuestRequests: { id: string; type: string; message: string | null; createdAt: string; unit: { shortName: string } | null; guest: { name: string | null; email: string } | null }[];
   weekRangeStart: string;
   weekRangeEnd: string;
   monthRangeStart: string;
@@ -643,6 +645,27 @@ export function DashboardView({
       });
     });
 
+    // Guest requests from the Digital Guidebook (housekeeping, late
+    // checkout, extend stay, a reported issue) — time-sensitive, since a
+    // guest is actively waiting on these, so each shows individually
+    // rather than being rolled into one summary row like the checks below.
+    const GUEST_REQUEST_LABEL: Record<string, string> = {
+      housekeeping: "🧹 Housekeeping requested",
+      late_checkout: "⏰ Late checkout requested",
+      extend_stay: "📅 Stay extension requested",
+      issue: "⚠️ Issue reported",
+      other: "Guest request",
+    };
+    pendingGuestRequests.forEach((r) => {
+      items.push({
+        id: `guest-request-${r.id}`,
+        dot: r.type === "issue" ? "bg-rausch" : "bg-blue",
+        title: GUEST_REQUEST_LABEL[r.type] ?? "Guest request",
+        desc: `${r.unit?.shortName ?? "Unit"} — ${r.guest?.name ?? r.guest?.email ?? "Guest"}${r.message ? `: "${r.message}"` : ""}`,
+        tag: "Guest",
+      });
+    });
+
     if (pendingExpenseRequests.length > 0) {
       const total = pendingExpenseRequests.reduce((s, e) => s + e.amount, 0);
       const desc = pendingExpenseRequests
@@ -762,7 +785,7 @@ export function DashboardView({
       .filter((item) => !dismissedKeys.has(item.key))
       .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, dismissedKeys]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, pendingGuestRequests, dismissedKeys]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly

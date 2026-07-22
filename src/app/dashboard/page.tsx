@@ -147,6 +147,18 @@ export default async function DashboardPage() {
     .then((rows) => rows.map((r) => r.key))
     .catch(() => []);
 
+  // Uncached, same reasoning as dismissedAttentionKeys above — a guest
+  // request from the Digital Guidebook should show up on the next load, not
+  // wait out the 45s dashboard-data cache. Feeds "Needs your attention".
+  const pendingGuestRequests = await prisma.guestRequest
+    .findMany({
+      where: { status: "pending" },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { id: true, type: true, message: true, createdAt: true, unit: { select: { shortName: true } }, guest: { select: { name: true, email: true } } },
+    })
+    .catch(() => []);
+
   let units: any[] = [];
   let bookingsWeek: any[] = [];
   let bookingsMonth: any[] = [];
@@ -208,6 +220,7 @@ export default async function DashboardPage() {
       expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
       cleaningLogsRecent={JSON.parse(JSON.stringify(cleaningLogsRecent))}
       calendarBlocksOccupancy={JSON.parse(JSON.stringify(calendarBlocksOccupancy))}
+      pendingGuestRequests={JSON.parse(JSON.stringify(pendingGuestRequests))}
       weekRangeStart={new Date(weekRangeStart).toISOString()}
       weekRangeEnd={new Date(weekRangeEnd).toISOString()}
       monthRangeStart={new Date(monthRangeStart).toISOString()}

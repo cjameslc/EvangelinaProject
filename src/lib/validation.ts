@@ -92,6 +92,12 @@ export const unitSchema = z.object({
   active: z.boolean().optional(),
   ownerUserIds: z.array(z.string()).optional(),
   icalImportUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+  // Guest Experience module — per-unit Digital Guidebook check-in details.
+  wifiSsid: z.string().nullable().optional(),
+  wifiPassword: z.string().nullable().optional(),
+  doorCode: z.string().nullable().optional(),
+  checkInInstructions: z.string().nullable().optional(),
+  videoTutorialUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
 });
 
 export const employeeSchema = z.object({
@@ -201,12 +207,24 @@ export const checklistGroupSchema = z.object({
   unitIds: z.array(z.string()).optional(),
 });
 
+export const guidebookCategorySchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  icon: z.string().min(1),
+  items: z.array(z.string().min(1)),
+});
+
+export const amenitySchema = z.object({
+  icon: z.string().min(1),
+  label: z.string().min(1),
+});
+
 export const settingsSchema = z.object({
   businessName: z.string().min(1),
   address: z.string().min(1),
   nightlyRate: z.number().int().positive(),
   dpFee: z.number().int().nonnegative(),
-  checklistGroups: z.array(checklistGroupSchema).min(1).optional(),
+  checklistGroups: z.array(checklistGroupSchema).min(1).nullable().optional(),
   housekeepingDayRate: z.number().int().nonnegative().optional(),
   housekeepingNightBonus: z.number().int().nonnegative().optional(),
   bookerCommission: z.number().int().nonnegative().optional(),
@@ -216,6 +234,18 @@ export const settingsSchema = z.object({
   weekendRate12h: z.number().int().positive().optional(),
   weekendRate21h: z.number().int().positive().optional(),
   weekdayNightPromoPct: z.number().int().min(0).max(100).optional(),
+  // Guest Experience module
+  contactPhone: z.string().nullable().optional(),
+  emergencyContactPhone: z.string().nullable().optional(),
+  messengerUsername: z.string().nullable().optional(),
+  // .nullable() as well as .optional() — GET /api/settings genuinely
+  // returns null for any of these until an admin saves once (see
+  // src/lib/prisma.ts's parse extension), and the natural client pattern is
+  // "spread what GET gave me back into PATCH" — that null must be a valid
+  // no-op, not a 500 from an unhandled ZodError.
+  guidebookCategories: z.array(guidebookCategorySchema).nullable().optional(),
+  amenities: z.array(amenitySchema).nullable().optional(),
+  houseRules: z.array(z.string()).nullable().optional(),
 });
 
 export const auditFindingCreateSchema = z.object({

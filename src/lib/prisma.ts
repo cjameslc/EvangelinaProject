@@ -73,8 +73,22 @@ function makePrismaClient() {
           create: ({ args, query }) => { stringifyField(args.data as any, "photoUrls"); return query(args); },
         },
         settings: {
-          update: ({ args, query }) => { stringifyField(args.data as any, "checklistGroups"); return query(args); },
-          upsert: ({ args, query }) => { stringifyField(args.create as any, "checklistGroups"); stringifyField(args.update as any, "checklistGroups"); return query(args); },
+          update: ({ args, query }) => {
+            stringifyField(args.data as any, "checklistGroups");
+            stringifyField(args.data as any, "guidebookCategories");
+            stringifyField(args.data as any, "amenities");
+            stringifyField(args.data as any, "houseRules");
+            return query(args);
+          },
+          upsert: ({ args, query }) => {
+            for (const target of [args.create, args.update]) {
+              stringifyField(target as any, "checklistGroups");
+              stringifyField(target as any, "guidebookCategories");
+              stringifyField(target as any, "amenities");
+              stringifyField(target as any, "houseRules");
+            }
+            return query(args);
+          },
         },
         auditLog: {
           create: ({ args, query }) => { stringifyField(args.data as any, "meta"); return query(args); },
@@ -114,6 +128,18 @@ function makePrismaClient() {
           checklistGroups: {
             needs: { checklistGroups: true },
             compute: (row): unknown[] | null => (row.checklistGroups == null ? null : parseJson(row.checklistGroups, [])),
+          },
+          guidebookCategories: {
+            needs: { guidebookCategories: true },
+            compute: (row): unknown[] | null => (row.guidebookCategories == null ? null : parseJson(row.guidebookCategories, [])),
+          },
+          amenities: {
+            needs: { amenities: true },
+            compute: (row): unknown[] | null => (row.amenities == null ? null : parseJson(row.amenities, [])),
+          },
+          houseRules: {
+            needs: { houseRules: true },
+            compute: (row): unknown[] | null => (row.houseRules == null ? null : parseJson(row.houseRules, [])),
           },
         },
         auditLog: {

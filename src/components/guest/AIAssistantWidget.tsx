@@ -1,10 +1,15 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BellIcon } from "@/components/ui/Icons";
+import { CONCIERGE_SAMPLE_QUESTIONS } from "@/lib/guidebookContent";
 
 type Message = { role: "user" | "assistant"; text: string; escalate?: boolean };
+
+/** Dispatched by the Digital Guidebook's "Ask the AI Concierge" card so one
+ * button opens this same widget instead of building a second chat UI. */
+export const OPEN_CONCIERGE_EVENT = "open-ai-concierge";
 
 // Rendered globally (see layout.tsx) but only ever shows for someone
 // without a staff session — staff never see this, it's guest-only, exactly
@@ -14,25 +19,33 @@ export function AIAssistantWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", text: "Hi! I can help with availability, rates, and your booking status. What would you like to know?" },
+    { role: "assistant", text: "Hi! I'm your AI Concierge — ask me about your stay, WiFi, the door code, or anything nearby." },
   ]);
   const [sending, setSending] = useState(false);
   const [escalating, setEscalating] = useState(false);
 
+  useEffect(() => {
+    const openHandler = () => setOpen(true);
+    window.addEventListener(OPEN_CONCIERGE_EVENT, openHandler);
+    return () => window.removeEventListener(OPEN_CONCIERGE_EVENT, openHandler);
+  }, []);
+
   if (session) return null;
 
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
+  async function sendMessage(text: string) {
     if (!text || sending) return;
     setInput("");
+    // The turn history sent to Gemini — everything already on screen before
+    // this new message, not counting the placeholder greeting (index 0),
+    // which was never actually said by the model mid-conversation.
+    const history = messages.slice(1).map((m) => ({ role: m.role === "user" ? ("user" as const) : ("model" as const), text: m.text }));
     setMessages((m) => [...m, { role: "user", text }]);
     setSending(true);
     try {
       const res = await fetch("/api/guest/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history }),
       });
       const j = await res.json().catch(() => ({ reply: "Sorry, something went wrong." }));
       setMessages((m) => [...m, { role: "assistant", text: j.reply, escalate: j.escalate }]);
@@ -41,6 +54,12 @@ export function AIAssistantWidget() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    await sendMessage(text);
   }
 
   async function escalate(question: string) {
@@ -64,16 +83,17 @@ export function AIAssistantWidget() {
     <>
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label="Chat with us"
+        aria-label="Chat with the AI Concierge"
         className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-rausch text-white shadow-card transition hover:brightness-95"
       >
         {open ? "✕" : "💬"}
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-40 flex h-[480px] w-[340px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card">
+        <div className="fixed bottom-24 right-5 z-40 flex h-[520px] w-[340px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card">
           <div className="border-b border-[var(--line)] px-4 py-3">
-            <div className="text-[13.5px] font-extrabold">Evangelina&apos;s Assistant</div>
+            <div className="text-[13.5px] font-extrabold">🤖 AI Concierge</div>
+            <div className="text-[11px] text-[var(--gray)]">Evangelina&apos;s Staycation</div>
           </div>
           <div className="flex-1 space-y-2.5 overflow-y-auto p-3">
             {messages.map((m, i) => (
@@ -89,6 +109,15 @@ export function AIAssistantWidget() {
               </div>
             ))}
             {sending && <div className="text-[12px] text-[var(--gray)]">Thinking…</div>}
+            {messages.length === 1 && !sending && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {CONCIERGE_SAMPLE_QUESTIONS.slice(0, 4).map((q) => (
+                  <button key={q} onClick={() => sendMessage(q)} className="rounded-full bg-[var(--bg-2)] px-2.5 py-1 text-[11px] font-semibold transition hover:bg-rausch/10 hover:text-rausch">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <form onSubmit={send} className="flex items-center gap-2 border-t border-[var(--line)] p-2.5">
             <input

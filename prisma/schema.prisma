@@ -74,6 +74,18 @@ model Unit {
   icalLastSyncAt    DateTime?
   icalLastSyncError String?
 
+  // Guest Experience module — per-unit check-in details, shown in the
+  // Digital Guidebook (my-bookings/[id]/guide) only to the guest who
+  // actually booked this specific unit, never on the public listing page.
+  // Admin-editable from the Units tab. All nullable — a unit with none of
+  // these set simply omits that guidebook section rather than showing a
+  // placeholder.
+  wifiSsid            String?
+  wifiPassword         String?
+  doorCode             String?
+  checkInInstructions  String? // free text — e.g. "Elevator to 11F, unit is on your left"
+  videoTutorialUrl     String? // optional walkthrough video (YouTube/Drive link)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -88,6 +100,7 @@ model Unit {
   recurringExpenseTemplates RecurringExpenseTemplate[]
   icalSyncLogs  IcalSyncLog[]
   expenseRequests ExpenseRequest[]
+  guestRequests GuestRequest[]
 
   @@map("units")
 }
@@ -422,6 +435,7 @@ model Booking {
   calendarBlock   CalendarBlock?  @relation("BookingCalendarBlock")
   cleaningBlock   CalendarBlock?  @relation("BookingCleaningBlock")
   cleaningLogs    CleaningLog[]
+  guestRequests   GuestRequest[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -658,6 +672,24 @@ model Settings {
   currency      String   @default("PHP")
   checklistGroups String? // JSON-encoded ChecklistGroup[] — see src/lib/prisma.ts extension
 
+  // Guest Experience module — real host contact channels for the
+  // guidebook's "Contact Host"/"Message us"/emergency-call buttons. Left
+  // null until Admin actually sets them — the guidebook hides/disables the
+  // corresponding button rather than ever showing a placeholder number.
+  contactPhone          String?
+  emergencyContactPhone String?
+  messengerUsername     String? // the part after m.me/ — e.g. "EvangelinasStaycation"
+
+  // Guest Experience module — Digital Guidebook content, shared across every
+  // unit (nearby places/amenities/house rules don't vary per-unit; per-unit
+  // specifics like WiFi/door code live on Unit instead). Same override
+  // pattern as checklistGroups above: null falls back to the coded default
+  // in src/lib/constants.ts (GUIDEBOOK_CATEGORIES/AMENITIES/HOUSE_RULES), a
+  // set value is Admin's edited version — see src/lib/prisma.ts extension.
+  guidebookCategories String? // JSON-encoded GuidebookCategory[]
+  amenities            String? // JSON-encoded string[]
+  houseRules           String? // JSON-encoded string[]
+
   // Payroll rates — the "Your team" formula on Dashboard/Admin reads these
   // instead of hardcoding them, so Admin can tune pay without a code change.
   housekeepingDayRate    Int @default(700) // per distinct day with a logged cleaning session
@@ -733,8 +765,33 @@ model Guest {
 
   bookings      Booking[]
   notifications GuestNotification[]
+  requests      GuestRequest[]
 
   @@map("guests")
+}
+
+// Guest → staff requests raised from the Digital Guidebook (housekeeping,
+// late checkout, stay extension, a reported issue) — the reverse direction
+// of notificationService.notify() above, which only ever goes staff → guest.
+// Deliberately a simple flat record (same shape as AssistantEscalation)
+// rather than a full ticketing system — staff see open ones surfaced on the
+// Dashboard's existing "Needs your attention" card.
+model GuestRequest {
+  id         String    @id @default(cuid())
+  guestId    String
+  guest      Guest     @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  bookingId  String
+  booking    Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  unitId     String
+  unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  type       String    // "housekeeping" | "late_checkout" | "extend_stay" | "issue" | "other"
+  message    String?
+  status     String    @default("pending") // "pending" | "acknowledged" | "resolved"
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([status, createdAt])
+  @@map("guest_requests")
 }
 
 // In-app inbox for the events notificationService.notify() already fires

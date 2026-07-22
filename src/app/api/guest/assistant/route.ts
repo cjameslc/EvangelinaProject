@@ -13,6 +13,16 @@ export async function POST(req: NextRequest) {
   if (!message) return NextResponse.json({ error: "Message is required." }, { status: 400 });
   if (message.length > 1000) return NextResponse.json({ error: "Message is too long." }, { status: 400 });
 
+  // Client-maintained turn history (the widget's own prior messages) — capped
+  // both in length and per-turn size so a manipulated/huge payload can't
+  // blow up the Gemini request. Malformed entries are dropped, not rejected
+  // outright, so one bad turn doesn't kill an otherwise-fine conversation.
+  const rawHistory = Array.isArray(body.history) ? body.history : [];
+  const history = rawHistory
+    .slice(-20)
+    .filter((t: any) => t && (t.role === "user" || t.role === "model") && typeof t.text === "string" && t.text.length > 0)
+    .map((t: any) => ({ role: t.role, text: t.text.slice(0, 1000) }));
+
   const guest = await getCurrentGuest();
 
   // No auth is required for this endpoint, so it's the one place in the
@@ -27,7 +37,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { reply, escalate } = await askAssistant(guest?.id ?? null, message);
+    const { reply, escalate } = await askAssistant(guest?.id ?? null, message, history);
     return NextResponse.json({ reply, escalate });
   } catch (e) {
     console.error("Assistant error", e);

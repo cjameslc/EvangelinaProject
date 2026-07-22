@@ -2,16 +2,28 @@
 
 import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
+import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
+import { PlusIcon, TrashIcon } from "@/components/ui/Icons";
 
 type Settings = {
   businessName: string; address: string; nightlyRate: number; dpFee: number;
   housekeepingDayRate: number; housekeepingNightBonus: number; bookerCommission: number; auditorWeeklyRate: number;
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
+  contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
+  guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
 };
 
 export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?: (s: Settings) => void }) {
   const toast = useToast();
-  const [form, setForm] = useState(initial);
+  const [form, setForm] = useState({
+    ...initial,
+    contactPhone: initial.contactPhone ?? "",
+    emergencyContactPhone: initial.emergencyContactPhone ?? "",
+    messengerUsername: initial.messengerUsername ?? "",
+    guidebookCategories: initial.guidebookCategories ?? GUIDEBOOK_CATEGORIES,
+    amenities: initial.amenities ?? AMENITIES,
+    houseRules: initial.houseRules ?? HOUSE_RULES,
+  });
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -23,11 +35,20 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       const v = form[key];
       if (typeof v !== "number" || Number.isNaN(v) || v < 0) { toast(`Enter a valid amount for ${key}`, true); return; }
     }
+    // Textareas split on "\n" — trim/drop blank lines so a trailing newline
+    // or accidental blank row never becomes an empty string the schema
+    // rejects (guidebookCategorySchema/z.string().min(1) items).
+    const payload = {
+      ...form,
+      guidebookCategories: form.guidebookCategories.map((c) => ({ ...c, items: c.items.map((i) => i.trim()).filter(Boolean) })),
+      amenities: form.amenities.filter((a) => a.label.trim()),
+      houseRules: form.houseRules.map((r) => r.trim()).filter(Boolean),
+    };
     setSaving(true);
-    const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     setSaving(false);
     if (!res.ok) { toast("Couldn't save settings", true); return; }
-    onSaved?.(form);
+    onSaved?.(payload);
     toast("Settings saved ✓");
   }
 
@@ -99,6 +120,71 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           </div>
         </div>
       </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — contact channels</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Powers the Digital Guidebook&rsquo;s Contact host / Emergency / Message us buttons. Left blank hides that button rather than showing a placeholder.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Host contact number</label>
+            <input value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} className="field-input mt-1.5" placeholder="+63 9XX XXX XXXX" />
+          </div>
+          <div>
+            <label className="field-label">Emergency contact number</label>
+            <input value={form.emergencyContactPhone} onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })} className="field-input mt-1.5" placeholder="+63 9XX XXX XXXX" />
+          </div>
+          <div className="col-span-2">
+            <label className="field-label">Messenger username</label>
+            <input value={form.messengerUsername} onChange={(e) => setForm({ ...form, messengerUsername: e.target.value })} className="field-input mt-1.5" placeholder="EvangelinasStaycation (the part after m.me/)" />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — amenities</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Shown in every unit&rsquo;s Digital Guidebook.</p>
+        <div className="space-y-2">
+          {form.amenities.map((a, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input value={a.icon} onChange={(e) => setForm({ ...form, amenities: form.amenities.map((x, j) => (j === i ? { ...x, icon: e.target.value } : x)) })} className="field-input w-14 text-center" placeholder="🛏️" />
+              <input value={a.label} onChange={(e) => setForm({ ...form, amenities: form.amenities.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} className="field-input flex-1" placeholder="Amenity name" />
+              <button onClick={() => setForm({ ...form, amenities: form.amenities.filter((_, j) => j !== i) })} className="grid h-9 w-9 flex-none place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+            </div>
+          ))}
+          <button onClick={() => setForm({ ...form, amenities: [...form.amenities, { icon: "✨", label: "" }] })} className="btn-sm btn"><PlusIcon className="h-3.5 w-3.5" /> Add amenity</button>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — nearby places</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">One place per line within each category — these power the Digital Guidebook and the AI Concierge&rsquo;s neighborhood answers.</p>
+        <div className="space-y-3">
+          {form.guidebookCategories.map((c, i) => (
+            <div key={c.key}>
+              <label className="field-label">{c.icon} {c.label}</label>
+              <textarea
+                value={c.items.join("\n")}
+                onChange={(e) => setForm({
+                  ...form,
+                  guidebookCategories: form.guidebookCategories.map((x, j) => (j === i ? { ...x, items: e.target.value.split("\n") } : x)),
+                })}
+                className="field-input mt-1.5 min-h-[64px]"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — house rules</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">One rule per line. Empty by default — nothing shows until you add rules here.</p>
+        <textarea
+          value={form.houseRules.join("\n")}
+          onChange={(e) => setForm({ ...form, houseRules: e.target.value.split("\n") })}
+          className="field-input min-h-[80px]"
+          placeholder="e.g. No smoking inside the unit&#10;Quiet hours after 10 PM"
+        />
+      </div>
+
       <button onClick={save} disabled={saving} className="btn-primary">{saving ? "Saving…" : "Save settings"}</button>
     </div>
   );

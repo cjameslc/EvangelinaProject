@@ -31,6 +31,42 @@ export async function askGemini(systemPrompt: string, userMessage: string): Prom
   return text;
 }
 
+export type ChatTurn = { role: "user" | "model"; text: string };
+
+/**
+ * Same REST endpoint as askGemini, but with a full `contents` array of prior
+ * turns instead of a single user message — the AI Concierge (guest chat
+ * widget) needs real multi-turn memory ("what about tomorrow?" referring
+ * back to an earlier question), which askGemini's one-shot call can't do.
+ * `history` is every turn BEFORE the new message; `userMessage` is appended
+ * as the final user turn.
+ */
+export async function askGeminiChat(systemPrompt: string, history: ChatTurn[], userMessage: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+  const contents = [...history, { role: "user" as const, text: userMessage }].map((t) => ({
+    role: t.role,
+    parts: [{ text: t.text }],
+  }));
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  const body = await res.json();
+  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no text.");
+  return text;
+}
+
 const VISION_TIMEOUT_MS = 20_000;
 
 /**

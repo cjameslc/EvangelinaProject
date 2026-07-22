@@ -12,10 +12,14 @@ type Unit = {
   id: string; name: string; unitNumber: string; shortName: string; location: string; nightlyRate: number; active: boolean;
   rating: number; photoUrl: string | null;
   icalToken: string | null; icalImportUrl: string | null; icalLastSyncAt: string | null; icalLastSyncError: string | null;
+  wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; checkInInstructions: string | null; videoTutorialUrl: string | null;
   owners?: { user: { id: string; name: string } }[];
 };
 
-const EMPTY = { name: "", unitNumber: "", shortName: "", location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.9, photoUrl: null as string | null, ownerUserIds: [] as string[], icalImportUrl: "" };
+const EMPTY = {
+  name: "", unitNumber: "", shortName: "", location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.9, photoUrl: null as string | null, ownerUserIds: [] as string[], icalImportUrl: "",
+  wifiSsid: "", wifiPassword: "", doorCode: "", checkInInstructions: "", videoTutorialUrl: "",
+};
 
 export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Unit[]; onUnitsChange: (units: Unit[]) => void; ownerCandidates: OwnerCandidate[] }) {
   const toast = useToast();
@@ -99,7 +103,10 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
   const toast = useToast();
   const [form, setForm] = useState(
     unit
-      ? { name: unit.name, unitNumber: unit.unitNumber, shortName: unit.shortName, location: unit.location, nightlyRate: unit.nightlyRate, rating: unit.rating, photoUrl: unit.photoUrl, ownerUserIds: (unit.owners ?? []).map((o) => o.user.id), icalImportUrl: unit.icalImportUrl ?? "" }
+      ? {
+          name: unit.name, unitNumber: unit.unitNumber, shortName: unit.shortName, location: unit.location, nightlyRate: unit.nightlyRate, rating: unit.rating, photoUrl: unit.photoUrl, ownerUserIds: (unit.owners ?? []).map((o) => o.user.id), icalImportUrl: unit.icalImportUrl ?? "",
+          wifiSsid: unit.wifiSsid ?? "", wifiPassword: unit.wifiPassword ?? "", doorCode: unit.doorCode ?? "", checkInInstructions: unit.checkInInstructions ?? "", videoTutorialUrl: unit.videoTutorialUrl ?? "",
+        }
       : EMPTY
   );
   const [saving, setSaving] = useState(false);
@@ -271,6 +278,33 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
               </div>
             </div>
           )}
+        </div>
+
+        <div className="rounded-2xl border border-[var(--line)] p-4">
+          <label className="field-label">Digital Guidebook — check-in details</label>
+          <p className="mt-0.5 text-[12px] text-[var(--gray)]">Shown only to the guest with an active booking for this unit, in their Guidebook.</p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label">WiFi network name</label>
+              <input value={form.wifiSsid} onChange={(e) => setForm({ ...form, wifiSsid: e.target.value })} className="field-input mt-1.5" placeholder="Evangelina_1118" />
+            </div>
+            <div>
+              <label className="field-label">WiFi password</label>
+              <input value={form.wifiPassword} onChange={(e) => setForm({ ...form, wifiPassword: e.target.value })} className="field-input mt-1.5" placeholder="••••••••" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="field-label">Door code</label>
+            <input value={form.doorCode} onChange={(e) => setForm({ ...form, doorCode: e.target.value })} className="field-input mt-1.5" placeholder="1234#" />
+          </div>
+          <div className="mt-3">
+            <label className="field-label">Check-in instructions</label>
+            <textarea value={form.checkInInstructions} onChange={(e) => setForm({ ...form, checkInInstructions: e.target.value })} className="field-input mt-1.5 min-h-[72px]" placeholder="e.g. Elevator to 11F, unit is on your left past the fire exit." />
+          </div>
+          <div className="mt-3">
+            <label className="field-label">Check-in video link (optional)</label>
+            <input value={form.videoTutorialUrl} onChange={(e) => setForm({ ...form, videoTutorialUrl: e.target.value })} className="field-input mt-1.5" placeholder="https://youtu.be/…" />
+          </div>
         </div>
       </div>
     </Modal>
