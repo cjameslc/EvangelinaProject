@@ -12,6 +12,12 @@ import type { PriceQuote } from "@/lib/pricing/rates";
 type StayType = "Daycation" | "Night" | "Full";
 type QuoteResult = { unitId: string; shortName: string; unitNumber: string; photoUrl: string | null; available: boolean; quote: PriceQuote };
 
+function nextDay(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function BookFlowView() {
   const searchParams = useSearchParams();
   const [step, setStep] = useState<"search" | "select" | "details" | "payment" | "done">("search");
@@ -122,6 +128,14 @@ export function BookFlowView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Night stay is always exactly one night — checkout is always the day
+  // after check-in, not a guest choice. Only Full stay can span more than
+  // one night. Keeps this in sync whenever the check-in date changes or
+  // the guest switches to Night.
+  useEffect(() => {
+    if (stayType === "Night" && date) setCheckOutDate(nextDay(date));
+  }, [stayType, date]);
+
   if (step === "payment" && selected) {
     const amountDueNow = paymentType === "down_payment" ? selected.quote.dpAmount : selected.quote.total;
     return (
@@ -214,10 +228,17 @@ export function BookFlowView() {
               <label htmlFor="book-checkin" className="field-label">Check-in</label>
               <input id="book-checkin" type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1 w-full" />
             </div>
-            {stayType !== "Daycation" && (
+            {stayType === "Night" && (
               <div className="min-w-0">
                 <label htmlFor="book-checkout" className="field-label">Check-out</label>
-                <input id="book-checkout" type="date" required min={date || undefined} value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} className="field-input mt-1 w-full" />
+                <input id="book-checkout" type="date" disabled value={checkOutDate} className="field-input mt-1 w-full disabled:opacity-60" />
+                <p className="mt-1 text-[11px] text-[var(--gray)]">Night stay is always 1 night</p>
+              </div>
+            )}
+            {stayType === "Full" && (
+              <div className="min-w-0">
+                <label htmlFor="book-checkout" className="field-label">Check-out</label>
+                <input id="book-checkout" type="date" required min={date ? nextDay(date) : undefined} value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} className="field-input mt-1 w-full" />
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import { bookingSchema } from "@/lib/validation";
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
+import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
@@ -51,9 +52,16 @@ export async function POST(req: NextRequest) {
   ]);
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
 
+  // Never trust a client-supplied checkOutDate for a Night stay — always
+  // exactly one night, ignoring whatever the client sent. This is what
+  // actually gets persisted (and mirrored to the calendar), not just what
+  // the quote is computed against, so the two can never disagree.
+  const normalizedCheckOutDate = normalizeGuestCheckOutDate(stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null);
+  const normalizedCheckOutDateStr = normalizedCheckOutDate ? normalizedCheckOutDate.toISOString().slice(0, 10) : null;
+
   // Price is always computed server-side from the real Booking Engine quote
   // — never trust a client-supplied amount for what a guest pays.
-  const quote = quotePrice(stayType, new Date(date), checkOutDate ? new Date(checkOutDate) : null, settings, settings.dpFee);
+  const quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee);
 
   // Same bookingSchema every staff-side booking is validated against — no
   // reason the guest path should skip real shape/type validation just
@@ -61,7 +69,7 @@ export async function POST(req: NextRequest) {
   const parsed = bookingSchema.safeParse({
     unitId,
     date,
-    checkOutDate: checkOutDate || null,
+    checkOutDate: normalizedCheckOutDateStr,
     stayType,
     guests: [name.trim()],
     pax: paxNumber,
