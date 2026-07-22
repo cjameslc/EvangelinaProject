@@ -31,20 +31,25 @@ export function BookFlowView() {
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!date) return;
+    if (!date || loadingResults) return;
     setLoadingResults(true);
     setError("");
-    const params = new URLSearchParams({ date, stayType });
-    if (stayType !== "Daycation" && checkOutDate) params.set("checkOutDate", checkOutDate);
-    const res = await fetch(`/api/guest/booking-quote?${params}`);
-    const j = await res.json();
-    setLoadingResults(false);
-    if (!res.ok) { setError(j.error ?? "Couldn't check availability."); return; }
-    setResults(j.results);
-    setStep("select");
-    if (preselectedUnit) {
-      const match = j.results.find((r: QuoteResult) => r.unitId === preselectedUnit);
-      if (match?.available) chooseUnit(match);
+    try {
+      const params = new URLSearchParams({ date, stayType });
+      if (stayType !== "Daycation" && checkOutDate) params.set("checkOutDate", checkOutDate);
+      const res = await fetch(`/api/guest/booking-quote?${params}`);
+      const j = await res.json();
+      if (!res.ok) { setError(j.error ?? "Couldn't check availability."); return; }
+      setResults(j.results);
+      setStep("select");
+      if (preselectedUnit) {
+        const match = j.results.find((r: QuoteResult) => r.unitId === preselectedUnit);
+        if (match?.available) chooseUnit(match);
+      }
+    } catch {
+      setError("Couldn't check availability. Please try again.");
+    } finally {
+      setLoadingResults(false);
     }
   }
 
@@ -55,25 +60,30 @@ export function BookFlowView() {
 
   async function confirm(e: React.FormEvent) {
     e.preventDefault();
-    if (!selected) return;
+    if (!selected || submitting) return;
     setSubmitting(true);
     setError("");
-    const res = await fetch("/api/guest/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        unitId: selected.unitId, date, checkOutDate: stayType === "Daycation" ? null : checkOutDate, stayType,
-        name, email, phone, pax: pax || null, specialRequest: specialRequest || null,
-      }),
-    });
-    const j = await res.json();
-    setSubmitting(false);
-    if (!res.ok) { setError(j.error ?? "Couldn't complete the booking."); return; }
-    setConfirmedBookingId(j.booking.id);
-    // A sign-in link doubles as the booking confirmation channel — the
-    // guest now has a real account (created on submit) and a way back in.
-    fetch("/api/guest/auth/request-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {});
-    setStep("done");
+    try {
+      const res = await fetch("/api/guest/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unitId: selected.unitId, date, checkOutDate: stayType === "Daycation" ? null : checkOutDate, stayType,
+          name, email, phone, pax: pax || null, specialRequest: specialRequest || null,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) { setError(j.error ?? "Couldn't complete the booking."); return; }
+      setConfirmedBookingId(j.booking.id);
+      // A sign-in link doubles as the booking confirmation channel — the
+      // guest now has a real account (created on submit) and a way back in.
+      fetch("/api/guest/auth/request-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {});
+      setStep("done");
+    } catch {
+      setError("Couldn't complete the booking. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -175,7 +185,7 @@ export function BookFlowView() {
             </div>
             <div>
               <label htmlFor="guest-special-request" className="field-label">Special requests (optional)</label>
-              <textarea id="guest-special-request" value={specialRequest} onChange={(e) => setSpecialRequest(e.target.value)} className="field-input mt-1" rows={3} />
+              <textarea id="guest-special-request" value={specialRequest} onChange={(e) => setSpecialRequest(e.target.value)} maxLength={1000} className="field-input mt-1" rows={3} />
             </div>
           </div>
           {error && <p className="text-[13px] font-semibold text-rausch">{error}</p>}

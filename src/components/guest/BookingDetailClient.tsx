@@ -14,7 +14,7 @@ type Booking = {
   unit: { id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string };
 };
 
-export function BookingDetailClient({ booking, guestEmail, guestName }: { booking: Booking; guestEmail: string; guestName: string | null }) {
+export function BookingDetailClient({ booking }: { booking: Booking }) {
   const router = useRouter();
   const [cancelling, setCancelling] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -25,12 +25,18 @@ export function BookingDetailClient({ booking, guestEmail, guestName }: { bookin
   const completed = !booking.cancelledAt && isBookingCompleted(booking);
 
   async function cancel() {
-    if (!confirm("Cancel this booking? This can't be undone.")) return;
+    if (cancelling || !confirm("Cancel this booking? This can't be undone.")) return;
     setCancelling(true);
-    const res = await fetch(`/api/guest/bookings/${booking.id}/cancel`, { method: "POST" });
-    setCancelling(false);
-    if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't cancel this booking."); return; }
-    router.refresh();
+    setError("");
+    try {
+      const res = await fetch(`/api/guest/bookings/${booking.id}/cancel`, { method: "POST" });
+      if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't cancel this booking."); return; }
+      router.refresh();
+    } catch {
+      setError("Couldn't cancel this booking. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
   }
 
   async function uploadProof(e: React.ChangeEvent<HTMLInputElement>) {
@@ -39,13 +45,18 @@ export function BookingDetailClient({ booking, guestEmail, guestName }: { bookin
     if (!file) return;
     setUploading(true);
     setError("");
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("field", "proofUrl");
-    const res = await fetch(`/api/guest/bookings/${booking.id}/payment-proof`, { method: "POST", body: fd });
-    setUploading(false);
-    if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't upload proof."); return; }
-    router.refresh();
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("field", "proofUrl");
+      const res = await fetch(`/api/guest/bookings/${booking.id}/payment-proof`, { method: "POST", body: fd });
+      if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't upload proof."); return; }
+      router.refresh();
+    } catch {
+      setError("Couldn't upload proof. Please try again.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function downloadInvoice() {

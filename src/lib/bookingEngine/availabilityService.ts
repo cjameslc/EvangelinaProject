@@ -29,7 +29,9 @@ export async function checkAvailability(
   const date = new Date(query.date);
   const checkOutDate = query.checkOutDate ? new Date(query.checkOutDate) : null;
   const unitBookings = await prisma.booking.findMany({
-    where: { unitId: query.unitId, ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}) },
+    // A guest-cancelled booking (cancelledAt set) must not keep blocking the
+    // unit — otherwise a cancelled date range is stuck unbookable forever.
+    where: { unitId: query.unitId, cancelledAt: null, ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}) },
     select: { stayType: true, date: true, checkOutDate: true },
   });
   const conflict = unitBookings.some((b) => bookingsConflict({ stayType: query.stayType, date, checkOutDate }, b));
@@ -41,8 +43,22 @@ export async function checkAvailabilityForUnits(
   unitIds: string[],
   range: { date: string | Date; checkOutDate?: string | Date | null; stayType: StayType }
 ): Promise<Record<string, boolean>> {
-  const results = await Promise.all(
-    unitIds.map(async (unitId) => [unitId, (await checkAvailability({ unitId, ...range })).available] as const)
+  const date = new Date(range.date);
+  const checkOutDate = range.checkOutDate ? new Date(range.checkOutDate) : null;
+  const allBookings = await prisma.booking.findMany({
+    where: { unitId: { in: unitIds }, cancelledAt: null },
+    select: { unitId: true, stayType: true, date: true, checkOutDate: true },
+  });
+  const byUnit = new Map<string, typeof allBookings>();
+  for (const b of allBookings) {
+    const list = byUnit.get(b.unitId);
+    if (list) list.push(b);
+    else byUnit.set(b.unitId, [b]);
+  }
+  return Object.fromEntries(
+    unitIds.map((unitId) => {
+      const conflict = (byUnit.get(unitId) ?? []).some((b) => bookingsConflict({ stayType: range.stayType, date, checkOutDate }, b));
+      return [unitId, !conflict];
+    })
   );
-  return Object.fromEntries(results);
 }

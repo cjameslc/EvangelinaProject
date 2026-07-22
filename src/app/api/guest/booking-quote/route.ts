@@ -13,8 +13,11 @@ export async function GET(req: NextRequest) {
   const checkOutDate = req.nextUrl.searchParams.get("checkOutDate");
   const stayType = req.nextUrl.searchParams.get("stayType") as StayType | null;
 
-  if (!date || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
+  if (!date || Number.isNaN(new Date(date).getTime()) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "date and a valid stayType are required." }, { status: 400 });
+  }
+  if (checkOutDate && Number.isNaN(new Date(checkOutDate).getTime())) {
+    return NextResponse.json({ error: "Invalid check-out date." }, { status: 400 });
   }
 
   const units = await prisma.unit.findMany({

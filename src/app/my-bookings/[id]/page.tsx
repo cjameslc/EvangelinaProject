@@ -18,5 +18,5 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
   const booking = await getGuestBooking(guest.id, params.id);
   if (!booking) notFound();
 
-  return <BookingDetailClient booking={JSON.parse(JSON.stringify(booking))} guestEmail={guest.email} guestName={guest.name} />;
+  return <BookingDetailClient booking={JSON.parse(JSON.stringify(booking))} />;
 }

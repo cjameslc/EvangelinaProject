@@ -9,6 +9,7 @@ import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
 import { manilaDayStart } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+import { getViewMode } from "@/lib/viewMode";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-manrope" });
 
@@ -31,13 +32,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Admin -> Units is the single source of truth — never hardcode the count,
   // it must track whatever's actually configured there.
   const unitCount = await prisma.unit.count({ where: { active: true } }).catch(() => 0);
+  const viewMode = getViewMode();
 
   return (
     <html lang="en" className={manrope.variable}>
       <body className="font-sans antialiased">
         <Providers>
           <ServiceWorkerRegister />
-          <Navbar />
+          <Navbar viewMode={viewMode} />
           <main className="pb-16 md:pb-0">{children}</main>
           <InstallPrompt />
           <footer className="mb-16 mt-14 border-t border-[var(--line)] bg-[var(--bg-2)] md:mb-0">
@@ -46,7 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <span>Cubao, Quezon City · {unitCount} unit{unitCount !== 1 ? "s" : ""}</span>
             </div>
           </footer>
-          <BottomNav />
+          <BottomNav viewMode={viewMode} />
           <AIAssistantWidget />
         </Providers>
       </body>

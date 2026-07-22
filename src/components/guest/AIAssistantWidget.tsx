@@ -17,6 +17,7 @@ export function AIAssistantWidget() {
     { role: "assistant", text: "Hi! I can help with availability, rates, and your booking status. What would you like to know?" },
   ]);
   const [sending, setSending] = useState(false);
+  const [escalating, setEscalating] = useState(false);
 
   if (session) return null;
 
@@ -27,23 +28,36 @@ export function AIAssistantWidget() {
     setInput("");
     setMessages((m) => [...m, { role: "user", text }]);
     setSending(true);
-    const res = await fetch("/api/guest/assistant", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
-    });
-    const j = await res.json().catch(() => ({ reply: "Sorry, something went wrong." }));
-    setSending(false);
-    setMessages((m) => [...m, { role: "assistant", text: j.reply, escalate: j.escalate }]);
+    try {
+      const res = await fetch("/api/guest/assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      const j = await res.json().catch(() => ({ reply: "Sorry, something went wrong." }));
+      setMessages((m) => [...m, { role: "assistant", text: j.reply, escalate: j.escalate }]);
+    } catch {
+      setMessages((m) => [...m, { role: "assistant", text: "Sorry, something went wrong. Please try again." }]);
+    } finally {
+      setSending(false);
+    }
   }
 
   async function escalate(question: string) {
-    await fetch("/api/guest/assistant/escalate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
-    }).catch(() => {});
-    setMessages((m) => [...m, { role: "assistant", text: "Done — I've flagged this for our team, they'll follow up." }]);
+    if (escalating) return;
+    setEscalating(true);
+    try {
+      await fetch("/api/guest/assistant/escalate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      setMessages((m) => [...m, { role: "assistant", text: "Done — I've flagged this for our team, they'll follow up." }]);
+    } catch {
+      setMessages((m) => [...m, { role: "assistant", text: "Couldn't reach our team right now — please try again." }]);
+    } finally {
+      setEscalating(false);
+    }
   }
 
   return (

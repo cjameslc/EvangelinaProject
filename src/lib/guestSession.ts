@@ -11,7 +11,14 @@ import { prisma } from "@/lib/prisma";
 // not because this is a next-auth session in any functional sense.
 export const GUEST_COOKIE_NAME = "guest-session-token";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-const secret = process.env.GUEST_SESSION_SECRET!;
+
+if (!process.env.GUEST_SESSION_SECRET) {
+  // Fail loudly at startup rather than silently — without this, decode()
+  // below throws on every request and getCurrentGuest() just looks like
+  // "everyone is signed out," which is a much harder bug to spot.
+  throw new Error("GUEST_SESSION_SECRET is not set — guest sessions cannot work without it.");
+}
+const secret = process.env.GUEST_SESSION_SECRET;
 
 export type GuestIdentity = { id: string; email: string; name: string | null };
 

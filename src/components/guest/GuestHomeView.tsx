@@ -45,6 +45,11 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
 
       <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6">
         <h2 className="mb-5 text-[20px] font-extrabold tracking-tight">Our listings</h2>
+        {units.length === 0 ? (
+          <div className="card p-8 text-center text-[14px] text-[var(--gray)]">
+            No listings are available right now — please check back soon.
+          </div>
+        ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {units.map((u) => (
             <Link key={u.id} href={`/listing/${u.id}`} className="group block">
@@ -67,6 +72,7 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
             </Link>
           ))}
         </div>
+        )}
       </div>
     </div>
   );

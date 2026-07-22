@@ -18,7 +18,7 @@ Hard rules:
 
 export async function askAssistant(guestId: string | null, message: string): Promise<{ reply: string; escalate: boolean }> {
   const context = await buildAssistantContext(guestId);
-  const systemPrompt = SYSTEM_PROMPT_TEMPLATE(JSON.stringify(context, null, 2), !!guestId);
+  const systemPrompt = SYSTEM_PROMPT_TEMPLATE(JSON.stringify(context), !!guestId);
   const raw = await askGemini(systemPrompt, message);
   const escalate = raw.includes("[ESCALATE]");
   const reply = raw.replace("[ESCALATE]", "").trim();

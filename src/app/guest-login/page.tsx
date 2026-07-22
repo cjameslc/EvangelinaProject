@@ -13,20 +13,26 @@ export default function GuestLoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError("");
-    const res = await fetch("/api/guest/auth/request-link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    setLoading(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => null);
-      setError(j?.error ?? "Something went wrong — try again.");
-      return;
+    try {
+      const res = await fetch("/api/guest/auth/request-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(j?.error ?? "Something went wrong — try again.");
+        return;
+      }
+      setSent(true);
+    } catch {
+      setError("Something went wrong — try again.");
+    } finally {
+      setLoading(false);
     }
-    setSent(true);
   }
 
   return (

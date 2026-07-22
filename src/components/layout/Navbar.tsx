@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
 import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { VIEW_MODE_COOKIE, type ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
 import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon } from "@/components/ui/Icons";
@@ -33,9 +34,10 @@ export const ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   wallet: WalletIcon,
 };
 
-export function Navbar() {
+export function Navbar({ viewMode }: { viewMode: ViewMode }) {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, toggle } = useTheme();
   const { avatarUrl, name: liveName } = useAvatar();
   const displayName = liveName ?? session?.user?.name ?? "";
@@ -43,13 +45,19 @@ export function Navbar() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [guestUnread, setGuestUnread] = useState(0);
 
-  // Only ever fetched for someone with no staff session — a guest cookie,
-  // if any, is what this endpoint actually reads server-side (see
-  // getCurrentGuest); harmless (returns 0) for a true anonymous visitor.
+  // An employee who's switched to Travel Mode sees the same guest-facing
+  // nav as an actual anonymous visitor — their staff session is fully
+  // intact underneath (see src/lib/viewMode.ts), this only changes what
+  // renders here and what src/app/page.tsx shows for "/".
+  const isStaffNav = !!session && viewMode === "staff";
+
+  // Fetched whenever staff nav isn't showing — covers both a true
+  // anonymous guest and a staff member in Travel Mode. Harmless (returns
+  // 0) for someone with no guest cookie either way.
   useEffect(() => {
-    if (session) return;
+    if (isStaffNav) return;
     fetch("/api/guest/notifications/unread-count").then((r) => r.json()).then((j) => setGuestUnread(j.count ?? 0)).catch(() => {});
-  }, [session, pathname]);
+  }, [isStaffNav, pathname]);
 
   const role = session?.user?.role;
   const items = visibleNavItems(role);
@@ -60,23 +68,33 @@ export function Navbar() {
   // Close the "More" dropdown on route change so it never lingers open.
   useEffect(() => { setMoreOpen(false); }, [pathname]);
 
+  function switchMode(mode: ViewMode) {
+    document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=${60 * 60 * 24 * 365}`;
+    setMenuOpen(false);
+    router.push(mode === "travel" ? "/" : "/dashboard");
+    router.refresh();
+  }
+
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-3 px-4 sm:px-6">
-        <Link href={session ? "/dashboard" : "/"} className="flex flex-none items-center gap-2 font-extrabold text-rausch">
+        <Link href={isStaffNav ? "/dashboard" : "/"} className="flex flex-none items-center gap-2 font-extrabold text-rausch">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/branding/logo.jpg" alt="Evangelina's Staycation" className="h-8 w-8 rounded-lg object-cover" />
           <span className="hidden text-[16px] tracking-tight sm:inline">Evangelina&rsquo;s Staycation</span>
         </Link>
 
-        {!session && (
+        {!isStaffNav && (
           <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
             <Link href="/" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">Explore</Link>
             <Link href="/my-bookings" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">My bookings</Link>
+            {session && (
+              <span className="ml-1 rounded-full bg-rausch/10 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-rausch">Travel mode</span>
+            )}
           </div>
         )}
 
-        {session && (
+        {isStaffNav && (
           <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
             {primaryItems.map((item) => {
               const Icon = ICONS[item.icon];
@@ -135,20 +153,20 @@ export function Navbar() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {!isStaffNav && (
+            <Link href="/notifications" className="btn-icon relative" aria-label="Notifications">
+              <BellIcon className="h-[18px] w-[18px]" />
+              {guestUnread > 0 && (
+                <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-rausch text-[9px] font-extrabold text-white">
+                  {guestUnread > 9 ? "9+" : guestUnread}
+                </span>
+              )}
+            </Link>
+          )}
           {!session && (
-            <>
-              <Link href="/notifications" className="btn-icon relative" aria-label="Notifications">
-                <BellIcon className="h-[18px] w-[18px]" />
-                {guestUnread > 0 && (
-                  <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-rausch text-[9px] font-extrabold text-white">
-                    {guestUnread > 9 ? "9+" : guestUnread}
-                  </span>
-                )}
-              </Link>
-              <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
-                Employee login
-              </Link>
-            </>
+            <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
+              Employee login
+            </Link>
           )}
 
           <button onClick={toggle} className="btn-icon" aria-label="Toggle theme">
@@ -187,6 +205,14 @@ export function Navbar() {
                   >
                     <UserIcon className="h-4 w-4" /> Profile
                   </Link>
+                  {/* Employee-only mode switch — staying logged in, just
+                      swapping which experience renders (see viewMode.ts). */}
+                  <button
+                    onClick={() => switchMode(isStaffNav ? "travel" : "staff")}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+                  >
+                    <HomeIcon className="h-4 w-4" /> {isStaffNav ? "Switch to Travel mode" : "Switch to Staff mode"}
+                  </button>
                   <button
                     onClick={() => { clearQueuedMutations().catch(() => {}); signOut({ callbackUrl: "/login" }); }}
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"

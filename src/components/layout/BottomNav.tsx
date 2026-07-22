@@ -1,28 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
 import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { VIEW_MODE_COOKIE, type ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { ICONS, PRIMARY_NAV_COUNT } from "@/components/layout/Navbar";
-import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon } from "@/components/ui/Icons";
+import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon, HomeIcon } from "@/components/ui/Icons";
 
 // Mobile-only primary navigation, replacing the old hamburger dropdown-panel.
 // Desktop keeps Navbar's top nav untouched. Shares NAV_ITEMS/role-filtering
 // with Navbar via visibleNavItems() so the two surfaces can't drift.
-export function BottomNav() {
+export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, toggle } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => { setSheetOpen(false); }, [pathname]);
 
-  if (!session) return null;
+  // Same as Navbar: an employee in Travel Mode sees no staff bottom nav,
+  // matching what a real guest sees (no bottom nav at all today).
+  if (!session || viewMode === "travel") return null;
+
+  function switchMode(mode: ViewMode) {
+    document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=${60 * 60 * 24 * 365}`;
+    setSheetOpen(false);
+    router.push(mode === "travel" ? "/" : "/dashboard");
+    router.refresh();
+  }
 
   const role = session.user?.role;
   const items = visibleNavItems(role);
@@ -108,6 +119,12 @@ export function BottomNav() {
             >
               <UserIcon className="h-[17px] w-[17px] flex-none" /> Profile
             </Link>
+            <button
+              onClick={() => switchMode("travel")}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+            >
+              <HomeIcon className="h-[17px] w-[17px] flex-none" /> Switch to Travel mode
+            </button>
             <button
               onClick={toggle}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"

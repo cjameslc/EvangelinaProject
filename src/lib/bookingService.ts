@@ -32,7 +32,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
   // every night it spans — not only bookings whose check-in happens to
   // land on the exact same day. Daycation and Night may still share a
   // single day (different time slots); Full always blocks the whole day.
-  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType: stayType as any });
+  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType });
   if (!available) {
     return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
   }
@@ -62,7 +62,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
       proofUrl: body.proofUrl || null,
       paid: body.paid ?? false,
       guestId: body.guestId ?? null,
-      specialRequest: (body as any).specialRequest || null,
+      specialRequest: body.specialRequest || null,
     },
   });
 
@@ -112,6 +112,6 @@ export async function createBookingRecord(
  * no staff audit-log entry (there's no acting staff user), always
  * attributed to the given guestId instead of a bookerId.
  */
-export async function createGuestBooking(guestId: string, body: BookingInput & { specialRequest?: string | null }): Promise<CreateBookingResult> {
+export async function createGuestBooking(guestId: string, body: BookingInput): Promise<CreateBookingResult> {
   return createBookingCore({ ...body, guestId, bookerId: null, cleanerId: null });
 }

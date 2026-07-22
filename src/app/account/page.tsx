@@ -15,7 +15,13 @@ export default async function AccountPage() {
   }
 
   const profile = await getGuestProfile(guest.id);
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
+        <p className="text-[15px] text-[var(--gray)]">Couldn't load your account. Please try again.</p>
+      </div>
+    );
+  }
 
   return <AccountClient guest={profile} />;
 }

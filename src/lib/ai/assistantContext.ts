@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { STAY_TYPES } from "@/lib/constants";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
-import { getPublicOccupiedDates } from "@/lib/bookingEngine/calendarService";
+import { getPublicOccupiedDatesForUnits } from "@/lib/bookingEngine/calendarService";
 
 /**
  * Everything the assistant is allowed to know, gathered fresh from the
@@ -19,9 +19,7 @@ export async function buildAssistantContext(guestId: string | null) {
 
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 86400000);
-  const occupancy = await Promise.all(
-    units.map(async (u) => ({ unitId: u.id, blocks: await getPublicOccupiedDates(u.id, now, in30Days) }))
-  );
+  const occupancy = await getPublicOccupiedDatesForUnits(units.map((u) => u.id), now, in30Days);
 
   const bookings = guestId ? await getGuestBookings(guestId) : [];
 

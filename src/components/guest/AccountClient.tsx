@@ -12,18 +12,26 @@ export function AccountClient({ guest }: { guest: Guest }) {
   const [emailNotifications, setEmailNotifications] = useState(guest.emailNotifications);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setSaved(false);
-    await fetch("/api/guest/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, emailNotifications }),
-    });
-    setSaving(false);
-    setSaved(true);
+    setError("");
+    try {
+      const res = await fetch("/api/guest/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, emailNotifications }),
+      });
+      if (!res.ok) throw new Error();
+      setSaved(true);
+    } catch {
+      setError("Couldn't save your changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function signOut() {
@@ -54,6 +62,7 @@ export function AccountClient({ guest }: { guest: Guest }) {
           <input type="checkbox" checked={emailNotifications} onChange={(e) => setEmailNotifications(e.target.checked)} className="h-4 w-4" />
           Email me about booking updates
         </label>
+        {error && <p className="text-[13px] font-semibold text-red-600">{error}</p>}
         <button type="submit" disabled={saving} className="btn-primary w-full justify-center">{saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}</button>
       </form>
 
