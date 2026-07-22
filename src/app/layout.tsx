@@ -6,6 +6,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
 import { manilaDayStart } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -46,6 +47,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </footer>
           <BottomNav />
+          <AIAssistantWidget />
         </Providers>
       </body>
     </html>

@@ -690,3 +690,19 @@ model GuestLoginToken {
   @@index([email])
   @@map("guest_login_tokens")
 }
+
+// A guest tapping "Talk to a human" in the AI Assistant, or the assistant
+// itself deciding it can't help — a lightweight, staff-visible record
+// (no dedicated staff UI yet; queryable directly for now) rather than a
+// full support-ticket system, since nothing like that existed before this.
+model AssistantEscalation {
+  id         String    @id @default(cuid())
+  guestId    String?
+  bookingId  String?
+  question   String
+  contactInfo String?
+  resolved   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  @@map("assistant_escalations")
+}
