@@ -30,16 +30,18 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
           5 handpicked units in Araneta City — Daycation, overnight, or a full 21-hour stay.
         </p>
 
-        <form onSubmit={search} className="card mx-auto mt-8 flex max-w-[560px] flex-wrap items-end gap-3 p-4 text-left">
-          <div className="flex-1 min-w-[140px]">
-            <label htmlFor="home-checkin" className="field-label">Check-in</label>
-            <input id="home-checkin" type="date" required value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className="field-input mt-1" />
+        <form onSubmit={search} className="card mx-auto mt-8 max-w-[560px] space-y-3 p-4 text-left">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label htmlFor="home-checkin" className="field-label">Check-in</label>
+              <input id="home-checkin" type="date" required value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className="field-input mt-1 w-full" />
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="home-checkout" className="field-label">Check-out</label>
+              <input id="home-checkout" type="date" required min={checkIn || undefined} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} className="field-input mt-1 w-full" />
+            </div>
           </div>
-          <div className="flex-1 min-w-[140px]">
-            <label htmlFor="home-checkout" className="field-label">Check-out</label>
-            <input id="home-checkout" type="date" required min={checkIn || undefined} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} className="field-input mt-1" />
-          </div>
-          <button type="submit" className="btn-primary flex-none">Search</button>
+          <button type="submit" className="btn-primary w-full justify-center">Search</button>
         </form>
       </div>
 

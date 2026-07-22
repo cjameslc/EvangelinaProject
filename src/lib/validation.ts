@@ -36,6 +36,11 @@ export const bookingSchema = z.object({
   checkedOutAt: z.string().nullable().optional(),
   // Guest Portal only — a free-text note the guest adds when booking.
   specialRequest: z.string().nullable().optional(),
+  // Guest Portal only — see src/lib/pricing/rates.ts + src/lib/bookingService.ts.
+  originalAmount: z.number().int().nonnegative().nullable().optional(),
+  discountPct: z.number().int().min(0).max(100).nullable().optional(),
+  paymentType: z.enum(["full", "down_payment"]).optional(),
+  intendedDpAmount: z.number().int().nonnegative().nullable().optional(),
 });
 
 export const unitSchema = z.object({

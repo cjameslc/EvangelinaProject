@@ -11,6 +11,9 @@ type Booking = {
   stayType: string; guests: string[]; pax: number | null; amount: number; dpAmount: number | null; paid: boolean;
   platform: string; specialRequest: string | null; checkedInAt: string | null; checkedOutAt: string | null; cancelledAt: string | null;
   proofUrl: string | null; dpProofUrl: string | null; createdAt: string;
+  confirmationNumber: string | null; originalAmount: number | null; discountPct: number | null;
+  paymentType: string; intendedDpAmount: number | null;
+  paymentVerificationStatus: string | null; paymentVerificationNote: string | null;
   unit: { id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string };
 };
 
@@ -23,6 +26,12 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
 
   const cancellable = !booking.cancelledAt && new Date(booking.date) > new Date();
   const completed = !booking.cancelledAt && isBookingCompleted(booking);
+  // Down payment not yet confirmed (dpAmount only ever gets set once
+  // actually confirmed collected — see bookingService.ts) — the guest still
+  // owes the reservation fee against dpProofUrl, not the full-amount field.
+  const dpPending = booking.paymentType === "down_payment" && !booking.dpAmount;
+  const uploadField: "proofUrl" | "dpProofUrl" = dpPending ? "dpProofUrl" : "proofUrl";
+  const amountDueNow = dpPending ? (booking.intendedDpAmount ?? booking.amount) : booking.amount;
 
   async function cancel() {
     if (cancelling || !confirm("Cancel this booking? This can't be undone.")) return;
@@ -48,7 +57,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("field", "proofUrl");
+      fd.append("field", uploadField);
       const res = await fetch(`/api/guest/bookings/${booking.id}/payment-proof`, { method: "POST", body: fd });
       if (!res.ok) { const j = await res.json().catch(() => null); setError(j?.error ?? "Couldn't upload proof."); return; }
       router.refresh();
@@ -77,12 +86,16 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
       styles: { fontSize: 10, cellPadding: 3 },
       head: [["Detail", "Value"]],
       body: [
+        ["Confirmation number", booking.confirmationNumber ?? "—"],
         ["Guest", booking.guests.join(", ")],
         ["Property", `${booking.unit.name} (Unit ${booking.unit.unitNumber})`],
         ["Stay type", STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType],
         ["Check-in", fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })],
         ["Check-out", booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"],
-        ["Total amount", peso(booking.amount)],
+        ...(booking.discountPct ? [["Standard rate", peso(booking.originalAmount)], [`Weekday night promo (-${booking.discountPct}%)`, `-${peso((booking.originalAmount ?? 0) - booking.amount - (booking.dpAmount ?? 0))}`]] : []),
+        ["Total amount", peso((booking.amount) + (booking.dpAmount ?? 0))],
+        ["Down payment received", booking.dpAmount ? peso(booking.dpAmount) : "—"],
+        ["Balance", peso(booking.amount)],
         ["Payment status", booking.paid ? "Paid" : "Pending"],
         ["Booked on", fmtDate(booking.createdAt, { month: "short", day: "numeric", year: "numeric" })],
       ],
@@ -108,14 +121,28 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
       </div>
       <p className="text-[13px] text-[var(--gray)]">{booking.unit.location} · Unit {booking.unit.unitNumber}</p>
 
-      <div className="card mt-5 grid grid-cols-2 gap-4 p-5 text-[13.5px]">
+      {booking.confirmationNumber && (
+        <div className="card mt-5 p-4">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Confirmation number</div>
+          <div className="mt-1 text-[18px] font-extrabold tracking-wide">{booking.confirmationNumber}</div>
+        </div>
+      )}
+
+      <div className="card mt-3 grid grid-cols-2 gap-4 p-5 text-[13.5px]">
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Booking ID</div><div className="font-extrabold">{booking.id.slice(-8)}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Stay type</div><div className="font-extrabold">{STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Check-in</div><div className="font-extrabold">{fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}{booking.checkInTime && ` · ${fmtTimeStr(booking.checkInTime)}`}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Check-out</div><div className="font-extrabold">{booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"}{booking.checkOutTime && ` · ${fmtTimeStr(booking.checkOutTime)}`}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Guests</div><div className="font-extrabold">{booking.guests.join(", ")}{booking.pax ? ` · ${booking.pax} pax` : ""}</div></div>
-        <div><div className="text-[11px] font-bold text-[var(--gray)]">Total</div><div className="font-extrabold">{peso(booking.amount)}</div></div>
+        <div><div className="text-[11px] font-bold text-[var(--gray)]">Total</div><div className="font-extrabold">{peso(booking.amount + (booking.dpAmount ?? 0))}</div></div>
       </div>
+
+      {!!booking.discountPct && (
+        <div className="card mt-3 p-4 text-[13.5px]">
+          <div className="flex justify-between"><span className="text-[var(--gray)]">Standard rate</span><span className="line-through text-[var(--gray)]">{peso(booking.originalAmount)}</span></div>
+          <div className="flex justify-between text-teal"><span>Weekday night promo (−{booking.discountPct}%)</span><span>−{peso((booking.originalAmount ?? 0) - booking.amount - (booking.dpAmount ?? 0))}</span></div>
+        </div>
+      )}
 
       {booking.specialRequest && (
         <div className="card mt-3 p-4">
@@ -129,15 +156,20 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
           <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Payment status</div>
           <span className={booking.paid ? "text-[13px] font-extrabold text-green" : "text-[13px] font-extrabold text-amber"}>{booking.paid ? "Paid" : "Pending"}</span>
         </div>
+        {dpPending && (
+          <p className="mt-1 text-[13px] font-semibold text-[var(--ink)]">
+            {peso(amountDueNow)} down payment due now — {peso(booking.amount - amountDueNow)} balance due later.
+          </p>
+        )}
         {!booking.paid && !booking.cancelledAt && (
           <div className="mt-3">
-            {booking.proofUrl ? (
+            {(dpPending ? booking.dpProofUrl : booking.proofUrl) ? (
               <p className="text-[13px] text-[var(--gray)]">Payment proof uploaded — we'll confirm it shortly.</p>
             ) : (
               <>
                 <p className="mb-2 text-[13px] text-[var(--gray)]">Already paid via GCash or bank transfer? Upload your receipt so we can confirm it.</p>
                 <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn btn-sm">
-                  {uploading ? "Uploading…" : "Upload payment proof"}
+                  {uploading ? "Uploading…" : `Upload ${dpPending ? "down payment" : "payment"} proof`}
                 </button>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={uploadProof} />
               </>

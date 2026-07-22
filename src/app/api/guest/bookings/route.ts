@@ -16,9 +16,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
-  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest } = body;
+  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType } = body;
   if (typeof unitId !== "string" || !unitId || !isValidDateString(date) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "Missing or invalid unit, date, or stay type." }, { status: 400 });
+  }
+  if (paymentType !== undefined && paymentType !== "full" && paymentType !== "down_payment") {
+    return NextResponse.json({ error: "Invalid payment type." }, { status: 400 });
   }
   if (checkOutDate !== undefined && checkOutDate !== null && !isValidDateString(checkOutDate)) {
     return NextResponse.json({ error: "Invalid check-out date." }, { status: 400 });
@@ -57,9 +60,17 @@ export async function POST(req: NextRequest) {
     pax: paxNumber,
     contactNumber: phone.trim(),
     platform: "Direct",
+    // Always the full amount currently owed — a down-payment choice doesn't
+    // reduce this until the down payment is actually verified (see
+    // pricingService/bookingService comments): dpAmount only ever means
+    // "collected," never "intended."
     amount: quote.total,
     paid: false,
     specialRequest: specialRequest || null,
+    originalAmount: quote.standardTotal,
+    discountPct: quote.discountPct,
+    paymentType: paymentType === "down_payment" ? "down_payment" : "full",
+    intendedDpAmount: paymentType === "down_payment" ? quote.dpAmount : null,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid booking details." }, { status: 400 });

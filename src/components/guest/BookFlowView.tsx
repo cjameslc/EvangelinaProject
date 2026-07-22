@@ -26,9 +26,11 @@ export function BookFlowView() {
   const [phone, setPhone] = useState("");
   const [pax, setPax] = useState("");
   const [specialRequest, setSpecialRequest] = useState("");
+  const [paymentType, setPaymentType] = useState<"full" | "down_payment">("full");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
+  const [confirmationNumber, setConfirmationNumber] = useState<string | null>(null);
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
@@ -70,12 +72,13 @@ export function BookFlowView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           unitId: selected.unitId, date, checkOutDate: stayType === "Daycation" ? null : checkOutDate, stayType,
-          name, email, phone, pax: pax || null, specialRequest: specialRequest || null,
+          name, email, phone, pax: pax || null, specialRequest: specialRequest || null, paymentType,
         }),
       });
       const j = await res.json();
       if (!res.ok) { setError(j.error ?? "Couldn't complete the booking."); return; }
       setConfirmedBookingId(j.booking.id);
+      setConfirmationNumber(j.booking.confirmationNumber ?? null);
       // A sign-in link doubles as the booking confirmation channel — the
       // guest now has a real account (created on submit) and a way back in.
       fetch("/api/guest/auth/request-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {});
@@ -100,8 +103,22 @@ export function BookFlowView() {
         <p className="mt-2 text-[14px] text-[var(--gray)]">
           {selected.shortName} · {STAY_TYPES[stayType].label} · {peso(selected.quote.total)}
         </p>
-        <p className="mt-4 text-[13.5px] text-[var(--gray)]">
-          We sent a sign-in link to {email} — use it anytime to view or manage this booking.
+        {confirmationNumber && (
+          <div className="card mt-5 p-4">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Confirmation number</div>
+            <div className="mt-1 text-[20px] font-extrabold tracking-wide">{confirmationNumber}</div>
+            <p className="mt-1 text-[12.5px] text-[var(--gray)]">Save this — with your email, it signs you back in to manage this booking.</p>
+          </div>
+        )}
+        {paymentType === "down_payment" ? (
+          <p className="mt-4 text-[13.5px] text-[var(--gray)]">
+            Pay a {peso(selected.quote.dpAmount)} down payment now to reserve — {peso(selected.quote.balanceDue)} balance due later.
+          </p>
+        ) : (
+          <p className="mt-4 text-[13.5px] text-[var(--gray)]">Pay the full {peso(selected.quote.total)} to complete your reservation.</p>
+        )}
+        <p className="mt-2 text-[13.5px] text-[var(--gray)]">
+          We also sent a sign-in link to {email} — use it anytime to view or manage this booking.
         </p>
       </div>
     );
@@ -118,15 +135,15 @@ export function BookFlowView() {
               <Pill key={st} on={stayType === st} onClick={() => setStayType(st)}>{STAY_TYPES[st].label}</Pill>
             ))}
           </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="min-w-[160px] flex-1">
+          <div className={`grid gap-3 ${stayType === "Daycation" ? "grid-cols-1" : "grid-cols-2"}`}>
+            <div className="min-w-0">
               <label htmlFor="book-checkin" className="field-label">Check-in</label>
-              <input id="book-checkin" type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1" />
+              <input id="book-checkin" type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1 w-full" />
             </div>
             {stayType !== "Daycation" && (
-              <div className="min-w-[160px] flex-1">
+              <div className="min-w-0">
                 <label htmlFor="book-checkout" className="field-label">Check-out</label>
-                <input id="book-checkout" type="date" required min={date || undefined} value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} className="field-input mt-1" />
+                <input id="book-checkout" type="date" required min={date || undefined} value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} className="field-input mt-1 w-full" />
               </div>
             )}
           </div>
@@ -186,6 +203,27 @@ export function BookFlowView() {
                 <div className="flex justify-between text-teal"><span>Weekday night promo (−{selected.quote.discountPct}%)</span><span>−{peso(selected.quote.discountAmount)}</span></div>
               )}
               <div className="flex justify-between text-[15px] font-extrabold"><span>Total</span><span>{peso(selected.quote.total)}</span></div>
+            </div>
+          </div>
+          <div className="card space-y-3 p-5">
+            <div className="field-label">How would you like to pay?</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setPaymentType("down_payment")}
+                className={`rounded-xl border p-3 text-left transition ${paymentType === "down_payment" ? "border-rausch bg-rausch/5" : "border-[var(--line)]"}`}
+              >
+                <div className="text-[13.5px] font-extrabold">Down payment</div>
+                <div className="text-[12.5px] text-[var(--gray)]">{peso(selected.quote.dpAmount)} now · {peso(selected.quote.balanceDue)} balance due later</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentType("full")}
+                className={`rounded-xl border p-3 text-left transition ${paymentType === "full" ? "border-rausch bg-rausch/5" : "border-[var(--line)]"}`}
+              >
+                <div className="text-[13.5px] font-extrabold">Full payment</div>
+                <div className="text-[12.5px] text-[var(--gray)]">{peso(selected.quote.total)} now · nothing due later</div>
+              </button>
             </div>
           </div>
           <div className="card space-y-4 p-5">

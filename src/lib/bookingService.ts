@@ -5,6 +5,7 @@ import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
+import { generateConfirmationNumber } from "@/lib/bookingEngine/confirmationNumber";
 
 export type BookingInput = z.infer<typeof bookingSchema>;
 
@@ -37,6 +38,8 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
     return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
   }
 
+  const confirmationNumber = await generateConfirmationNumber();
+
   const booking = await prisma.booking.create({
     data: {
       unitId: body.unitId,
@@ -63,6 +66,11 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
       paid: body.paid ?? false,
       guestId: body.guestId ?? null,
       specialRequest: body.specialRequest || null,
+      confirmationNumber,
+      originalAmount: body.originalAmount ?? null,
+      discountPct: body.discountPct ?? null,
+      paymentType: body.paymentType ?? "full",
+      intendedDpAmount: body.intendedDpAmount ?? null,
     },
   });
 

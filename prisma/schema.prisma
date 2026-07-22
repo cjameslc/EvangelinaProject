@@ -370,6 +370,34 @@ model Booking {
   externalUid     String?       // iCal UID from the imported VEVENT (source = AIRBNB)
   conflict        Boolean       @default(false) // imported booking overlaps an existing confirmed one — flagged, not auto-overwritten
 
+  // Guest Portal: short human-friendly code for email/confirmation-number
+  // login (e.g. "EVA-7K2M9X") — null for staff-logged bookings, which have
+  // no self-service login use for one.
+  confirmationNumber String? @unique
+  // Pre-discount rate total and the promo % applied, from src/lib/pricing/
+  // rates.ts's quote at booking time — kept alongside `amount` (which is
+  // already net of any discount, same convention as everywhere else in the
+  // app) purely so the invoice/booking-detail UI can show "was X, 10% off,
+  // now Y" honestly instead of only ever showing the final number.
+  originalAmount     Int?
+  discountPct        Int?
+  // Guest's chosen payment path at booking time — "full" or "down_payment".
+  // Deliberately NOT the same signal as dpAmount being set: dpAmount (like
+  // every staff booking) is only ever written once a payment is actually
+  // confirmed collected, so a guest who picked "down_payment" but hasn't
+  // been verified yet still has dpAmount = null and the full amount owed.
+  paymentType        String  @default("full")
+  // The down-payment figure quoted at booking time (frozen — Settings.dpFee
+  // could change later), purely informational until confirmed, at which
+  // point it gets copied into the real dpAmount field.
+  intendedDpAmount   Int?
+  // Result of the AI-assisted payment-screenshot check (Gemini vision) on
+  // the most recently uploaded proof — "pending" until first upload,
+  // "auto_approved" | "needs_review" | "rejected" after. auto_approved is
+  // the only outcome that ever writes dpAmount/paid.
+  paymentVerificationStatus String?
+  paymentVerificationNote   String?
+
   calendarBlock   CalendarBlock?
 
   createdAt       DateTime      @default(now())
