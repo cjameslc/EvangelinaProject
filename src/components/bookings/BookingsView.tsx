@@ -668,6 +668,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             bookingId={editing.id}
             onCancel={() => setEditing(null)}
             onSubmit={(v) => updateBooking(editing.id, v)}
+            ownEmployeeId={ownEmployeeId}
+            role={role}
           />
         )}
       </Modal>

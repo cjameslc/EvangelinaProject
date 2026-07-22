@@ -85,7 +85,7 @@ function addUtcDays(iso: string, days: number) {
 }
 
 export function BookingForm({
-  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null,
+  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
 }: {
   units: Unit[];
   employees: Employee[];
@@ -102,11 +102,16 @@ export function BookingForm({
   /** The logged-in user's own Employee id. When creating a brand-new
    * booking (no bookingId) and this is set, the Booker field auto-fills to
    * it and is locked — whoever logs the booking is the booker, not a
-   * pickable field. Editing an existing booking is unaffected. */
+   * pickable field. */
   ownEmployeeId?: string | null;
+  /** The logged-in user's role. A Booker can only ever be editing their own
+   * booking (enforced by canEditSpecificBooking before this form even
+   * opens), so the Booker field stays locked on edit too — same as create.
+   * Every other role can still reassign the booker when editing. */
+  role?: string;
 }) {
   const isCreate = !bookingId;
-  const lockBooker = isCreate && !!ownEmployeeId;
+  const lockBooker = !!ownEmployeeId && (isCreate || role === "BOOKER");
 
   function makeInitialValue(base?: Partial<BookingFormValue>): BookingFormValue {
     return { ...EMPTY, dpAmount: defaultDpFee ?? EMPTY.dpAmount, ...base, ...(lockBooker ? { bookerId: ownEmployeeId! } : null) };
