@@ -69,22 +69,74 @@ function Reveal({ children, delayMs = 0, className = "" }: { children: React.Rea
   );
 }
 
-function TiltPhoto({ url, alt, className, rotate, float }: { url: string | null; alt: string; className: string; rotate: number; float: number }) {
-  const { ref, style, onMouseMove, onMouseLeave } = useTilt(6);
+/**
+ * "Fake cinematic" hero visual — real unit photos, no video generation
+ * involved (this app has no image-to-video model access). Ken Burns
+ * zoom/pan per photo, a slow crossfade carousel across every unit that has
+ * a photo, a diagonal light-sheen sweep, a handful of drifting particles,
+ * and the same pointer-tilt used on the listing cards below. All pure
+ * CSS/JS on the actual uploaded photos — nothing invented, nothing redrawn.
+ */
+function CinematicHero({ units }: { units: Unit[] }) {
+  const photos = units.filter((u): u is Unit & { photoUrl: string } => !!u.photoUrl);
+  const [index, setIndex] = useState(0);
+  const { ref, style, onMouseMove, onMouseLeave } = useTilt(5);
+
+  useEffect(() => {
+    if (photos.length <= 1) return;
+    const id = setInterval(() => setIndex((i) => (i + 1) % photos.length), 6000);
+    return () => clearInterval(id);
+  }, [photos.length]);
+
+  if (photos.length === 0) return null;
+  const current = photos[index];
+
   return (
     <div
       ref={ref}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
-      className={`animate-float overflow-hidden rounded-[28px] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,.25)] will-change-transform ${className}`}
-      style={{ ...style, transform: `${style.transform ?? ""} rotate(${rotate}deg)`, animationDuration: `${float}s`, animationDelay: `${rotate * 40}ms` }}
+      style={style}
+      className="relative mx-auto hidden aspect-[4/5] w-full max-w-[420px] overflow-hidden rounded-[32px] bg-[var(--bg-2)] shadow-[0_30px_70px_rgba(0,0,0,.3)] will-change-transform [perspective:1200px] lg:block"
     >
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={alt} className="h-full w-full object-cover" />
-      ) : (
-        <div className="grid h-full w-full place-items-center text-4xl">🏠</div>
-      )}
+      {photos.map((u, i) => (
+        <div key={u.id} className={`absolute inset-0 transition-opacity duration-[1500ms] ease-in-out ${i === index ? "opacity-100" : "opacity-0"}`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={u.photoUrl}
+            alt={u.name}
+            className="h-full w-full origin-center object-cover animate-ken-burns"
+            style={{ animationPlayState: i === index ? "running" : "paused" }}
+          />
+        </div>
+      ))}
+
+      {/* Vignette for legibility under the caption. */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_100%_at_50%_100%,rgba(0,0,0,.4),transparent_55%)]" />
+      {/* Diagonal light sheen sweeping across the frame. */}
+      <div className="pointer-events-none absolute inset-0 animate-sheen bg-[length:250%_250%] bg-[linear-gradient(115deg,transparent_42%,rgba(255,255,255,.22)_50%,transparent_58%)]" />
+      {/* Drifting dust motes, lit by the "sunlight." */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {Array.from({ length: 14 }).map((_, i) => (
+          <span
+            key={i}
+            className="absolute animate-dust rounded-full bg-white/80"
+            style={{
+              left: `${(i * 37) % 100}%`,
+              top: `${20 + ((i * 53) % 70)}%`,
+              width: 2 + (i % 3),
+              height: 2 + (i % 3),
+              animationDelay: `${i * 0.55}s`,
+              animationDuration: `${6 + (i % 5)}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-black/35 px-4 py-2.5 backdrop-blur-md">
+        <div className="text-[13px] font-bold text-white">{current.shortName}</div>
+        <div className="text-[11px] text-white/80">{current.location}</div>
+      </div>
     </div>
   );
 }
@@ -93,7 +145,6 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
   const router = useRouter();
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
-  const heroPhotos = units.slice(0, 3);
 
   function search(e: React.FormEvent) {
     e.preventDefault();
@@ -137,12 +188,7 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
             </form>
           </div>
 
-          {/* Floating 3D photo stack — Apple product-page depth, tilts toward the pointer. */}
-          <div className="relative mx-auto hidden h-[380px] w-full max-w-[420px] [perspective:1200px] lg:block">
-            <TiltPhoto url={heroPhotos[0]?.photoUrl ?? null} alt={heroPhotos[0]?.name ?? "Unit"} className="absolute left-2 top-10 h-[260px] w-[220px] -rotate-6" rotate={-6} float={3.2} />
-            <TiltPhoto url={heroPhotos[1]?.photoUrl ?? null} alt={heroPhotos[1]?.name ?? "Unit"} className="absolute left-[150px] top-0 h-[300px] w-[240px] rotate-3 z-10" rotate={3} float={2.6} />
-            <TiltPhoto url={heroPhotos[2]?.photoUrl ?? null} alt={heroPhotos[2]?.name ?? "Unit"} className="absolute left-[190px] top-[190px] h-[200px] w-[180px] rotate-[10deg]" rotate={10} float={3.8} />
-          </div>
+          <CinematicHero units={units} />
         </div>
       </div>
 
