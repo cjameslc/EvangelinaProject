@@ -716,6 +716,8 @@ function BookingLine({
   const time = fmtTimeStr(kind === "checkin" ? b.checkInTime : b.checkOutTime);
   const accent = kind === "checkin" ? "var(--green)" : "var(--blue)";
   const pastDue = isPastDue(b);
+  const { inIso, outIso } = effectiveRange(b);
+  const sameDay = inIso === outIso;
   return (
     <div
       className="flex items-start justify-between gap-3 border-t border-[var(--line)] px-4 py-4 first:border-0"
@@ -728,9 +730,14 @@ function BookingLine({
           <span>{b.contactNumber || "no contact"}</span>
           <span>{time ?? "time not set"}</span>
         </div>
+        <div className="text-[12px] text-[var(--gray)]">
+          Checkout {fmtDate(outIso, { month: "short", day: "numeric" })}
+          {b.checkOutTime && ` · ${fmtTimeStr(b.checkOutTime)}`}
+        </div>
       </div>
 
       <div className="flex flex-none flex-col items-end gap-1.5">
+        {sameDay && <Tag variant="day">↩️ Same-day checkout</Tag>}
         {b.conflict && <Tag variant="unpaid">⚠️ Conflict</Tag>}
         {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
         {pastDue ? <Tag variant="unpaid">⏰ Past due</Tag> : b.paid ? <Tag variant="paid">Paid</Tag> : <Tag variant="unpaid">Unpaid</Tag>}
