@@ -5,7 +5,15 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Evangelina's Staycation",
     short_name: "Evangelina's",
     description: "Bookings, calendar, housekeeping and admin for Evangelina's Staycation units.",
-    start_url: "/dashboard",
+    // "/" used to be staff-only (redirected straight to /login), so
+    // start_url pointed at /dashboard to skip that bounce. Now "/" is the
+    // public guest homepage — a guest reopening the installed app needs to
+    // land there, not on a staff-only page. Staff are unaffected: "/"
+    // still server-side redirects a signed-in staff session straight to
+    // their role's page (src/app/page.tsx), so this is one extra redirect
+    // hop for staff, invisible to the user, in exchange for guests
+    // actually landing somewhere real.
+    start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#ff385c",
