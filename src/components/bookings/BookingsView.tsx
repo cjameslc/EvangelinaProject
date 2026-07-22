@@ -193,12 +193,22 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return { total, collected, unpaid, unpaidCount: unpaidList.length, unitsLogged };
   }, [weekBookings]);
 
+  // A Booker only ever sees their own numbers here — every other role that
+  // can reach this section (Owner/Admin, Co-owner, Housekeeping) keeps full,
+  // unrestricted visibility across every booker, same split canEditSpecific
+  // Booking already draws for editing. Feeds both insight blocks below, so
+  // "who's booking" and "where the money went" stay scoped consistently.
+  const insightBookings = useMemo(() => {
+    if (role === "BOOKER" && ownEmployeeId) return weekBookings.filter((b) => b.bookerId === ownEmployeeId);
+    return weekBookings;
+  }, [weekBookings, role, ownEmployeeId]);
+
   // Rooms logged per booker — grouped with the full list of bookings behind
   // each name (date, unit, stay type), so the count isn't a dead end; tap a
   // name to see exactly which bookings make it up.
   const byBooker = useMemo(() => {
     const map = new Map<string, Booking[]>();
-    weekBookings.forEach((b) => {
+    insightBookings.forEach((b) => {
       // Airbnb-imported bookings never have a human booker — that's not the
       // same "nobody logged this" gap as a manually-entered booking missing
       // one, so give it its own label instead of lumping both under Unassigned.
@@ -207,7 +217,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       map.get(n)!.push(b);
     });
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [weekBookings]);
+  }, [insightBookings]);
 
   type MethodKey = "Cash" | "GCash" | "BankTransfer" | "Other";
   const METHOD_KEYS: MethodKey[] = ["Cash", "GCash", "BankTransfer", "Other"];
@@ -227,7 +237,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       const key: MethodKey = (method === "Cash" || method === "GCash" || method === "BankTransfer") ? method : "Other";
       entry.byMethod[key] += amount;
     }
-    weekBookings.forEach((b) => {
+    insightBookings.forEach((b) => {
       if (b.paid) {
         const name = b.receivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
         const method = b.method ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
@@ -238,7 +248,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       if (dpName) add(dpName, b.dpAmount ?? 0, dpMethod);
     });
     return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
-  }, [weekBookings]);
+  }, [insightBookings]);
 
   const [expandedBookers, setExpandedBookers] = useState<Set<string>>(new Set());
   const [expandedReceivers, setExpandedReceivers] = useState<Set<string>>(new Set());
@@ -514,12 +524,20 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                         .slice()
                         .sort((a, b) => +new Date(b.date) - +new Date(a.date))
                         .map((b) => (
-                          <div key={b.id} className="flex items-center justify-between gap-2 text-[12px]">
-                            <span className="min-w-0 truncate text-[var(--gray)]">
-                              {fmtDate(b.date, { month: "short", day: "numeric" })} · Unit {b.unit.unitNumber} · {b.unit.shortName}
+                          <button
+                            key={b.id}
+                            type="button"
+                            onClick={() => setEditing(b)}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] hover:bg-[var(--bg-2)]"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-[var(--ink)]">{b.guests.join(", ") || "Guest"}</span>
+                              <span className="block truncate text-[var(--gray)]">
+                                {fmtDate(b.date, { month: "short", day: "numeric" })} · Unit {b.unit.unitNumber} · {b.unit.shortName}
+                              </span>
                             </span>
                             <span className="flex-none font-semibold">{STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}</span>
-                          </div>
+                          </button>
                         ))}
                     </div>
                   )}
