@@ -53,6 +53,16 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
   const [editing, setEditing] = useState<Booking | null>(null);
+  // fromBooking(editing) must NOT be called inline in the BookingForm's
+  // `initial` prop — a fresh object every render (from any unrelated state
+  // change anywhere in this large component, e.g. a toast, a poll) changes
+  // its reference, which retriggers BookingForm's own [initial] effect and
+  // silently resets whatever the user had just typed back to the original
+  // values. Save then "succeeds" but nothing actually changed — this is
+  // exactly the bug where an edited check-out time reverted before saving.
+  // Memoizing on editing's identity keeps the same object across renders
+  // for the same edit session.
+  const editingInitial = useMemo(() => (editing ? fromBooking(editing) : undefined), [editing]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
@@ -652,7 +662,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             units={units}
             employees={emps}
             submitLabel="Save changes"
-            initial={fromBooking(editing)}
+            initial={editingInitial}
             bookingId={editing.id}
             onCancel={() => setEditing(null)}
             onSubmit={(v) => updateBooking(editing.id, v)}
