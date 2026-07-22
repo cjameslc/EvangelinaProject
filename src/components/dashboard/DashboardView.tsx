@@ -14,9 +14,11 @@ import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdf
 import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
+import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
+import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[]; icalLastSyncError?: string | null };
-type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean };
+type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };
@@ -39,42 +41,9 @@ const dayOf = (d: Date) =>
 type RangeType = DashboardPeriodType;
 type StatusFilter = "all" | "occupied" | "reserved" | "cleaning" | "available";
 
-function periodRangeFor(rangeType: RangeType, offset: number, custom?: { start: string; end: string }) {
-  const [y, m, d] = dayOf(new Date()).split("-").map(Number);
-  if (rangeType === "daily") {
-    const start = new Date(Date.UTC(y, m - 1, d));
-    start.setUTCDate(start.getUTCDate() + offset);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
-    return { start, end };
-  }
-  if (rangeType === "weekly") {
-    const anchor = new Date(Date.UTC(y, m - 1, d));
-    const start = new Date(anchor);
-    start.setUTCDate(start.getUTCDate() - anchor.getUTCDay() + offset * 7);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 7);
-    return { start, end };
-  }
-  if (rangeType === "monthly") {
-    const start = new Date(Date.UTC(y, m - 1 + offset, 1));
-    const end = new Date(Date.UTC(y, m + offset, 1));
-    return { start, end };
-  }
-  if (rangeType === "custom") {
-    const fallback = new Date(Date.UTC(y, m - 1, d));
-    const fallbackEnd = new Date(fallback);
-    fallbackEnd.setUTCDate(fallbackEnd.getUTCDate() + 1);
-    if (!custom?.start || !custom?.end) return { start: fallback, end: fallbackEnd };
-    const start = new Date(`${custom.start}T00:00:00Z`);
-    const end = new Date(`${custom.end}T00:00:00Z`);
-    end.setUTCDate(end.getUTCDate() + 1); // inclusive of the selected end date
-    return { start, end: end > start ? end : fallbackEnd };
-  }
-  const start = new Date(Date.UTC(y + offset, 0, 1));
-  const end = new Date(Date.UTC(y + offset + 1, 0, 1));
-  return { start, end };
-}
+// periodRangeFor/previousPeriodRangeFor now live in src/lib/analytics/period.ts
+// (shared with the Analytics module, so the two pages can't compute
+// different period boundaries for the same rangeType/offset).
 
 export function DashboardView({
   role,
@@ -91,6 +60,11 @@ export function DashboardView({
   salaryHistory,
   expenseRequestsMonth,
   cleaningLogsRecent,
+  calendarBlocksOccupancy,
+  weekRangeStart,
+  weekRangeEnd,
+  monthRangeStart,
+  monthRangeEnd,
   dismissedAttentionKeys,
 }: {
   role: string;
@@ -107,6 +81,11 @@ export function DashboardView({
   stocks: Stock[];
   expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
   cleaningLogsRecent: { id: string; unitId: string; startedAt: string; endedAt: string | null; employee: { name: string } | null }[];
+  calendarBlocksOccupancy: OccupancyBlock[];
+  weekRangeStart: string;
+  weekRangeEnd: string;
+  monthRangeStart: string;
+  monthRangeEnd: string;
   dismissedAttentionKeys: string[];
 }) {
   const { data: session } = useSession();
@@ -287,10 +266,32 @@ export function DashboardView({
   });
   const forecastProfit = Math.round(forecastProfitCents / 100);
 
-  const occupiedNights = bookingsWeek.length;
-  const availableNights = units.length * 7;
-  const occupancy = availableNights > 0 ? Math.round((occupiedNights / availableNights) * 100) : 0;
-  const revpar = units.length > 0 ? Math.round(income / units.length / 7) : 0;
+  // Real occupied/available nights from actual date ranges (via
+  // src/lib/analytics/occupancy.ts), not a flat booking-count/×7
+  // approximation — a 3-night Full stay now correctly counts as 3 occupied
+  // nights, and a unit under Maintenance no longer counts as "available".
+  // weekRangeStart/End are the exact window the server fetched bookingsWeek
+  // for, so this always matches what was actually queried.
+  const weeklyOccupancy = useMemo(
+    () =>
+      computeOccupancy({
+        unitCount: units.length,
+        periodStart: new Date(weekRangeStart),
+        periodEnd: new Date(weekRangeEnd),
+        bookings: bookingsWeek,
+        maintenanceBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"),
+        cleaningBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"),
+      }),
+    [units.length, weekRangeStart, weekRangeEnd, bookingsWeek, calendarBlocksOccupancy]
+  );
+  const occupiedNights = weeklyOccupancy.occupiedNights;
+  const availableNights = weeklyOccupancy.availableNights;
+  const occupancy = weeklyOccupancy.occupancyPct;
+  const revpar = computeRevPAR(income * 100, availableNights);
+  const adr = useMemo(
+    () => computeADR(bookingsWeek, new Date(weekRangeStart), new Date(weekRangeEnd)),
+    [bookingsWeek, weekRangeStart, weekRangeEnd]
+  );
 
   const stayCounts = useMemo(() => {
     const c: Record<string, number> = { Daycation: 0, Night: 0, Full: 0 };
@@ -714,9 +715,18 @@ export function DashboardView({
   const [reportYear, reportMonthNum] = dayOf(new Date()).split("-").map(Number);
   const daysInMonth = new Date(Date.UTC(reportYear, reportMonthNum, 0)).getUTCDate();
   const reportMonthLabel = fmtDate(new Date(dayOf(new Date())), { month: "long", year: "numeric", timeZone: "Asia/Manila" });
-  const monthlyAvailableNights = units.length * daysInMonth;
-  const monthlyOccupancy = monthlyAvailableNights > 0 ? Math.round((bookingsMonth.length / monthlyAvailableNights) * 100) : 0;
-  const monthlyRevpar = units.length > 0 ? Math.round(monthIncome / units.length / daysInMonth) : 0;
+  const monthlyOccupancyData = computeOccupancy({
+    unitCount: units.length,
+    periodStart: new Date(monthRangeStart),
+    periodEnd: new Date(monthRangeEnd),
+    bookings: bookingsMonth,
+    maintenanceBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"),
+    cleaningBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"),
+  });
+  const monthlyAvailableNights = monthlyOccupancyData.availableNights;
+  const monthlyOccupancy = monthlyOccupancyData.occupancyPct;
+  const monthlyRevpar = computeRevPAR(monthIncome * 100, monthlyAvailableNights);
+  const monthlyAdr = computeADR(bookingsMonth, new Date(monthRangeStart), new Date(monthRangeEnd));
 
   const monthlyStayCounts = useMemo(() => {
     const c: Record<string, number> = { Daycation: 0, Night: 0, Full: 0 };
@@ -764,7 +774,7 @@ export function DashboardView({
         ["Cash flow", p(cashFlow)],
         ["Occupancy", `${monthlyOccupancy}%`],
         ["RevPAR", p(monthlyRevpar)],
-        ["Nightly rate (ADR)", p(units[0]?.nightlyRate ?? 1799)],
+        ["Nightly rate (ADR)", p(monthlyAdr)],
         ["Reservations", String(bookingsMonth.length)],
         ["Booked nights", String(bookingsMonth.length)],
         ["Payroll", p(monthlyPayrollTotal)],
@@ -1248,7 +1258,7 @@ export function DashboardView({
           />
           <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} info="Booked nights this week ÷ total available nights." />
           <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income ÷ available room-nights." infoAlign="right" />
-          <StatCard label="Nightly rate (ADR)" value={peso(units[0]?.nightlyRate ?? 1799)} sub="base rate" info="Base rate for your first listed unit." infoAlign="right" />
+          <StatCard label="Nightly rate (ADR)" value={peso(adr)} sub="revenue ÷ occupied nights" info="This week's booked revenue ÷ actual nights stayed." infoAlign="right" />
         </div>
         {keyMetricsInsights.length > 0 && (
           <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { VIEW_MODE_COOKIE, type ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
 // a "More" dropdown — chosen from real measurement: a role seeing all 7
@@ -32,6 +32,7 @@ export const ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   search: SearchIcon,
   settings: SettingsIcon,
   wallet: WalletIcon,
+  chart: ChartIcon,
 };
 
 export function Navbar({ viewMode }: { viewMode: ViewMode }) {

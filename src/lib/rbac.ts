@@ -6,6 +6,9 @@ export const GLOBAL_ROLES: Role[] = ["OWNER_ADMIN", "AUDITOR", "HOUSEKEEPING"];
 export function canSeeDashboard(role: Role) {
   return role === "OWNER_ADMIN" || role === "CO_OWNER";
 }
+export function canSeeAnalytics(role: Role) {
+  return role === "OWNER_ADMIN" || role === "CO_OWNER";
+}
 export function canSeeAdmin(role: Role) {
   return role === "OWNER_ADMIN";
 }

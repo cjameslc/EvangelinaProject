@@ -42,7 +42,7 @@ const getDashboardData = unstable_cache(
     const dashboardBookingSelect = {
       id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true,
       platform: true, amount: true, paid: true, dpAmount: true, guests: true,
-      receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true, conflict: true,
+      receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true, conflict: true, cancelledAt: true,
     };
 
     const res = await Promise.all([
@@ -92,12 +92,31 @@ const getDashboardData = unstable_cache(
         where: { ...where, startedAt: { gte: weekAgo }, endedAt: { not: null } },
         select: { id: true, unitId: true, startedAt: true, endedAt: true, employee: { select: { name: true } } },
       }),
+      // Maintenance/Cleaning CalendarBlocks overlapping either window below
+      // — feeds the real occupancy/RevPAR/ADR math in
+      // src/lib/analytics/occupancy.ts (replacing the old flat
+      // units.length×days approximation). Booking-derived occupied nights
+      // come from bookingsWeek/bookingsMonth directly (via stayRange.ts),
+      // not from their mirrored CalendarBlock rows — no need to double-fetch.
+      prismaPool[13 % prismaPool.length].calendarBlock.findMany({
+        where: { ...where, type: { in: ["Maintenance", "Cleaning"] }, date: { lt: nextMonthStart }, OR: [{ endDate: null }, { endDate: { gt: weekAgo } }] },
+        select: { unitId: true, type: true, date: true, endDate: true },
+      }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
       weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent,
+      calendarBlocksOccupancy,
+      // The exact window boundaries used to fetch bookingsWeek/bookingsMonth/
+      // calendarBlocksOccupancy above — the client must reuse these (not
+      // recompute its own "now") so occupancy/RevPAR/ADR are always
+      // calculated over the identical range the underlying rows were
+      // fetched for, unaffected by render-time clock drift or this cache's
+      // 45s staleness window.
+      weekRangeStart: weekAgo, weekRangeEnd: now,
+      monthRangeStart: monthStart, monthRangeEnd: nextMonthStart,
     }));
   },
   ["dashboard-data"],
@@ -138,10 +157,15 @@ export default async function DashboardPage() {
   let salaryHistory: any[] = [];
   let expenseRequestsMonth: any[] = [];
   let cleaningLogsRecent: any[] = [];
+  let calendarBlocksOccupancy: any[] = [];
+  let weekRangeStart = new Date(Date.now() - 7 * 86400000);
+  let weekRangeEnd = new Date();
+  let monthRangeStart = monthStart;
+  let monthRangeEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -149,7 +173,7 @@ export default async function DashboardPage() {
       { id: "demo-u-2", name: "Evangelina’s Cozy City Stay", shortName: "Cozy City Stay", unitNumber: "1558", nightlyRate: 1799, rating: 4.8, location: "Cubao, Araneta City", owners: [] },
       { id: "demo-u-3", name: "Relax at Evangelina’s Stay", shortName: "Relax Stay", unitNumber: "1116", nightlyRate: 1799, rating: 4.85, location: "Cubao, Araneta City", owners: [] },
     ];
-    bookingsWeek = units.map((u, i) => ({ id: `demo-book-${i}`, unitId: u.id, unit: u, date: new Date(Date.now() - i * 86400000).toISOString(), stayType: "Full", guests: ["Demo Guest"], pax: 2, amount: 1799, paid: true, dpAmount: 500, receivedById: null, dpReceivedById: null }));
+    bookingsWeek = units.map((u, i) => ({ id: `demo-book-${i}`, unitId: u.id, unit: u, date: new Date(Date.now() - i * 86400000).toISOString(), stayType: "Full", guests: ["Demo Guest"], pax: 2, amount: 1799, paid: true, dpAmount: 500, receivedById: null, dpReceivedById: null, cancelledAt: null }));
     bookingsMonth = bookingsWeek;
     employees = [{ id: "demo-e-1", name: "Demo Booker", role: "BOOKER", monthlySalary: 15000, active: true }];
     bills = units.map((u, i) => ({ id: `b-${i}`, unitId: u.id, key: "assoc", month: monthStart.toISOString(), amountDue: 3500, paid: false, unit: u }));
@@ -161,6 +185,7 @@ export default async function DashboardPage() {
     salaryHistory = [];
     expenseRequestsMonth = [];
     cleaningLogsRecent = [];
+    calendarBlocksOccupancy = [];
   }
 
   return (
@@ -179,6 +204,11 @@ export default async function DashboardPage() {
       salaryHistory={JSON.parse(JSON.stringify(salaryHistory))}
       expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
       cleaningLogsRecent={JSON.parse(JSON.stringify(cleaningLogsRecent))}
+      calendarBlocksOccupancy={JSON.parse(JSON.stringify(calendarBlocksOccupancy))}
+      weekRangeStart={new Date(weekRangeStart).toISOString()}
+      weekRangeEnd={new Date(weekRangeEnd).toISOString()}
+      monthRangeStart={new Date(monthRangeStart).toISOString()}
+      monthRangeEnd={new Date(monthRangeEnd).toISOString()}
       dismissedAttentionKeys={dismissedAttentionKeys}
     />
   );

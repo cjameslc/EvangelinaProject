@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 const ROUTE_ROLES: Record<string, string[]> = {
   "/dashboard": ["OWNER_ADMIN", "CO_OWNER"],
+  "/analytics": ["OWNER_ADMIN", "CO_OWNER"],
   "/bookings": ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"],
   "/calendar": ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"],
   "/housekeeping": ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"],
@@ -50,6 +51,7 @@ export const config = {
   matcher: [
     "/",
     "/dashboard/:path*",
+    "/analytics/:path*",
     "/bookings/:path*",
     "/calendar/:path*",
     "/housekeeping/:path*",

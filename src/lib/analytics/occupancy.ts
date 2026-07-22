@@ -1,0 +1,110 @@
+import { occupiedRange, nightsFor } from "@/lib/stayRange";
+import { daysInRange } from "@/lib/analytics/period";
+
+export type OccupancyBooking = {
+  unitId: string;
+  stayType: string;
+  date: string | Date;
+  checkOutDate: string | Date | null;
+  amount: number;
+  paid: boolean;
+  dpAmount: number | null;
+  cancelledAt?: string | Date | null;
+};
+
+export type OccupancyBlock = { unitId: string; type: string; date: string | Date; endDate: string | Date | null };
+
+function clippedNights(start: Date, end: Date, periodStart: Date, periodEnd: Date): number {
+  const s = start.getTime() > periodStart.getTime() ? start : periodStart;
+  const e = end.getTime() < periodEnd.getTime() ? end : periodEnd;
+  const ms = e.getTime() - s.getTime();
+  return ms > 0 ? ms / 86400000 : 0;
+}
+
+export type OccupancyResult = {
+  occupiedNights: number;
+  maintenanceNights: number;
+  cleaningNights: number;
+  availableNights: number;
+  occupancyPct: number;
+};
+
+/**
+ * Real occupancy from actual date ranges, not a booking-count/flat-days
+ * approximation. `bookings` should already be scoped to the unit(s) and
+ * roughly overlapping the period (a wider window is fine — every range gets
+ * clipped to [periodStart, periodEnd) here). Cancelled bookings are
+ * excluded (a cancelled stay never occupied the room).
+ *
+ * Only Maintenance blocks reduce `availableNights` — a room out of service
+ * genuinely can't be booked. Cleaning/turnover blocks do not: it's still a
+ * bookable room, just mid-turnover, matching how real hospitality PMS
+ * metrics define "available room-nights". Cleaning nights are still
+ * returned separately since they're a real, useful figure on their own.
+ */
+export function computeOccupancy(params: {
+  unitCount: number;
+  periodStart: Date;
+  periodEnd: Date;
+  bookings: OccupancyBooking[];
+  maintenanceBlocks: OccupancyBlock[];
+  cleaningBlocks: OccupancyBlock[];
+}): OccupancyResult {
+  const { unitCount, periodStart, periodEnd, bookings, maintenanceBlocks, cleaningBlocks } = params;
+
+  let occupiedNights = 0;
+  for (const b of bookings) {
+    if (b.cancelledAt) continue;
+    const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
+    occupiedNights += clippedNights(start, end, periodStart, periodEnd);
+  }
+
+  const blockNights = (blocks: OccupancyBlock[]) =>
+    blocks.reduce((sum, blk) => {
+      const start = new Date(blk.date);
+      const end = blk.endDate ? new Date(blk.endDate) : new Date(start.getTime() + 86400000);
+      return sum + clippedNights(start, end, periodStart, periodEnd);
+    }, 0);
+
+  const maintenanceNights = blockNights(maintenanceBlocks);
+  const cleaningNights = blockNights(cleaningBlocks);
+
+  const totalNights = unitCount * daysInRange({ start: periodStart, end: periodEnd });
+  const availableNights = Math.max(0, Math.round(totalNights - maintenanceNights));
+  const occupancyPct = availableNights > 0 ? Math.round((occupiedNights / availableNights) * 100) : 0;
+
+  return {
+    occupiedNights: Math.round(occupiedNights),
+    maintenanceNights: Math.round(maintenanceNights),
+    cleaningNights: Math.round(cleaningNights),
+    availableNights,
+    occupancyPct,
+  };
+}
+
+/**
+ * Average Daily Rate — revenue ÷ real nights stayed (via nightsFor, so a
+ * 3-night Full stay counts as 3 nights of revenue-per-night, not 1 booking).
+ * Only counts bookings whose check-in falls within the period, matching how
+ * "this period's income" is already recognized elsewhere in this app
+ * ((paid ? amount : 0) + dpAmount). Excludes cancellations. Returns whole
+ * pesos, 0 when there were no occupied nights to divide by.
+ */
+export function computeADR(bookings: OccupancyBooking[], periodStart: Date, periodEnd: Date): number {
+  let totalCentavos = 0;
+  let totalNights = 0;
+  for (const b of bookings) {
+    if (b.cancelledAt) continue;
+    const date = new Date(b.date);
+    if (date < periodStart || date >= periodEnd) continue;
+    const checkOutDate = b.checkOutDate ? new Date(b.checkOutDate) : null;
+    totalNights += nightsFor(b.stayType, date, checkOutDate);
+    totalCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
+  }
+  return totalNights > 0 ? Math.round(totalCentavos / totalNights / 100) : 0;
+}
+
+/** Revenue Per Available Room — revenue ÷ available room-nights for the actual period length (not a hardcoded /7). */
+export function computeRevPAR(revenueCentavos: number, availableNights: number): number {
+  return availableNights > 0 ? Math.round(revenueCentavos / availableNights / 100) : 0;
+}
