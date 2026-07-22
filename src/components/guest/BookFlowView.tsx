@@ -12,7 +12,7 @@ type QuoteResult = { unitId: string; shortName: string; unitNumber: string; phot
 
 export function BookFlowView() {
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<"search" | "select" | "details" | "done">("search");
+  const [step, setStep] = useState<"search" | "select" | "details" | "payment" | "done">("search");
   const [date, setDate] = useState(searchParams?.get("checkIn") ?? "");
   const [checkOutDate, setCheckOutDate] = useState(searchParams?.get("checkOut") ?? "");
   const [stayType, setStayType] = useState<StayType>("Full");
@@ -31,6 +31,9 @@ export function BookFlowView() {
   const [error, setError] = useState("");
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
   const [confirmationNumber, setConfirmationNumber] = useState<string | null>(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [proofUploaded, setProofUploaded] = useState(false);
+  const [proofError, setProofError] = useState("");
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
@@ -79,10 +82,10 @@ export function BookFlowView() {
       if (!res.ok) { setError(j.error ?? "Couldn't complete the booking."); return; }
       setConfirmedBookingId(j.booking.id);
       setConfirmationNumber(j.booking.confirmationNumber ?? null);
-      // A sign-in link doubles as the booking confirmation channel — the
-      // guest now has a real account (created on submit) and a way back in.
-      fetch("/api/guest/auth/request-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {});
-      setStep("done");
+      // The booking API already signed the guest in (session cookie set on
+      // its response) and sent a real confirmation email — no separate
+      // magic-link request needed just to reach the payment step.
+      setStep("payment");
     } catch {
       setError("Couldn't complete the booking. Please try again.");
     } finally {
@@ -90,10 +93,66 @@ export function BookFlowView() {
     }
   }
 
+  async function uploadProofNow(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !confirmedBookingId) return;
+    setUploadingProof(true);
+    setProofError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("field", paymentType === "down_payment" ? "dpProofUrl" : "proofUrl");
+      const res = await fetch(`/api/guest/bookings/${confirmedBookingId}/payment-proof`, { method: "POST", body: fd });
+      if (!res.ok) { const j = await res.json().catch(() => null); setProofError(j?.error ?? "Couldn't upload proof."); return; }
+      setProofUploaded(true);
+    } catch {
+      setProofError("Couldn't upload proof. Please try again.");
+    } finally {
+      setUploadingProof(false);
+    }
+  }
+
   useEffect(() => {
     if (date && preselectedUnit && step === "search") search();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (step === "payment" && selected) {
+    const amountDueNow = paymentType === "down_payment" ? selected.quote.dpAmount : selected.quote.total;
+    return (
+      <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
+        <div className="mb-3 text-5xl">💳</div>
+        <h1 className="text-[22px] font-extrabold">Reserve with payment</h1>
+        {confirmationNumber && (
+          <p className="mt-2 text-[13px] text-[var(--gray)]">Confirmation number <span className="font-extrabold text-[var(--ink)]">{confirmationNumber}</span></p>
+        )}
+        <div className="card mt-5 p-4 text-left">
+          <div className="flex justify-between text-[15px] font-extrabold"><span>{paymentType === "down_payment" ? "Down payment due now" : "Total due now"}</span><span>{peso(amountDueNow)}</span></div>
+          {paymentType === "down_payment" && (
+            <div className="mt-1 flex justify-between text-[12.5px] text-[var(--gray)]"><span>Balance due later</span><span>{peso(selected.quote.balanceDue)}</span></div>
+          )}
+        </div>
+
+        {proofUploaded ? (
+          <div className="card mt-4 p-4 text-[13.5px] text-teal">Payment proof uploaded — we'll confirm it shortly.</div>
+        ) : (
+          <div className="card mt-4 space-y-2 p-4 text-left">
+            <p className="text-[13px] text-[var(--gray)]">Paid already via GCash or bank transfer? Upload your receipt now so we can confirm it right away.</p>
+            <label className="btn-primary w-full cursor-pointer justify-center">
+              {uploadingProof ? "Uploading…" : "Upload payment proof"}
+              <input type="file" accept="image/*" className="hidden" disabled={uploadingProof} onChange={uploadProofNow} />
+            </label>
+            {proofError && <p className="text-[13px] font-semibold text-rausch">{proofError}</p>}
+          </div>
+        )}
+
+        <button onClick={() => setStep("done")} className="btn btn-sm mt-4">
+          {proofUploaded ? "Continue" : "I'll pay later"}
+        </button>
+      </div>
+    );
+  }
 
   if (step === "done" && confirmedBookingId && selected) {
     return (
@@ -110,15 +169,17 @@ export function BookFlowView() {
             <p className="mt-1 text-[12.5px] text-[var(--gray)]">Save this — with your email, it signs you back in to manage this booking.</p>
           </div>
         )}
-        {paymentType === "down_payment" ? (
+        {proofUploaded ? (
+          <p className="mt-4 text-[13.5px] text-teal">Payment proof received — we'll confirm it shortly.</p>
+        ) : paymentType === "down_payment" ? (
           <p className="mt-4 text-[13.5px] text-[var(--gray)]">
-            Pay a {peso(selected.quote.dpAmount)} down payment now to reserve — {peso(selected.quote.balanceDue)} balance due later.
+            {peso(selected.quote.dpAmount)} down payment still due — {peso(selected.quote.balanceDue)} balance due later. Manage this anytime from My bookings.
           </p>
         ) : (
-          <p className="mt-4 text-[13.5px] text-[var(--gray)]">Pay the full {peso(selected.quote.total)} to complete your reservation.</p>
+          <p className="mt-4 text-[13.5px] text-[var(--gray)]">{peso(selected.quote.total)} still due. Manage this anytime from My bookings.</p>
         )}
         <p className="mt-2 text-[13.5px] text-[var(--gray)]">
-          We also sent a sign-in link to {email} — use it anytime to view or manage this booking.
+          You're signed in — we also emailed a confirmation to {email}.
         </p>
       </div>
     );
