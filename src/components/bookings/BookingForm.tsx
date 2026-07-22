@@ -25,7 +25,7 @@ export type BookingFormValue = {
   unitId: string;
   date: string;
   checkOutDate: string;
-  stayType: "Daycation" | "Night" | "Full" | "";
+  stayType: "Daycation" | "Night" | "Full" | "Flexible" | "";
   checkInTime: string;
   checkOutTime: string;
   guests: string[];
@@ -57,7 +57,7 @@ const EMPTY: BookingFormValue = {
  * the Airbnb-style "pick a type, get a sensible schedule" flow; the guest
  * can still freely edit every field afterward. */
 function smartSchedule(type: BookingFormValue["stayType"], checkInDate: string) {
-  if (type === "Daycation") {
+  if (type === "Daycation" || type === "Flexible") {
     return { checkInTime: "08:00", checkOutTime: "20:00", checkOutDate: checkInDate };
   }
   if (type === "Night" || type === "Full") {
@@ -204,6 +204,11 @@ export function BookingForm({
     const t = setTimeout(() => {
       const params = new URLSearchParams({ unitId: v.unitId, date: v.date, stayType: v.stayType });
       if (v.checkOutDate) params.set("checkOutDate", v.checkOutDate);
+      // Only actually matters for Flexible (real time-of-day overlap check)
+      // — harmless to always send, every other type's conflict check
+      // ignores these.
+      if (v.checkInTime) params.set("checkInTime", v.checkInTime);
+      if (v.checkOutTime) params.set("checkOutTime", v.checkOutTime);
       if (bookingId) params.set("excludeId", bookingId);
       fetch(`/api/bookings/check-conflict?${params}`, { signal: controller.signal })
         .then((r) => r.json())
@@ -212,13 +217,13 @@ export function BookingForm({
         .finally(() => setCheckingConflict(false));
     }, 300);
     return () => { clearTimeout(t); controller.abort(); };
-  }, [v.unitId, v.date, v.checkOutDate, v.stayType, bookingId]);
+  }, [v.unitId, v.date, v.checkOutDate, v.stayType, v.checkInTime, v.checkOutTime, bookingId]);
 
   // Live summary + duration for the "Booking summary" card.
   const unit = units.find((u) => u.id === v.unitId);
   const duration = (() => {
     if (!v.date || !v.stayType) return null;
-    if (v.stayType === "Daycation") {
+    if (v.stayType === "Daycation" || v.stayType === "Flexible") {
       if (!v.checkInTime || !v.checkOutTime) return null;
       const [ih, im] = v.checkInTime.split(":").map(Number);
       const [oh, om] = v.checkOutTime.split(":").map(Number);
@@ -258,6 +263,9 @@ export function BookingForm({
     if (!v.checkOutDate) e.checkOutDate = "Pick a check-out date.";
     if (!v.unitId) e.unitId = "Choose a unit.";
     if (!v.stayType) e.stayType = "Choose a stay type.";
+    // Flexible has no fixed window to fall back on — without both times
+    // there's nothing for the real time-of-day overlap check to compare.
+    if (v.stayType === "Flexible" && (!v.checkInTime || !v.checkOutTime)) e.stayType = "Flexible stays need both a check-in and check-out time.";
     if (conflict) e.unitId = "This unit is already booked during the selected schedule.";
     if (v.guests.length === 0) e.guests = "Add at least one guest name.";
     if (!v.contactNumber || v.contactNumber.replace(/\D/g, "").length < 10) e.contactNumber = "Enter a valid contact number.";
@@ -347,13 +355,14 @@ export function BookingForm({
         <div className="sm:col-span-2">
           <label className="field-label">Stay type <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {(v.platform === "Airbnb" ? (["Full"] as const) : (["Daycation", "Night", "Full"] as const)).map((t) => (
+            {(v.platform === "Airbnb" ? (["Full"] as const) : (["Daycation", "Night", "Full", "Flexible"] as const)).map((t) => (
               <Pill key={t} on={v.stayType === t} color={STAY_TYPES[t].color} onClick={() => selectStayType(t)}>
                 {STAY_TYPES[t].label} · {STAY_TYPES[t].hrs}
               </Pill>
             ))}
           </div>
           {v.platform === "Airbnb" && <p className="mt-1.5 text-[12px] text-[var(--gray)]">Airbnb has no day-use listings — bookings from this platform are always a 21-Hour stay.</p>}
+          {v.stayType === "Flexible" && <p className="mt-1.5 text-[12px] text-[var(--gray)]">Pick any check-in/check-out time within the same day below — both are required.</p>}
           {err("stayType")}
         </div>
 
@@ -380,7 +389,7 @@ export function BookingForm({
               <div>
                 <div className="text-[11px] font-bold text-[var(--gray)]">Check-out</div>
                 <div className="font-extrabold">
-                  {v.checkOutDate ? fmtDate(v.checkOutDate, { month: "short", day: "numeric", timeZone: "UTC" }) : v.stayType === "Daycation" && v.date ? fmtDate(v.date, { month: "short", day: "numeric", timeZone: "UTC" }) : "—"}
+                  {v.checkOutDate ? fmtDate(v.checkOutDate, { month: "short", day: "numeric", timeZone: "UTC" }) : (v.stayType === "Daycation" || v.stayType === "Flexible") && v.date ? fmtDate(v.date, { month: "short", day: "numeric", timeZone: "UTC" }) : "—"}
                   {v.checkOutTime && ` · ${fmtTimeStr(v.checkOutTime)}`}
                 </div>
               </div>

@@ -26,6 +26,13 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
   const checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   const stayType = normalizeStayTypeForPlatform(body.platform, body.stayType);
 
+  // Flexible has no fixed window like Daycation/Night — without a real
+  // check-in/check-out time there's nothing for the real time-of-day
+  // overlap check (bookingsConflict) to compare against.
+  if (stayType === "Flexible" && (!body.checkInTime || !body.checkOutTime)) {
+    return { ok: false, error: "A Flexible stay needs both a check-in and check-out time." };
+  }
+
   // Overlap guard — same check the Booking Engine's availability service
   // (checkAvailability) uses everywhere else, so "is this unit free" only
   // has one implementation. Compares actual occupied date ranges (not just
@@ -33,7 +40,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
   // every night it spans — not only bookings whose check-in happens to
   // land on the exact same day. Daycation and Night may still share a
   // single day (different time slots); Full always blocks the whole day.
-  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType });
+  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType, checkInTime: body.checkInTime, checkOutTime: body.checkOutTime });
   if (!available) {
     return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
   }

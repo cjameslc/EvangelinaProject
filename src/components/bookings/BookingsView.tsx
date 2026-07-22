@@ -44,7 +44,7 @@ const dayOf = (d: Date) =>
 function effectiveRange(b: Booking) {
   const inDate = new Date(b.date);
   const outDate = b.checkOutDate ? new Date(b.checkOutDate) : new Date(inDate);
-  if (!b.checkOutDate && b.stayType !== "Daycation") outDate.setDate(outDate.getDate() + 1);
+  if (!b.checkOutDate && b.stayType !== "Daycation" && b.stayType !== "Flexible") outDate.setDate(outDate.getDate() + 1);
   return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
 }
 

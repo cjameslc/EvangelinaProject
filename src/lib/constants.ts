@@ -38,11 +38,16 @@ export const STAY_TYPES = {
   Daycation: { label: "Daycation", short: "DAY", hrs: "12 hrs", color: "#C87D00" },
   Night: { label: "Night stay", short: "NIGHT", hrs: "12 hrs", color: "#6C5CE7" },
   Full: { label: "Full stay", short: "21-HR", hrs: "21 hrs", color: "#FF385C" },
+  // Same-day only — any check-in/check-out time the booker picks, not a
+  // fixed window like Daycation/Night. Staff-only for now (not offered in
+  // the Guest Portal booking flow). See stayRange.ts's bookingsConflict for
+  // the real time-of-day overlap checking this type gets that others don't.
+  Flexible: { label: "Flexible", short: "FLEX", hrs: "same day", color: "#0EA5A0" },
   Cleaning: { label: "Cleaning", short: "CLEAN", hrs: "", color: "#8E99AA" },
   Maintenance: { label: "Maintenance", short: "MAINT", hrs: "", color: "#C87D00" },
 } as const;
 
-export const STAY_VARIANT: Record<string, string> = { Daycation: "day", Night: "night", Full: "full", Cleaning: "cleaning", Maintenance: "todo" };
+export const STAY_VARIANT: Record<string, string> = { Daycation: "day", Night: "night", Full: "full", Flexible: "day", Cleaning: "cleaning", Maintenance: "todo" };
 
 export const PLATFORMS = ["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"] as const;
 export const PLATFORM_LABEL: Record<string, string> = { WalkIn: "Walk-in" };

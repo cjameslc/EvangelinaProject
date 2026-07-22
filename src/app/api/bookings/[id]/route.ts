@@ -46,8 +46,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const nextPlatform = data.platform ?? existing.platform;
   const nextStayType = normalizeStayTypeForPlatform(nextPlatform, data.stayType ?? existing.stayType);
   data.stayType = nextStayType;
+  const nextCheckInTime = "checkInTime" in data ? data.checkInTime : existing.checkInTime;
+  const nextCheckOutTime = "checkOutTime" in data ? data.checkOutTime : existing.checkOutTime;
   const { available } = await checkAvailability(
-    { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any },
+    { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any, checkInTime: nextCheckInTime, checkOutTime: nextCheckOutTime },
     { excludeBookingId: params.id }
   );
   if (!available) {

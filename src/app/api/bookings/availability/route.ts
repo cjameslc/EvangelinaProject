@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, unitIdWhere, unitWhere } from "@/lib/session";
 import { bookingsConflict } from "@/lib/calendarMirror";
 
-const STAY_TYPE_KEYS = ["Daycation", "Night", "Full"] as const;
+const STAY_TYPE_KEYS = ["Daycation", "Night", "Full", "Flexible"] as const;
 const NEARBY_DAYS = 7; // how many days before/after the requested date to search for a free alternative
 
 function parseDate(iso: string): Date | null {

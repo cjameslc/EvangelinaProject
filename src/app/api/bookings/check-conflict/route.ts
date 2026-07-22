@@ -16,6 +16,8 @@ export async function GET(req: NextRequest) {
   const date = searchParams.get("date");
   const stayType = searchParams.get("stayType");
   const checkOutDate = searchParams.get("checkOutDate");
+  const checkInTime = searchParams.get("checkInTime");
+  const checkOutTime = searchParams.get("checkOutTime");
   const excludeId = searchParams.get("excludeId");
 
   if (!unitId || !date || !stayType) {
@@ -24,11 +26,11 @@ export async function GET(req: NextRequest) {
 
   const others = await prisma.booking.findMany({
     where: { unitId, ...(excludeId ? { id: { not: excludeId } } : {}) },
-    select: { stayType: true, date: true, checkOutDate: true },
+    select: { stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
 
   const conflict = others.some((b) =>
-    bookingsConflict({ stayType, date: new Date(date), checkOutDate: checkOutDate ? new Date(checkOutDate) : null }, b)
+    bookingsConflict({ stayType, date: new Date(date), checkOutDate: checkOutDate ? new Date(checkOutDate) : null, checkInTime, checkOutTime }, b)
   );
 
   return NextResponse.json({ conflict });

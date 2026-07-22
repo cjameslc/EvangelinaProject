@@ -5,11 +5,23 @@ export function normalizeStayTypeForPlatform<T extends string>(platform: string,
   return platform === "Airbnb" ? "Full" : stayType;
 }
 
+// Plain ZodObject (not wrapped in .refine) — [id]/route.ts calls
+// bookingSchema.partial() for PATCH, which only exists on a ZodObject, and a
+// partial update legitimately doesn't require every field to be present.
+// Flexible's "must have both times" rule is enforced separately, only on
+// full create (see createBookingCore in bookingService.ts), since a PATCH
+// that only touches e.g. the amount shouldn't be forced to resend times.
 export const bookingSchema = z.object({
   unitId: z.string().min(1),
   date: z.string().min(1),
   checkOutDate: z.string().nullable().optional(),
-  stayType: z.enum(["Daycation", "Night", "Full"]),
+  // Flexible is staff-only (not offered in the Guest Portal booking flow) —
+  // a same-day stay whose check-in/check-out times are picked freely rather
+  // than following Daycation/Night's fixed windows. See stayRange.ts's
+  // bookingsConflict for how its actual times are used for real
+  // time-of-day overlap checking, not just a same-day/different-type
+  // assumption.
+  stayType: z.enum(["Daycation", "Night", "Full", "Flexible"]),
   checkInTime: z.string().nullable().optional(),
   checkOutTime: z.string().nullable().optional(),
   guests: z.array(z.string()).min(1),

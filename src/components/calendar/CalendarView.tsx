@@ -26,6 +26,7 @@ const TYPE_META: Record<string, { label: string; color: string; icon: string; te
   Full: { label: "21-Hour", color: "#3B71E8", icon: "🛏️" },
   Night: { label: "Night stay", color: "#7C5CE7", icon: "🌙" },
   Daycation: { label: "Daycation", color: "#0D9E6E", icon: "☀️" },
+  Flexible: { label: "Flexible", color: "#0EA5A0", icon: "🕐" },
   Cleaning: { label: "Cleaning", color: "#8E99AA", icon: "🧹" },
   Maintenance: { label: "Maintenance", color: "#C87D00", icon: "🔧" },
 };

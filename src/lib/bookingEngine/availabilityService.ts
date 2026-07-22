@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { bookingsConflict } from "@/lib/stayRange";
 
-export type StayType = "Daycation" | "Night" | "Full";
+export type StayType = "Daycation" | "Night" | "Full" | "Flexible";
 
 export type AvailabilityQuery = {
   unitId: string;
   date: string | Date;
   checkOutDate?: string | Date | null;
   stayType: StayType;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 };
 
 /**
@@ -32,22 +34,22 @@ export async function checkAvailability(
     // A guest-cancelled booking (cancelledAt set) must not keep blocking the
     // unit — otherwise a cancelled date range is stuck unbookable forever.
     where: { unitId: query.unitId, cancelledAt: null, ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}) },
-    select: { stayType: true, date: true, checkOutDate: true },
+    select: { stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
-  const conflict = unitBookings.some((b) => bookingsConflict({ stayType: query.stayType, date, checkOutDate }, b));
+  const conflict = unitBookings.some((b) => bookingsConflict({ stayType: query.stayType, date, checkOutDate, checkInTime: query.checkInTime, checkOutTime: query.checkOutTime }, b));
   return { available: !conflict };
 }
 
 /** Availability across every given unit for the same date range — powers the guest-facing search/listing grid ("which of these 5 units are free for these dates"). */
 export async function checkAvailabilityForUnits(
   unitIds: string[],
-  range: { date: string | Date; checkOutDate?: string | Date | null; stayType: StayType }
+  range: { date: string | Date; checkOutDate?: string | Date | null; stayType: StayType; checkInTime?: string | null; checkOutTime?: string | null }
 ): Promise<Record<string, boolean>> {
   const date = new Date(range.date);
   const checkOutDate = range.checkOutDate ? new Date(range.checkOutDate) : null;
   const allBookings = await prisma.booking.findMany({
     where: { unitId: { in: unitIds }, cancelledAt: null },
-    select: { unitId: true, stayType: true, date: true, checkOutDate: true },
+    select: { unitId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
   const byUnit = new Map<string, typeof allBookings>();
   for (const b of allBookings) {
@@ -57,7 +59,7 @@ export async function checkAvailabilityForUnits(
   }
   return Object.fromEntries(
     unitIds.map((unitId) => {
-      const conflict = (byUnit.get(unitId) ?? []).some((b) => bookingsConflict({ stayType: range.stayType, date, checkOutDate }, b));
+      const conflict = (byUnit.get(unitId) ?? []).some((b) => bookingsConflict({ stayType: range.stayType, date, checkOutDate, checkInTime: range.checkInTime, checkOutTime: range.checkOutTime }, b));
       return [unitId, !conflict];
     })
   );
