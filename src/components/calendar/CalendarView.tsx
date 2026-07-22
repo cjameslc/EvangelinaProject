@@ -72,6 +72,15 @@ function manilaToday() {
   const iso = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   return new Date(`${iso}T00:00:00Z`);
 }
+/** Current time-of-day in Manila as "HH:MM" (24h, zero-padded) — directly
+ * string-comparable against Booking.checkInTime, which is stored the same way. */
+function manilaNowHHMM() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  let hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  if (hour === 24) hour = 0; // some ICU builds report midnight as "24" with hour12:false
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
 function fmtDay2(d: Date) {
   return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d);
 }
@@ -297,11 +306,21 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
 
   const upcoming = useMemo(() => {
     const startOfToday = manilaToday();
+    const nowHHMM = manilaNowHHMM();
     return filteredBlocks
       .filter((b) => TYPE_META[b.type] && (b.type === "Full" || b.type === "Night" || b.type === "Daycation") && new Date(b.date) >= startOfToday)
+      // A check-in dated today whose check-in time has already passed isn't
+      // "upcoming" anymore — the guest is either already in or already late,
+      // not something still ahead. Future days are unaffected; a block with
+      // no recorded check-in time is left in (nothing to judge staleness by).
+      .filter((b) => {
+        if (b.date.slice(0, 10) !== todayIso) return true;
+        const t = b.booking?.checkInTime;
+        return !t || t >= nowHHMM;
+      })
       .sort((a, b) => +new Date(a.date) - +new Date(b.date))
       .slice(0, 6);
-  }, [filteredBlocks]);
+  }, [filteredBlocks, todayIso]);
 
   const todayCount = filteredBlocks.filter((b) => b.date.slice(0, 10) === todayIso && b.type !== "Cleaning" && b.type !== "Maintenance").length;
   const occupiedUnits = new Set(filteredBlocks.filter((b) => b.date.slice(0, 10) === todayIso).map((b) => b.unitId)).size;
