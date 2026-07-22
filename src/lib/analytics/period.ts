@@ -84,3 +84,42 @@ export function previousPeriodRangeFor(
 export function daysInRange(range: { start: Date; end: Date }): number {
   return Math.round((range.end.getTime() - range.start.getTime()) / 86400000);
 }
+
+/** The fixed named presets the Analytics filter bar offers — not an offsettable nav like Dashboard's period picker, just a direct preset -> range mapping. */
+export type AnalyticsPeriodPreset = "today" | "yesterday" | "week" | "month" | "quarter" | "year" | "custom";
+
+export const ANALYTICS_PERIOD_PRESETS: { value: AnalyticsPeriodPreset; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "week", label: "This Week" },
+  { value: "month", label: "This Month" },
+  { value: "quarter", label: "This Quarter" },
+  { value: "year", label: "This Year" },
+  { value: "custom", label: "Custom" },
+];
+
+/** Resolves a filter-bar preset (+ optional custom start/end) to both the current period and its immediately-preceding same-length period, for every KPI/chart that needs a period-over-period comparison. */
+export function resolveAnalyticsPeriod(
+  preset: AnalyticsPeriodPreset,
+  custom?: { start: string; end: string }
+): { current: { start: Date; end: Date }; previous: { start: Date; end: Date } } {
+  const map: Record<Exclude<AnalyticsPeriodPreset, "custom">, { rangeType: AnalyticsPeriodType; offset: number }> = {
+    today: { rangeType: "daily", offset: 0 },
+    yesterday: { rangeType: "daily", offset: -1 },
+    week: { rangeType: "weekly", offset: 0 },
+    month: { rangeType: "monthly", offset: 0 },
+    quarter: { rangeType: "quarterly", offset: 0 },
+    year: { rangeType: "yearly", offset: 0 },
+  };
+  if (preset === "custom") {
+    return {
+      current: periodRangeFor("custom", 0, custom),
+      previous: previousPeriodRangeFor("custom", 0, custom),
+    };
+  }
+  const { rangeType, offset } = map[preset];
+  return {
+    current: periodRangeFor(rangeType, offset),
+    previous: periodRangeFor(rangeType, offset - 1),
+  };
+}
