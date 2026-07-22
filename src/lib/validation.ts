@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+/** A date/checkOutDate string that fails to parse (garbage input, "2026-13-45",
+ * etc.) must never reach `new Date(...)` unchecked downstream — it produces
+ * an Invalid Date that Prisma then throws an unhandled 500 on. Field-level
+ * refine (not a schema-wide one) so bookingSchema.partial() below still
+ * works — .partial() only exists on a plain ZodObject, but refining an
+ * individual field's own validator doesn't change that. */
+const isValidDateString = (v: string) => !Number.isNaN(new Date(v).getTime());
+
 /** Airbnb has no day-use product — every Airbnb booking is a full 21-hour stay, never a Daycation or Night stay. Enforced here (server) and mirrored client-side in BookingForm's stay-type picker. */
 export function normalizeStayTypeForPlatform<T extends string>(platform: string, stayType: T): T | "Full" {
   return platform === "Airbnb" ? "Full" : stayType;
@@ -13,8 +21,8 @@ export function normalizeStayTypeForPlatform<T extends string>(platform: string,
 // that only touches e.g. the amount shouldn't be forced to resend times.
 export const bookingSchema = z.object({
   unitId: z.string().min(1),
-  date: z.string().min(1),
-  checkOutDate: z.string().nullable().optional(),
+  date: z.string().min(1).refine(isValidDateString, "Invalid date."),
+  checkOutDate: z.string().nullable().optional().refine((v) => !v || isValidDateString(v), "Invalid check-out date."),
   // Flexible is staff-only (not offered in the Guest Portal booking flow) —
   // a same-day stay whose check-in/check-out times are picked freely rather
   // than following Daycation/Night's fixed windows. See stayRange.ts's
@@ -44,8 +52,8 @@ export const bookingSchema = z.object({
   // — a lightweight arrival/departure timestamp, independent of the
   // date/checkOutDate fields which describe the planned stay, not what
   // actually happened.
-  checkedInAt: z.string().nullable().optional(),
-  checkedOutAt: z.string().nullable().optional(),
+  checkedInAt: z.string().nullable().optional().refine((v) => !v || isValidDateString(v), "Invalid check-in timestamp."),
+  checkedOutAt: z.string().nullable().optional().refine((v) => !v || isValidDateString(v), "Invalid check-out timestamp."),
   // Guest Portal only — a free-text note the guest adds when booking.
   specialRequest: z.string().nullable().optional(),
   // Guest Portal only — see src/lib/pricing/rates.ts + src/lib/bookingService.ts.

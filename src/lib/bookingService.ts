@@ -13,6 +13,11 @@ export type CreateBookingResult =
   | { ok: true; booking: Awaited<ReturnType<typeof prisma.booking.create>> }
   | { ok: false; error: string };
 
+// Thrown inside the $transaction below to abort/roll back on a genuine
+// conflict — caught just outside to turn back into the normal
+// { ok: false, error } result shape the rest of the app expects.
+class BookingConflictError extends Error {}
+
 /**
  * Shared by both createBookingRecord (staff) and createGuestBooking (Guest
  * Portal) — the overlap guard, the actual row, the mirrored CalendarBlock,
@@ -33,54 +38,76 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
     return { ok: false, error: "A Flexible stay needs both a check-in and check-out time." };
   }
 
-  // Overlap guard — same check the Booking Engine's availability service
-  // (checkAvailability) uses everywhere else, so "is this unit free" only
-  // has one implementation. Compares actual occupied date ranges (not just
-  // exact check-in date matches), so a multi-night stay correctly blocks
-  // every night it spans — not only bookings whose check-in happens to
-  // land on the exact same day. Daycation and Night may still share a
-  // single day (different time slots); Full always blocks the whole day.
-  const { available } = await checkAvailability({ unitId: body.unitId, date: dayStart, checkOutDate, stayType, checkInTime: body.checkInTime, checkOutTime: body.checkOutTime });
-  if (!available) {
-    return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
-  }
-
   const confirmationNumber = await generateConfirmationNumber();
 
-  const booking = await prisma.booking.create({
-    data: {
-      unitId: body.unitId,
-      date: dayStart,
-      checkOutDate,
-      stayType,
-      checkInTime: body.checkInTime || null,
-      checkOutTime: body.checkOutTime || null,
-      guests: body.guests as any,
-      pax: body.pax ?? null,
-      contactNumber: body.contactNumber,
-      bookerId: body.bookerId || null,
-      cleanerId: body.cleanerId || null,
-      platform: body.platform,
-      platformOther: body.platformOther || null,
-      dpAmount: body.dpAmount ?? null,
-      dpReceivedById: body.dpReceivedById || null,
-      dpMethod: body.dpMethod || null,
-      dpProofUrl: body.dpProofUrl || null,
-      amount: body.amount,
-      receivedById: body.receivedById || null,
-      method: body.method || null,
-      proofUrl: body.proofUrl || null,
-      paid: body.paid ?? false,
-      guestId: body.guestId ?? null,
-      specialRequest: body.specialRequest || null,
-      confirmationNumber,
-      originalAmount: body.originalAmount ?? null,
-      discountPct: body.discountPct ?? null,
-      paymentType: body.paymentType ?? "full",
-      intendedDpAmount: body.intendedDpAmount ?? null,
-      notes: body.notes || null,
-    },
-  });
+  // The overlap guard (checkAvailability) and the actual insert have to
+  // happen as one atomic unit — otherwise two near-simultaneous requests
+  // for the same unit/date/stayType can both pass the guard before either
+  // one's create() commits, producing a genuine double-booking. Wrapping
+  // both in a single $transaction serializes that whole read-then-write
+  // sequence against any other transaction touching this connection, so a
+  // second request's own guard-check inside its own transaction can only
+  // run after the first transaction has fully committed (and will then
+  // correctly see the just-created row and reject).
+  let booking: Awaited<ReturnType<typeof prisma.booking.create>>;
+  try {
+    booking = await prisma.$transaction(async (tx) => {
+      // Same check the Booking Engine's availability service uses
+      // everywhere else, so "is this unit free" only has one
+      // implementation — just run against the transaction's own view of
+      // the data instead of the outer client. Compares actual occupied
+      // date ranges (not just exact check-in date matches), so a
+      // multi-night stay correctly blocks every night it spans — not only
+      // bookings whose check-in happens to land on the exact same day.
+      // Daycation and Night may still share a single day (different time
+      // slots); Full always blocks the whole day.
+      const { available } = await checkAvailability(
+        { unitId: body.unitId, date: dayStart, checkOutDate, stayType, checkInTime: body.checkInTime, checkOutTime: body.checkOutTime },
+        { client: tx }
+      );
+      if (!available) throw new BookingConflictError();
+
+      return tx.booking.create({
+        data: {
+          unitId: body.unitId,
+          date: dayStart,
+          checkOutDate,
+          stayType,
+          checkInTime: body.checkInTime || null,
+          checkOutTime: body.checkOutTime || null,
+          guests: body.guests as any,
+          pax: body.pax ?? null,
+          contactNumber: body.contactNumber,
+          bookerId: body.bookerId || null,
+          cleanerId: body.cleanerId || null,
+          platform: body.platform,
+          platformOther: body.platformOther || null,
+          dpAmount: body.dpAmount ?? null,
+          dpReceivedById: body.dpReceivedById || null,
+          dpMethod: body.dpMethod || null,
+          dpProofUrl: body.dpProofUrl || null,
+          amount: body.amount,
+          receivedById: body.receivedById || null,
+          method: body.method || null,
+          proofUrl: body.proofUrl || null,
+          paid: body.paid ?? false,
+          guestId: body.guestId ?? null,
+          specialRequest: body.specialRequest || null,
+          confirmationNumber,
+          originalAmount: body.originalAmount ?? null,
+          discountPct: body.discountPct ?? null,
+          paymentType: body.paymentType ?? "full",
+          intendedDpAmount: body.intendedDpAmount ?? null,
+          notes: body.notes || null,
+        },
+      });
+    });
+  } catch (e) {
+    if (e instanceof BookingConflictError) {
+      return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
+    }
+    throw e;
+  }
 
   // Mirror onto the calendar so /calendar shows it immediately. Housekeeping's
   // cleaning schedule and every dashboard/report figure read live from this

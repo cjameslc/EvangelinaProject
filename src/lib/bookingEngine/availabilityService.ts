@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { bookingsConflict } from "@/lib/stayRange";
 
+// The extended `prisma` client's own $transaction callback parameter type —
+// derived structurally instead of Prisma's generic Prisma.TransactionClient,
+// since this app's client has extensions (json-string-fields) applied that
+// change its shape.
+type DbClient = typeof prisma | Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 export type StayType = "Daycation" | "Night" | "Full" | "Flexible";
 
 export type AvailabilityQuery = {
@@ -26,11 +32,12 @@ export type AvailabilityQuery = {
  */
 export async function checkAvailability(
   query: AvailabilityQuery,
-  opts?: { excludeBookingId?: string }
+  opts?: { excludeBookingId?: string; client?: DbClient }
 ): Promise<{ available: boolean }> {
+  const db = opts?.client ?? prisma;
   const date = new Date(query.date);
   const checkOutDate = query.checkOutDate ? new Date(query.checkOutDate) : null;
-  const unitBookings = await prisma.booking.findMany({
+  const unitBookings = await db.booking.findMany({
     // A guest-cancelled booking (cancelledAt set) must not keep blocking the
     // unit — otherwise a cancelled date range is stuck unbookable forever.
     where: { unitId: query.unitId, cancelledAt: null, ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}) },

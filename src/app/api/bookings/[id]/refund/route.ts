@@ -41,10 +41,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!parsed.ok) return parsed.response;
   const { reason } = parsed.data;
 
-  const booking = await prisma.booking.update({
-    where: { id: params.id },
+  // Same atomic-conditional-update pattern as cancel — refundedAt: null in
+  // the where clause means a double-click (two requests racing) only lets
+  // one of them actually flip the row; the other correctly reports 400
+  // instead of both succeeding.
+  const { count } = await prisma.booking.updateMany({
+    where: { id: params.id, refundedAt: null },
     data: { refundedAt: new Date(), refundReason: reason },
   });
+  if (count === 0) return NextResponse.json({ error: "This booking is already marked refunded." }, { status: 400 });
+  const booking = await prisma.booking.findUniqueOrThrow({ where: { id: params.id } });
   await logAudit(user.id, "booking.refund", "Booking", booking.id, { reason });
 
   return NextResponse.json(booking);

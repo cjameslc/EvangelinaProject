@@ -35,10 +35,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!parsed.ok) return parsed.response;
   const { reason } = parsed.data;
 
-  const booking = await prisma.booking.update({
-    where: { id: params.id },
+  // updateMany with cancelledAt: null in the where clause makes this one
+  // atomic conditional UPDATE — if two cancel requests race (e.g. a
+  // double-click), only the first one's statement actually matches a row;
+  // the second sees count: 0 and reports "already cancelled" instead of
+  // both succeeding and firing duplicate notifications/audit entries.
+  const { count } = await prisma.booking.updateMany({
+    where: { id: params.id, cancelledAt: null },
     data: { cancelledAt: new Date(), cancellationReason: reason },
   });
+  if (count === 0) return NextResponse.json({ error: "This booking is already cancelled." }, { status: 400 });
+  const booking = await prisma.booking.findUniqueOrThrow({ where: { id: params.id } });
   await logAudit(user.id, "booking.cancel", "Booking", booking.id, { reason });
 
   // A cancelled booking frees up the unit (availabilityService already

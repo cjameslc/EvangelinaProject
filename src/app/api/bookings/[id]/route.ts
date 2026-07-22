@@ -9,6 +9,10 @@ import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
 
+// Thrown inside the $transaction below to abort/roll back on a genuine
+// scheduling conflict — caught just outside to turn back into a 409.
+class BookingConflictError extends Error {}
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
@@ -58,15 +62,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   data.stayType = nextStayType;
   const nextCheckInTime = "checkInTime" in data ? data.checkInTime : existing.checkInTime;
   const nextCheckOutTime = "checkOutTime" in data ? data.checkOutTime : existing.checkOutTime;
-  const { available } = await checkAvailability(
-    { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any, checkInTime: nextCheckInTime, checkOutTime: nextCheckOutTime },
-    { excludeBookingId: params.id }
-  );
-  if (!available) {
-    return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
-  }
 
-  const booking = await prisma.booking.update({ where: { id: params.id }, data });
+  // Same reasoning as booking creation (see createBookingCore in
+  // bookingService.ts): the overlap guard and the actual update must be one
+  // atomic unit, or two near-simultaneous edits/creates targeting an
+  // overlapping range can both pass the guard before either commits.
+  let booking: Awaited<ReturnType<typeof prisma.booking.update>>;
+  try {
+    booking = await prisma.$transaction(async (tx) => {
+      const { available } = await checkAvailability(
+        { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any, checkInTime: nextCheckInTime, checkOutTime: nextCheckOutTime },
+        { excludeBookingId: params.id, client: tx }
+      );
+      if (!available) throw new BookingConflictError();
+      return tx.booking.update({ where: { id: params.id }, data });
+    });
+  } catch (e) {
+    if (e instanceof BookingConflictError) {
+      return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
+    }
+    throw e;
+  }
   await logAudit(user.id, "booking.update", "Booking", booking.id, body);
 
   // Keep the mirrored calendar entry (date/span/type/guest) in sync so an
@@ -105,9 +121,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // no row left for it to find.
   await notify({ type: "booking.cancelled", bookingId: params.id });
 
-  // The mirrored CalendarBlock cascades away with it (onDelete: Cascade on
+  // deleteMany (not delete) so a double-delete race (two requests for the
+  // same id) can't throw an unhandled P2025 "record not found" 500 — the
+  // second one just deletes 0 rows and gets a clean 404 instead. The
+  // mirrored CalendarBlock cascades away with the row (onDelete: Cascade on
   // the bookingId relation), so /calendar never shows an orphaned entry.
-  await prisma.booking.delete({ where: { id: params.id } });
+  const { count } = await prisma.booking.deleteMany({ where: { id: params.id } });
+  if (count === 0) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   await logAudit(user.id, "booking.delete", "Booking", params.id);
   return NextResponse.json({ ok: true });
 }
