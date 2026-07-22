@@ -1,4 +1,5 @@
 import { manilaDayKey } from "@/lib/analytics/period";
+import { PAYMENT_METHOD_LABEL } from "@/lib/constants";
 
 export type RevenueBooking = {
   amount: number;
@@ -112,8 +113,13 @@ export function revenueByDimension(
     if (dimension === "unit") return { key: b.unitId, label: unitLabels[b.unitId] ?? b.unitId };
     if (dimension === "source") return { key: b.platform, label: b.platform };
     if (dimension === "stayType") return { key: b.stayType, label: b.stayType };
-    const method = b.method || "Unrecorded";
-    return { key: method, label: method };
+    // Airbnb bookings never have a manually-recorded method (they're
+    // auto-imported via iCal, not entered through the payment flow), but
+    // Airbnb payouts to the host always arrive by bank transfer — so for
+    // this metric they're counted as BankTransfer rather than falling into
+    // an "Unrecorded" bucket that would otherwise just mean "Airbnb."
+    const method = b.platform === "Airbnb" ? "BankTransfer" : b.method || "Unrecorded";
+    return { key: method, label: PAYMENT_METHOD_LABEL[method] ?? method };
   };
   const rows = new Map<string, RevenueDimensionRow>();
   for (const b of bookings) {
