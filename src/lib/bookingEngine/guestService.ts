@@ -63,3 +63,18 @@ export async function setGuestPaymentProof(guestId: string, bookingId: string, f
   await prisma.booking.update({ where: { id: bookingId }, data: { [field]: url } });
   return { ok: true as const };
 }
+
+export async function getGuestNotifications(guestId: string) {
+  return prisma.guestNotification.findMany({ where: { guestId }, orderBy: { createdAt: "desc" }, take: 50 });
+}
+
+export async function getUnreadNotificationCount(guestId: string) {
+  return prisma.guestNotification.count({ where: { guestId, read: false } });
+}
+
+export async function markNotificationsRead(guestId: string, ids?: string[]) {
+  await prisma.guestNotification.updateMany({
+    where: { guestId, read: false, ...(ids ? { id: { in: ids } } : {}) },
+    data: { read: true },
+  });
+}

@@ -648,9 +648,30 @@ model Guest {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  bookings  Booking[]
+  bookings      Booking[]
+  notifications GuestNotification[]
 
   @@map("guests")
+}
+
+// In-app inbox for the events notificationService.notify() already fires
+// (booking created/updated/cancelled, payment received) — this is the
+// "display booking updates" half of that seam; the "prepare for future
+// push notifications" half is the existing empty push/notificationclick
+// stubs in public/sw.js, unwired until there's a real channel to trigger
+// them from.
+model GuestNotification {
+  id        String   @id @default(cuid())
+  guestId   String
+  guest     Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  bookingId String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([guestId, createdAt])
+  @@map("guest_notifications")
 }
 
 // One-time-use email magic-link tokens. Deliberately its own tiny table

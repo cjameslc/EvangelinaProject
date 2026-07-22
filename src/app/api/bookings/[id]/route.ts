@@ -61,6 +61,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // edited booking always shows on its exact — and correctly spanned —
   // date(s) on the /calendar grid, rather than the stale one it had before.
   await syncCalendarMirror(booking);
+  // A staff member marking a guest-portal booking paid is exactly the
+  // "payment received" event a guest wants to see — fired alongside (not
+  // instead of) the general booking.updated event.
+  if (!existing.paid && booking.paid) {
+    await notify({ type: "payment.received", bookingId: booking.id });
+  }
   await notify({ type: "booking.updated", bookingId: booking.id });
 
   return NextResponse.json(booking);
@@ -81,10 +87,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     }
   }
 
+  // notify() looks up the booking's guestId to know whether to write a
+  // guest notification — has to run before the delete below, or there's
+  // no row left for it to find.
+  await notify({ type: "booking.cancelled", bookingId: params.id });
+
   // The mirrored CalendarBlock cascades away with it (onDelete: Cascade on
   // the bookingId relation), so /calendar never shows an orphaned entry.
   await prisma.booking.delete({ where: { id: params.id } });
   await logAudit(user.id, "booking.delete", "Booking", params.id);
-  await notify({ type: "booking.cancelled", bookingId: params.id });
   return NextResponse.json({ ok: true });
 }

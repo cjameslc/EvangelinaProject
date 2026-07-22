@@ -10,7 +10,7 @@ import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
 // a "More" dropdown — chosen from real measurement: a role seeing all 7
@@ -41,6 +41,15 @@ export function Navbar() {
   const displayName = liveName ?? session?.user?.name ?? "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [guestUnread, setGuestUnread] = useState(0);
+
+  // Only ever fetched for someone with no staff session — a guest cookie,
+  // if any, is what this endpoint actually reads server-side (see
+  // getCurrentGuest); harmless (returns 0) for a true anonymous visitor.
+  useEffect(() => {
+    if (session) return;
+    fetch("/api/guest/notifications/unread-count").then((r) => r.json()).then((j) => setGuestUnread(j.count ?? 0)).catch(() => {});
+  }, [session, pathname]);
 
   const role = session?.user?.role;
   const items = visibleNavItems(role);
@@ -127,9 +136,19 @@ export function Navbar() {
 
         <div className="ml-auto flex items-center gap-2">
           {!session && (
-            <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
-              Employee login
-            </Link>
+            <>
+              <Link href="/notifications" className="btn-icon relative" aria-label="Notifications">
+                <BellIcon className="h-[18px] w-[18px]" />
+                {guestUnread > 0 && (
+                  <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-rausch text-[9px] font-extrabold text-white">
+                    {guestUnread > 9 ? "9+" : guestUnread}
+                  </span>
+                )}
+              </Link>
+              <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
+                Employee login
+              </Link>
+            </>
           )}
 
           <button onClick={toggle} className="btn-icon" aria-label="Toggle theme">
