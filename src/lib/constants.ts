@@ -47,8 +47,6 @@ export const STAY_TYPES = {
   Maintenance: { label: "Maintenance", short: "MAINT", hrs: "", color: "#C87D00" },
 } as const;
 
-export const STAY_VARIANT: Record<string, string> = { Daycation: "day", Night: "night", Full: "full", Flexible: "day", Cleaning: "cleaning", Maintenance: "todo" };
-
 export const PLATFORMS = ["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"] as const;
 export const PLATFORM_LABEL: Record<string, string> = { WalkIn: "Walk-in" };
 
@@ -85,15 +83,6 @@ export const CHECKLIST_GROUPS: { name: string; optional?: boolean; items: string
   { name: "Safety & maintenance", items: ["Check smoke detector", "Check door lock", "Check windows lock properly", "Check for leaks", "Report broken items", "Report missing items", "Take maintenance photos if needed"] },
   { name: "Final inspection", items: ["Unit smells fresh", "No visible dust", "No hair anywhere", "All amenities arranged neatly", "Curtains properly arranged", "Lights turned off (except required)", "Aircon turned off", "Doors locked", "Take final photos", "Confirm unit is guest-ready"] },
   { name: "Deep cleaning (weekly / monthly)", optional: true, items: ["Deep clean aircon filter", "Wash curtains", "Deep clean refrigerator", "Deep clean microwave", "Clean behind furniture", "Clean under the bed", "Remove wall marks", "Polish mirrors and glass", "Deep clean bathroom grout", "Disinfect high-touch surfaces", "Inventory all supplies", "Restock housekeeping supplies", "Check furniture for damage", "Tighten loose screws or fixtures", "Replace worn-out items if necessary"] },
-];
-
-export const DEFAULT_STOCK: [string, number][] = [
-  ["Tissue rolls", 4],
-  ["Bath towels", 6],
-  ["Bottled water", 8],
-  ["Toiletry kits", 5],
-  ["Trash bags", 10],
-  ["Coffee/creamer sachets", 12],
 ];
 
 export const LOW_STOCK_THRESHOLD = 2;

@@ -1,9 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
 import { isCommissionEligible } from "@/lib/bookingStatus";
+
+// The Elite Challenge company-wide ranking data (every eligible booker's
+// bookings + awards this month) is identical for every viewer — same idea
+// as src/app/api/leaderboard/route.ts's getRankedLeaderboard, cached the
+// same way (45s) instead of re-querying the whole company's bookings on
+// every single My Earnings page load. isBookingCompleted itself is still
+// evaluated live per-request below (not cached), so this only removes
+// redundant round trips — it introduces no new staleness beyond what the
+// already-shipped leaderboard endpoint has had all along.
+type EliteChallengeMonthData = {
+  allBookers: { id: string }[];
+  allMonthAwards: { tier: number; employeeId: string }[];
+  allMonthBookings: { bookerId: string | null; date: string; checkOutDate: string | null }[];
+};
+
+const getEliteChallengeMonthData = unstable_cache(
+  async (monthStartIso: string, nextMonthStartIso: string): Promise<EliteChallengeMonthData> => {
+    const monthStart = new Date(monthStartIso);
+    const nextMonthStart = new Date(nextMonthStartIso);
+    const [allBookers, allMonthAwards] = await Promise.all([
+      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } }),
+      prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
+    ]);
+    const allMonthBookings = await prisma.booking.findMany({
+      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
+      select: { bookerId: true, date: true, checkOutDate: true },
+    });
+    return JSON.parse(JSON.stringify({ allBookers, allMonthAwards, allMonthBookings }));
+  },
+  ["elite-challenge-month-data"],
+  { revalidate: 45 }
+);
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -74,7 +107,7 @@ export async function GET(req: NextRequest) {
     // refundedAt are selected because isCommissionEligible needs both.
     prisma.booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
-      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, guests: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
+      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
       orderBy: { date: "desc" },
     }),
     prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
@@ -191,16 +224,7 @@ export async function GET(req: NextRequest) {
     // what's already public on the admin leaderboard.
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-    // allMonthAwards doesn't depend on allBookers, so it runs alongside that
-    // chain instead of after it.
-    const [allBookers, allMonthAwards] = await Promise.all([
-      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } }),
-      prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
-    ]);
-    const allMonthBookings = await prisma.booking.findMany({
-      where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
-      select: { bookerId: true, date: true, checkOutDate: true },
-    });
+    const { allBookers, allMonthAwards, allMonthBookings } = await getEliteChallengeMonthData(monthStart.toISOString(), nextMonthStart.toISOString());
     const countsByBooker = new Map<string, number>();
     allBookers.forEach((b) => countsByBooker.set(b.id, 0));
     allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByBooker.set(b.bookerId, (countsByBooker.get(b.bookerId) ?? 0) + 1); });

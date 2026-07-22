@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
 import { canEditBookings, canEditSpecificBooking, canDeleteBookings } from "@/lib/rbac";
+import { parseOrError } from "@/lib/apiValidation";
+import { rateLimit } from "@/lib/rateLimit";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
@@ -11,6 +13,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+
+  // Shared bucket across create/edit/cancel/refund/delete (see
+  // src/app/api/bookings/route.ts and the cancel/refund routes) — one
+  // account spamming any mix of these mutations hits the same cap.
+  const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
@@ -29,7 +37,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
-  const body = bookingSchema.partial().parse(await req.json());
+  const parsed = parseOrError(bookingSchema.partial(), await req.json().catch(() => ({})));
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   if (body.unitId && !isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
   const data: any = { ...body };
   if (body.date) data.date = new Date(body.date);
@@ -82,6 +92,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // without destroying the payment/audit trail. Every other role
   // canEditBookings() covers keeps full delete access, unchanged.
   if (!canDeleteBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+
+  const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });

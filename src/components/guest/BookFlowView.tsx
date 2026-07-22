@@ -225,7 +225,7 @@ export function BookFlowView() {
           <p className="mt-4 text-[13.5px] text-[var(--gray)]">{peso(selected.quote.total)} still due. Manage this anytime from My bookings.</p>
         )}
         <p className="mt-2 text-[13.5px] text-[var(--gray)]">
-          You're signed in — we also emailed a confirmation to {email}.
+          You&apos;re signed in — we also emailed a confirmation to {email}.
         </p>
       </div>
     );

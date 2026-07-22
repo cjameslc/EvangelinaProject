@@ -42,7 +42,7 @@ const getDashboardData = unstable_cache(
     const dashboardBookingSelect = {
       id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true,
       platform: true, amount: true, paid: true, dpAmount: true, guests: true,
-      receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true, conflict: true, cancelledAt: true,
+      receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true, conflict: true, cancelledAt: true, refundedAt: true,
     };
 
     const res = await Promise.all([
@@ -176,7 +176,7 @@ export default async function DashboardPage() {
       { id: "demo-u-2", name: "Evangelina’s Cozy City Stay", shortName: "Cozy City Stay", unitNumber: "1558", nightlyRate: 1799, rating: 4.8, location: "Cubao, Araneta City", owners: [] },
       { id: "demo-u-3", name: "Relax at Evangelina’s Stay", shortName: "Relax Stay", unitNumber: "1116", nightlyRate: 1799, rating: 4.85, location: "Cubao, Araneta City", owners: [] },
     ];
-    bookingsWeek = units.map((u, i) => ({ id: `demo-book-${i}`, unitId: u.id, unit: u, date: new Date(Date.now() - i * 86400000).toISOString(), stayType: "Full", guests: ["Demo Guest"], pax: 2, amount: 1799, paid: true, dpAmount: 500, receivedById: null, dpReceivedById: null, cancelledAt: null }));
+    bookingsWeek = units.map((u, i) => ({ id: `demo-book-${i}`, unitId: u.id, unit: u, date: new Date(Date.now() - i * 86400000).toISOString(), stayType: "Full", guests: ["Demo Guest"], pax: 2, amount: 1799, paid: true, dpAmount: 500, receivedById: null, dpReceivedById: null, cancelledAt: null, refundedAt: null }));
     bookingsMonth = bookingsWeek;
     employees = [{ id: "demo-e-1", name: "Demo Booker", role: "BOOKER", monthlySalary: 15000, active: true }];
     bills = units.map((u, i) => ({ id: `b-${i}`, unitId: u.id, key: "assoc", month: monthStart.toISOString(), amountDue: 3500, paid: false, unit: u }));

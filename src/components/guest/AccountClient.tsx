@@ -48,7 +48,7 @@ export function AccountClient({ guest }: { guest: Guest }) {
         <div>
           <label htmlFor="account-email" className="field-label">Email</label>
           <input id="account-email" value={guest.email} disabled className="field-input mt-1 opacity-60" />
-          <p className="mt-1 text-[12px] text-[var(--gray)]">You sign in with an email link — there's no password to manage.</p>
+          <p className="mt-1 text-[12px] text-[var(--gray)]">You sign in with an email link — there&apos;s no password to manage.</p>
         </div>
         <div>
           <label htmlFor="account-name" className="field-label">Full name</label>

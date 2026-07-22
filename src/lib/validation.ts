@@ -63,14 +63,14 @@ export const bookingSchema = z.object({
 // to set cancelledAt/cancellationReason, and the reason is mandatory here
 // (unlike every other free-text field in bookingSchema, which are optional).
 export const bookingCancelSchema = z.object({
-  reason: z.string().trim().min(1, "A reason is required to cancel a booking."),
+  reason: z.string().trim().min(1, "A reason is required to cancel a booking.").max(500, "Keep the reason under 500 characters."),
 });
 
 // Staff-side refund — POST /api/bookings/[id]/refund. Same shape/rationale
 // as bookingCancelSchema: the only path allowed to set refundedAt/
 // refundReason, reason always mandatory.
 export const bookingRefundSchema = z.object({
-  reason: z.string().trim().min(1, "A reason is required to mark a booking refunded."),
+  reason: z.string().trim().min(1, "A reason is required to mark a booking refunded.").max(500, "Keep the reason under 500 characters."),
 });
 
 export const unitSchema = z.object({

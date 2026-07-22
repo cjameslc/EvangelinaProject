@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingRefundSchema } from "@/lib/validation";
+import { parseOrError } from "@/lib/apiValidation";
+import { rateLimit } from "@/lib/rateLimit";
 import { canEditBookings, canEditSpecificBooking } from "@/lib/rbac";
 
 // Marks a booking's payment as refunded — a factual record ("the money was
@@ -14,6 +16,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+
+  const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
   const existing = await prisma.booking.findUnique({
     where: { id: params.id },
@@ -32,7 +37,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: "Nothing was collected on this booking to refund." }, { status: 400 });
   }
 
-  const { reason } = bookingRefundSchema.parse(await req.json());
+  const parsed = parseOrError(bookingRefundSchema, await req.json().catch(() => ({})));
+  if (!parsed.ok) return parsed.response;
+  const { reason } = parsed.data;
 
   const booking = await prisma.booking.update({
     where: { id: params.id },

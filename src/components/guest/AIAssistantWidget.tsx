@@ -73,7 +73,7 @@ export function AIAssistantWidget() {
       {open && (
         <div className="fixed bottom-24 right-5 z-40 flex h-[480px] w-[340px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card">
           <div className="border-b border-[var(--line)] px-4 py-3">
-            <div className="text-[13.5px] font-extrabold">Evangelina's Assistant</div>
+            <div className="text-[13.5px] font-extrabold">Evangelina&apos;s Assistant</div>
           </div>
           <div className="flex-1 space-y-2.5 overflow-y-auto p-3">
             {messages.map((m, i) => (

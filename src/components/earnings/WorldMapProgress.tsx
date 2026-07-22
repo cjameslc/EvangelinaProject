@@ -224,7 +224,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
           </span>
         </div>
       ) : (
-        <p className="relative mt-3 text-[13px] font-extrabold">👑 You've reached Evangelina's Kingdom this month — legendary!</p>
+        <p className="relative mt-3 text-[13px] font-extrabold">👑 You&apos;ve reached Evangelina&apos;s Kingdom this month — legendary!</p>
       )}
 
       <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">

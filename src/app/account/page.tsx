@@ -18,7 +18,7 @@ export default async function AccountPage() {
   if (!profile) {
     return (
       <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
-        <p className="text-[15px] text-[var(--gray)]">Couldn't load your account. Please try again.</p>
+        <p className="text-[15px] text-[var(--gray)]">Couldn&apos;t load your account. Please try again.</p>
       </div>
     );
   }

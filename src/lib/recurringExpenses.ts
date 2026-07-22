@@ -11,15 +11,6 @@ export const CATEGORY_TO_BILL_KEY: Record<ExpenseCategory, string> = {
   Streaming: "stream",
 };
 
-export const CATEGORY_LABEL: Record<ExpenseCategory, string> = {
-  Amortization: "Amortization",
-  Utilities: "Electricity",
-  Water: "Water",
-  Internet: "Internet",
-  AssociationDues: "Association Dues",
-  Streaming: "Netflix Subscription",
-};
-
 function daysInMonth(year: number, month0: number): number {
   return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
 }

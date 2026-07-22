@@ -6,7 +6,7 @@ export async function StaffSection({ user, filters }: { user: { role: string; ow
   return (
     <div className="card p-4">
       <h3 className="mb-3 text-[14px] font-extrabold">Staff performance</h3>
-      <p className="mb-3 text-[11.5px] text-[var(--gray)]">Click a row for their booking/cleaning history this period. Earnings figures match the same formula as Dashboard's &ldquo;Your team&rdquo; and Earnings' Owner Summary.</p>
+      <p className="mb-3 text-[11.5px] text-[var(--gray)]">Click a row for their booking/cleaning history this period. Earnings figures match the same formula as Dashboard&apos;s &ldquo;Your team&rdquo; and Earnings&apos; Owner Summary.</p>
       <StaffSectionClient data={data} />
     </div>
   );

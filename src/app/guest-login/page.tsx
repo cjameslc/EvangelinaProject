@@ -114,7 +114,7 @@ export default function GuestLoginPage() {
           </div>
         ) : (
           <form onSubmit={onSubmitLink} className="card space-y-4 p-6">
-            <p className="text-[13px] text-[var(--gray)]">We'll email you a one-tap sign-in link.</p>
+            <p className="text-[13px] text-[var(--gray)]">We&apos;ll email you a one-tap sign-in link.</p>
             <div className="space-y-1.5">
               <label htmlFor="guest-login-email" className="field-label">Email</label>
               <input id="guest-login-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" />

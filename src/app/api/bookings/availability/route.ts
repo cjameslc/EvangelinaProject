@@ -54,8 +54,12 @@ export async function GET(req: NextRequest) {
   // unit/stayType/day combination checked below.
   const windowStart = addDays(date, -NEARBY_DAYS);
   const windowEnd = addDays(date, NEARBY_DAYS + 2); // +2: a booking starting just before the window can still occupy days inside it
+  // cancelledAt: null — a cancelled booking no longer occupies the unit
+  // (matches the real booking-creation guard, checkAvailability, and the
+  // Calendar, which all already exclude it). Without this, a cancelled
+  // booking still shows here as an unavailable slot forever.
   const bookings = await prisma.booking.findMany({
-    where: { ...unitWhere(user), unitId: { in: units.map((u) => u.id) }, date: { gte: windowStart, lt: windowEnd } },
+    where: { ...unitWhere(user), unitId: { in: units.map((u) => u.id) }, date: { gte: windowStart, lt: windowEnd }, cancelledAt: null },
     select: { unitId: true, stayType: true, date: true, checkOutDate: true },
   });
   const bookingsByUnit = new Map<string, typeof bookings>();

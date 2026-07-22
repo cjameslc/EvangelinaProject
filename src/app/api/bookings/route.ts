@@ -4,6 +4,8 @@ import { requireUser, unitWhere } from "@/lib/session";
 import { bookingSchema } from "@/lib/validation";
 import { canEditBookings } from "@/lib/rbac";
 import { createBookingRecord } from "@/lib/bookingService";
+import { parseOrError } from "@/lib/apiValidation";
+import { rateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   const { user, error } = await requireUser();
@@ -35,7 +37,15 @@ export async function POST(req: NextRequest) {
   if (error) return error;
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
 
-  const body = bookingSchema.parse(await req.json());
+  // Staff-only surface (not guest-facing), but still worth a generous cap —
+  // one account spamming create/edit/cancel/refund/delete shares this same
+  // bucket (see the other four handlers under src/app/api/bookings/).
+  const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
+
+  const parsed = parseOrError(bookingSchema, await req.json().catch(() => ({})));
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   // Mirror BookingForm.tsx's own lock server-side: whoever is logged in and
   // has their own Employee record is the booker on a manually-created
   // booking, full stop — the client-submitted bookerId is never trusted for

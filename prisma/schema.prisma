@@ -429,6 +429,11 @@ model Booking {
   @@unique([unitId, externalUid])
   @@index([unitId, date])
   @@index([date])
+  // Commission/payroll queries (my-earnings, leaderboard, Analytics Staff)
+  // filter directly on these — neither is covered by the [unitId, date] or
+  // [date] indexes above.
+  @@index([bookerId])
+  @@index([cleanerId])
   @@map("bookings")
 }
 

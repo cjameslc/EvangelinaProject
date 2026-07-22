@@ -18,7 +18,7 @@ import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[]; icalLastSyncError?: string | null };
-type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null };
+type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null; refundedAt?: string | null };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };
@@ -37,6 +37,17 @@ type Stock = { id: string; unitId: string; name: string; count: number };
 // the Manila calendar date, not the server or browser's own timezone.
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+
+// Money actually in hand right now for this booking — the full amount once
+// paid, plus any downpayment on file, minus anything since given back. A
+// cancelled booking's kept deposit still counts (same "money kept, not
+// refunded" rule the commission engine uses — see isCommissionEligible in
+// @/lib/bookingStatus); only a refund zeroes it out. Single source of truth
+// for every revenue figure below instead of repeating this formula per card.
+function collectedAmount(b: Booking): number {
+  if (b.refundedAt) return 0;
+  return (b.paid ? b.amount : 0) + (b.dpAmount || 0);
+}
 
 type RangeType = DashboardPeriodType;
 type StatusFilter = "all" | "occupied" | "reserved" | "cleaning" | "available";
@@ -107,11 +118,11 @@ export function DashboardView({
   // downpayment is always counted since logging a DP receipt means it's
   // already in hand.
   const income = useMemo(
-    () => bookingsWeek.reduce((sum, b) => sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0),
+    () => bookingsWeek.reduce((sum, b) => sum + collectedAmount(b), 0),
     [bookingsWeek]
   );
   const monthIncome = useMemo(
-    () => bookingsMonth.reduce((sum, b) => sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0),
+    () => bookingsMonth.reduce((sum, b) => sum + collectedAmount(b), 0),
     [bookingsMonth]
   );
   // A booking's stay counts as "completed" once its checkout has passed —
@@ -125,7 +136,7 @@ export function DashboardView({
     return end.getTime() <= Date.now();
   };
   const completedMonthIncome = useMemo(
-    () => bookingsMonth.filter(isCompletedStay).reduce((sum, b) => sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0),
+    () => bookingsMonth.filter(isCompletedStay).reduce((sum, b) => sum + collectedAmount(b), 0),
     [bookingsMonth]
   );
   // Full booked value of every reservation this month, completed or not —
@@ -782,8 +793,8 @@ export function DashboardView({
   const monthlyPayroll = useMemo(() => {
     const map = new Map<string, number>();
     bookingsMonth.forEach((b) => {
-      if (b.receivedById && b.paid) map.set(b.receivedById, (map.get(b.receivedById) ?? 0) + (b.amount || 0));
-      if (b.dpReceivedById) map.set(b.dpReceivedById, (map.get(b.dpReceivedById) ?? 0) + (b.dpAmount || 0));
+      if (b.receivedById && b.paid && !b.refundedAt) map.set(b.receivedById, (map.get(b.receivedById) ?? 0) + (b.amount || 0));
+      if (b.dpReceivedById && !b.refundedAt) map.set(b.dpReceivedById, (map.get(b.dpReceivedById) ?? 0) + (b.dpAmount || 0));
     });
     return employees
       .map((e) => ({ ...e, collected: map.get(e.id) ?? 0 }))
@@ -794,7 +805,7 @@ export function DashboardView({
   const perUnitMonthlyEarned = useMemo(() => {
     const map = new Map<string, number>();
     bookingsMonth.forEach((b) => {
-      map.set(b.unitId, (map.get(b.unitId) ?? 0) + (b.paid ? b.amount : 0) + (b.dpAmount || 0));
+      map.set(b.unitId, (map.get(b.unitId) ?? 0) + collectedAmount(b));
     });
     return map;
   }, [bookingsMonth]);
@@ -949,7 +960,7 @@ export function DashboardView({
     });
   }, [earningsBookings, filteredUnits, selectedDate, periodRange]);
 
-  const periodIncome = periodBookings.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0);
+  const periodIncome = periodBookings.reduce((s, b) => s + collectedAmount(b), 0);
 
   // Previous period (same length, immediately prior) for the trend
   // indicator — reuses periodRangeFor for daily/weekly/monthly/yearly;
@@ -971,7 +982,7 @@ export function DashboardView({
         const d = new Date(dayOf(new Date(b.date)));
         return d >= previousPeriodRange.start && d < previousPeriodRange.end;
       })
-      .reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0);
+      .reduce((s, b) => s + collectedAmount(b), 0);
   }, [earningsBookings, filteredUnits, previousPeriodRange]);
 
   const periodTrendPct =
@@ -1005,7 +1016,7 @@ export function DashboardView({
       const key = byDay ? dayOf(d) : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
       const bucket = buckets.get(key);
       if (bucket) {
-        bucket.amount += (b.paid ? b.amount : 0) + (b.dpAmount || 0);
+        bucket.amount += collectedAmount(b);
         bucket.count += 1;
       }
     }
@@ -1033,7 +1044,7 @@ export function DashboardView({
     ];
     const rows = groups.map((g) => {
       const pb = periodBookings.filter((b) => g.platforms.includes(b.platform));
-      const revenue = pb.reduce((s, b) => s + (b.paid ? b.amount : 0) + (b.dpAmount || 0), 0);
+      const revenue = pb.reduce((s, b) => s + collectedAmount(b), 0);
       const nights = pb.reduce((s, b) => s + nightsFor(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null), 0);
       return { platform: g.key, label: g.label, bookings: pb.length, nights, revenue };
     });
@@ -1377,7 +1388,7 @@ export function DashboardView({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {units.map((u) => {
             const st = unitStatus(u);
-            const earn = bookingsWeek.filter((b) => b.unitId === u.id).reduce((s, b) => s + b.amount + (b.dpAmount || 0), 0);
+            const earn = bookingsWeek.filter((b) => b.unitId === u.id && !b.refundedAt).reduce((s, b) => s + b.amount + (b.dpAmount || 0), 0);
             return (
               <div key={u.id} className="card overflow-hidden">
                 {u.photoUrl ? (
