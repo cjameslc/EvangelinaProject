@@ -28,7 +28,7 @@ type EmployeeLite = { id: string; name: string; role: string };
 type UnitLite = { id: string; name: string; shortName: string };
 type ExpenseRequestRow = {
   id: string; category: string; amount: number; note: string; date: string; status: string;
-  rejectionReason: string | null; unit: UnitLite | null;
+  rejectionReason: string | null; unit: UnitLite | null; receiptUrl: string | null;
 };
 type PendingRequestRow = ExpenseRequestRow & { employee: { id: string; name: string; role: string } };
 type FullEmployee = { id: string; name: string; role: string; monthlySalary: number; salaryType: SalaryType; salaryRate: number; active: boolean };
@@ -620,6 +620,11 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
   const [note, setNote] = useState("");
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Bumped after every successful submit to remount the file input — setting
+  // receiptUrl back to null alone clears our own state, but a browser file
+  // input keeps showing the previously chosen filename until the element
+  // itself is recreated (its `value` can't be cleared programmatically).
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   async function onReceiptChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -641,7 +646,8 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
     setSaving(false);
     if (!res.ok) { toast(j.error ?? "Couldn't submit request", true); return; }
     toast("Submitted for approval ✓");
-    setAmount(null); setNote(""); setReceiptUrl(null); setUnitId("");
+    setAmount(null); setNote(""); setReceiptUrl(null); setUnitId(""); setDate(new Date().toISOString().slice(0, 10));
+    setFileInputKey((k) => k + 1);
     onSubmitted();
   }
 
@@ -680,7 +686,7 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
         </div>
         <div>
           <label className="field-label">Receipt (optional)</label>
-          <input type="file" accept="image/*" onChange={onReceiptChange} className="field-input mt-1.5" />
+          <input key={fileInputKey} type="file" accept="image/*" onChange={onReceiptChange} className="field-input mt-1.5" />
         </div>
       </div>
       <div>
@@ -723,6 +729,11 @@ function MyExpenseRequestsList({ requests, onChanged, readOnly }: { requests: Ex
               <div className="mt-0.5 text-[11.5px] text-rausch">Reason: {r.rejectionReason}</div>
             )}
           </div>
+          {r.receiptUrl && (
+            <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="flex-none" title="View attached receipt">
+              <img src={r.receiptUrl} alt="Receipt" className="h-10 w-10 flex-none rounded-lg border border-[var(--line)] object-cover hover:opacity-80" />
+            </a>
+          )}
           {r.status === "PENDING" && !readOnly && (
             <button onClick={() => cancel(r.id)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Cancel">
               <TrashIcon className="h-4 w-4" />
@@ -792,6 +803,11 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
                 {r.employee.name} · {ROLE_LABEL[r.employee.role] ?? r.employee.role} · {fmtDate(r.date, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} · {r.note}
               </div>
             </div>
+            {r.receiptUrl && (
+              <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="flex-none" title="View attached receipt">
+                <img src={r.receiptUrl} alt="Receipt" className="h-12 w-12 flex-none rounded-lg border border-[var(--line)] object-cover hover:opacity-80" />
+              </a>
+            )}
             <div className="flex flex-none gap-1.5">
               <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="btn btn-sm">Approve</button>
               <button onClick={() => { setRejecting(r); setReason(""); }} disabled={busyId === r.id} className="btn-ghost btn-sm">Reject</button>

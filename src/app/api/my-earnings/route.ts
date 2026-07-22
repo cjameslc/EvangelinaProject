@@ -304,6 +304,7 @@ export async function GET(req: NextRequest) {
     expenseRequests: myExpenseRequests.map((r) => ({
       id: r.id, category: r.category, amount: r.amount, note: r.note, date: r.date.toISOString(), status: r.status,
       rejectionReason: r.rejectionReason, unit: r.unit ? { id: r.unit.id, name: r.unit.name, shortName: r.unit.shortName } : null,
+      receiptUrl: r.receiptUrl,
     })),
   });
 }
