@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { peso } from "@/lib/format";
+import { manilaTodayISO } from "@/lib/manilaTime";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; location: string; nightlyRate: number; photoUrl: string | null; rating: number };
 
@@ -145,6 +146,7 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
   const router = useRouter();
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
+  const today = manilaTodayISO();
 
   function search(e: React.FormEvent) {
     e.preventDefault();
@@ -177,7 +179,7 @@ export function GuestHomeView({ units }: { units: Unit[] }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="min-w-0">
                   <label htmlFor="home-checkin" className="field-label">Check-in</label>
-                  <input id="home-checkin" type="date" required value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className="field-input mt-1 w-full" />
+                  <input id="home-checkin" type="date" required min={today} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className="field-input mt-1 w-full" />
                 </div>
                 <div className="min-w-0">
                   <label htmlFor="home-checkout" className="field-label">Check-out</label>

@@ -40,6 +40,12 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
   // card and the PDF export.
   const totalAmount = booking.amount + (booking.dpAmount ?? 0);
   const discountAmount = (booking.originalAmount ?? 0) - totalAmount;
+  // "Confirmed" = the required payment step has actually been validated —
+  // fully paid, or (for a down-payment booking) the down payment itself is
+  // confirmed collected. Reserving with a down payment is a real, secured
+  // booking even though the remaining balance is still outstanding, so this
+  // is deliberately not the same thing as fully paid.
+  const isConfirmed = booking.paid || (booking.paymentType === "down_payment" && !!booking.dpAmount);
 
   async function cancel() {
     if (cancelling || !confirm("Cancel this booking? This can't be undone.")) return;
@@ -78,6 +84,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
   }
 
   async function downloadInvoice() {
+    if (!isConfirmed) return;
     const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const doc = new jsPDF();
     doc.setFont("helvetica", "bold");
@@ -105,7 +112,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         ["Total amount", peso(totalAmount)],
         ["Down payment received", booking.dpAmount ? peso(booking.dpAmount) : "—"],
         ["Balance", peso(booking.amount)],
-        ["Payment status", booking.paid ? "Paid" : "Pending"],
+        ["Payment status", booking.paid ? "Paid" : isConfirmed ? "Confirmed" : "Pending"],
         ["Booked on", fmtDate(booking.createdAt, { month: "short", day: "numeric", year: "numeric" })],
       ],
     });
@@ -162,7 +169,9 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
       <div className="card mt-3 p-4">
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Payment status</div>
-          <span className={booking.paid ? "text-[13px] font-extrabold text-green" : "text-[13px] font-extrabold text-amber"}>{booking.paid ? "Paid" : "Pending"}</span>
+          <span className={`text-[13px] font-extrabold ${booking.paid ? "text-green" : isConfirmed ? "text-teal" : "text-amber"}`}>
+            {booking.paid ? "Paid" : isConfirmed ? "Confirmed" : "Pending"}
+          </span>
         </div>
         {dpPending && (
           <p className="mt-1 text-[13px] font-semibold text-[var(--ink)]">
@@ -193,8 +202,12 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
 
       {error && <p className="mt-3 text-[13px] font-semibold text-rausch">{error}</p>}
 
-      <div className="mt-5 flex flex-wrap gap-2.5">
-        <button onClick={downloadInvoice} className="btn btn-sm">Download invoice</button>
+      <div className="mt-5 flex flex-wrap items-center gap-2.5">
+        {isConfirmed ? (
+          <button onClick={downloadInvoice} className="btn btn-sm">Download invoice</button>
+        ) : (
+          <span className="text-[12.5px] text-[var(--gray)]">Invoice available once your payment is confirmed.</span>
+        )}
         {cancellable && (
           <button onClick={cancel} disabled={cancelling} className="btn btn-sm text-rausch">
             {cancelling ? "Cancelling…" : "Cancel booking"}

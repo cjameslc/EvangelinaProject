@@ -20,3 +20,8 @@ export function isManilaWeekend(date: Date): boolean {
 export function manilaTodayISO(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
 }
+
+/** True if a YYYY-MM-DD date string is strictly before today in Asia/Manila — plain string comparison works since both sides are zero-padded ISO dates. */
+export function isPastManilaDate(dateStr: string): boolean {
+  return dateStr < manilaTodayISO();
+}

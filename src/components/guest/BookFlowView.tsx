@@ -7,6 +7,7 @@ import { peso } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { resizeImageForUpload } from "@/lib/imageResize";
 import { RateBreakdown } from "@/components/guest/RateBreakdown";
+import { manilaTodayISO } from "@/lib/manilaTime";
 import type { PriceQuote } from "@/lib/pricing/rates";
 
 type StayType = "Daycation" | "Night" | "Full";
@@ -20,8 +21,15 @@ function nextDay(dateStr: string): string {
 
 export function BookFlowView() {
   const searchParams = useSearchParams();
+  const today = manilaTodayISO();
   const [step, setStep] = useState<"search" | "select" | "details" | "payment" | "done">("search");
-  const [date, setDate] = useState(searchParams?.get("checkIn") ?? "");
+  // A stale bookmarked/shared link could carry a checkIn param that's
+  // already in the past — never seed the form with a date that's no longer
+  // selectable.
+  const [date, setDate] = useState(() => {
+    const c = searchParams?.get("checkIn") ?? "";
+    return c && c < today ? "" : c;
+  });
   const [checkOutDate, setCheckOutDate] = useState(searchParams?.get("checkOut") ?? "");
   const [stayType, setStayType] = useState<StayType>("Full");
   const [results, setResults] = useState<QuoteResult[]>([]);
@@ -226,7 +234,7 @@ export function BookFlowView() {
           <div className={`grid gap-3 ${stayType === "Daycation" ? "grid-cols-1" : "grid-cols-2"}`}>
             <div className="min-w-0">
               <label htmlFor="book-checkin" className="field-label">Check-in</label>
-              <input id="book-checkin" type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1 w-full" />
+              <input id="book-checkin" type="date" required min={today} value={date} onChange={(e) => setDate(e.target.value)} className="field-input mt-1 w-full" />
             </div>
             {stayType === "Night" && (
               <div className="min-w-0">

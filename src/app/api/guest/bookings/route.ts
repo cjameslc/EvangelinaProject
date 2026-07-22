@@ -6,6 +6,7 @@ import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
+import { isPastManilaDate } from "@/lib/manilaTime";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
   const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType } = body;
   if (typeof unitId !== "string" || !unitId || !isValidDateString(date) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "Missing or invalid unit, date, or stay type." }, { status: 400 });
+  }
+  if (isPastManilaDate(date)) {
+    return NextResponse.json({ error: "Check-in date can't be in the past." }, { status: 400 });
   }
   if (paymentType !== undefined && paymentType !== "full" && paymentType !== "down_payment") {
     return NextResponse.json({ error: "Invalid payment type." }, { status: 400 });

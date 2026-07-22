@@ -12,6 +12,15 @@ function statusOf(b: { date: string; checkOutDate: string | null; cancelledAt: s
   return "upcoming";
 }
 
+// Same rule as the booking detail page: a down-payment booking is a real,
+// secured reservation once its down payment is confirmed, even though the
+// remaining balance is still outstanding — not the same thing as "Paid."
+function paymentLabel(b: { paid: boolean; paymentType: string; dpAmount: number | null }) {
+  if (b.paid) return { text: "Paid", cls: "text-green" };
+  if (b.paymentType === "down_payment" && b.dpAmount) return { text: "Confirmed", cls: "text-teal" };
+  return { text: "Payment pending", cls: "text-amber" };
+}
+
 const STATUS_LABEL: Record<string, string> = { upcoming: "Upcoming", active: "Active", completed: "Completed", cancelled: "Cancelled" };
 const STATUS_COLOR: Record<string, string> = { upcoming: "text-rausch bg-rausch/10", active: "text-teal bg-teal/10", completed: "text-[var(--gray)] bg-[var(--bg-2)]", cancelled: "text-amber bg-amber/10" };
 
@@ -61,7 +70,7 @@ export default async function MyBookingsPage() {
                       {fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · {STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}
                     </div>
                     <div className="mt-2 flex items-center justify-between text-[13.5px]">
-                      <span className={b.paid ? "font-bold text-green" : "font-bold text-amber"}>{b.paid ? "Paid" : "Payment pending"}</span>
+                      <span className={`font-bold ${paymentLabel(b).cls}`}>{paymentLabel(b).text}</span>
                       <span className="font-extrabold">{peso(b.amount)}</span>
                     </div>
                   </Link>

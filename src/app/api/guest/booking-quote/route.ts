@@ -4,6 +4,7 @@ import { checkAvailabilityForUnits } from "@/lib/bookingEngine/availabilityServi
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
+import { isPastManilaDate } from "@/lib/manilaTime";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full"];
@@ -17,6 +18,9 @@ export async function GET(req: NextRequest) {
 
   if (!date || Number.isNaN(new Date(date).getTime()) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "date and a valid stayType are required." }, { status: 400 });
+  }
+  if (isPastManilaDate(date)) {
+    return NextResponse.json({ error: "Check-in date can't be in the past." }, { status: 400 });
   }
   if (checkOutDate && Number.isNaN(new Date(checkOutDate).getTime())) {
     return NextResponse.json({ error: "Invalid check-out date." }, { status: 400 });
