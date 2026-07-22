@@ -245,9 +245,19 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         .filter((b) => b.end >= firstIso && b.start <= lastIso)
         .sort((a, b) => a.start.localeCompare(b.start));
 
+      // Grouped by each block's own start day — deliberately NOT restricted to
+      // single-day (start===end) blocks: a Night stay's block always spans
+      // into its checkout day next-door (see calendarBlockEndDate — Night
+      // never returns a same-day end), so requiring start===end on both
+      // members here meant a Daycation+Night pair could never actually be
+      // detected and this whole split-lane path was silently dead code.
+      // Restricted to Daycation/Night — a Cleaning or Maintenance block
+      // dated the same day (there's often one, from housekeeping's own
+      // activity) would otherwise inflate the group past 2 members and
+      // silently defeat the isDayNightPair check below.
       const sameDayGroups = new Map<string, typeof unitBlocks>();
       for (const b of unitBlocks) {
-        if (b.start !== b.end) continue;
+        if (b.block.type !== "Daycation" && b.block.type !== "Night") continue;
         if (!sameDayGroups.has(b.start)) sameDayGroups.set(b.start, []);
         sameDayGroups.get(b.start)!.push(b);
       }
@@ -258,8 +268,14 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       for (const b of unitBlocks) {
         if (placed.has(b.block.id)) continue;
 
-        const group = b.start === b.end ? sameDayGroups.get(b.start) : undefined;
-        const isDayNightPair = group?.length === 2 && group.some((g) => g.block.type === "Daycation") && group.some((g) => g.block.type === "Night");
+        const group = sameDayGroups.get(b.start);
+        // The current block itself must be a Daycation/Night member of that
+        // pair — otherwise a Cleaning/Maintenance/Full block sharing the
+        // same start day (its own lookup still hits the same group) would
+        // wrongly re-trigger the pair-push on every one of its own turns
+        // through this loop, duplicating the pair's bars.
+        const isDayNightPair = (b.block.type === "Daycation" || b.block.type === "Night")
+          && group?.length === 2 && group.some((g) => g.block.type === "Daycation") && group.some((g) => g.block.type === "Night");
 
         let lane = laneEnds.findIndex((end) => end < b.start);
         if (lane === -1) { lane = laneEnds.length; laneEnds.push(b.end); }
@@ -274,8 +290,15 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         if (isDayNightPair) {
           const dayHalf = group!.find((g) => g.block.type === "Daycation")!;
           const nightHalf = group!.find((g) => g.block.type === "Night")!;
-          bars.push({ block: dayHalf.block, ...common, half: "top" });
-          bars.push({ block: nightHalf.block, ...common, half: "bottom" });
+          // Confine both halves to the single shared day, not the Night
+          // stay's full (start, checkout) span — the point of splitting the
+          // lane is to distinguish two events on the SAME day; stretching
+          // the night half into its checkout day (where there's no Daycation
+          // to pair against anymore) would just leave an orphaned half-bar.
+          const sharedIdx = dayIsos.indexOf(b.start);
+          const pairCommon = { startIdx: sharedIdx, span: 1, lane, isTrueStart: true, isTrueEnd: true };
+          bars.push({ block: dayHalf.block, ...pairCommon, half: "top" });
+          bars.push({ block: nightHalf.block, ...pairCommon, half: "bottom" });
           placed.add(dayHalf.block.id);
           placed.add(nightHalf.block.id);
         } else {
