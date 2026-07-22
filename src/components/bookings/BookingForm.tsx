@@ -93,7 +93,10 @@ export function BookingForm({
   defaultDpFee?: number;
   /** The booking being edited, if any — excluded from its own conflict check. */
   bookingId?: string;
-  onSubmit: (v: BookingFormValue) => Promise<void> | void;
+  /** Return `false` on failure — anything else (including void) counts as
+   * success. The form only resets its fields on success, so a failed save
+   * (network error, server rejection) never wipes out what staff typed. */
+  onSubmit: (v: BookingFormValue) => Promise<boolean | void> | boolean | void;
   onCancel?: () => void;
   submitLabel?: string;
   /** The logged-in user's own Employee id. When creating a brand-new
@@ -266,8 +269,12 @@ export function BookingForm({
     if (!validate()) return;
     setSaving(true);
     try {
-      await onSubmit(v);
-      setV(makeInitialValue());
+      const result = await onSubmit(v);
+      if (result !== false) {
+        setV(makeInitialValue());
+        setGuestInput("");
+        setCheckOutTouched(false);
+      }
     } finally {
       setSaving(false);
     }

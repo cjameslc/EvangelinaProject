@@ -113,15 +113,16 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       });
     } catch {
       toast("Couldn't reach the server — check your connection and try again.", true);
-      return;
+      return false;
     }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       toast(j.error ?? (res.status === 413 ? "That photo is too large — try a smaller one." : "Couldn't save booking"), true);
-      return;
+      return false;
     }
     toast("Booking added ✓");
     refresh();
+    return true;
   }
 
   async function updateBooking(id: string, v: BookingFormValue) {
@@ -134,16 +135,17 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       });
     } catch {
       toast("Couldn't reach the server — check your connection and try again.", true);
-      return;
+      return false;
     }
     if (!res.ok) {
       const j = await res.json().catch(() => null);
       toast(j?.error ?? (res.status === 413 ? "That photo is too large — try a smaller one." : "Couldn't update booking"), true);
-      return;
+      return false;
     }
     toast("Booking updated ✓");
     setEditing(null);
     refresh();
+    return true;
   }
 
   async function deleteBooking(id: string) {
