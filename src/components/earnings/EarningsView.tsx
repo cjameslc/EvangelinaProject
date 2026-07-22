@@ -79,6 +79,76 @@ type LeaderboardData =
   | { scope: "all"; leaderboard: LeaderboardRow[] }
   | { scope: "own"; rank: number | null; total: number; own: LeaderboardRow | null };
 
+/**
+ * Inline-editable "Base salary" figure on My Earnings — Owner/Co-owner only
+ * (the Team section further down can already do this, but it means
+ * scrolling past everything else; this lets an owner fix a number right
+ * where they're looking at it). Directly edits the monthly-equivalent
+ * value while preserving the employee's existing salaryType (DAILY/WEEKLY/
+ * MONTHLY) — reverses monthlySalaryFromRate to find the rate, in that same
+ * cadence, that produces the entered monthly figure, so adjusting this
+ * never silently switches someone's pay cadence as a side effect.
+ */
+function BaseSalaryStat({
+  employeeId, monthlySalary, salaryType, editable, onSaved,
+}: {
+  employeeId: string; monthlySalary: number; salaryType: string; editable: boolean; onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(monthlySalary));
+  const [saving, setSaving] = useState(false);
+
+  function startEdit() {
+    setVal(String(monthlySalary));
+    setEditing(true);
+  }
+
+  async function save() {
+    const n = Number(val.trim());
+    if (!val.trim() || Number.isNaN(n) || n < 0) { toast("Enter a valid amount", true); return; }
+    const rate =
+      salaryType === "DAILY" ? Math.round((n * 12) / 365) :
+      salaryType === "WEEKLY" ? Math.round((n * 12) / 52) :
+      n;
+    setSaving(true);
+    const res = await fetch(`/api/employees/${employeeId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ salaryType, salaryRate: rate }),
+    });
+    setSaving(false);
+    if (!res.ok) { toast("Couldn't update base salary", true); return; }
+    toast("Base salary updated ✓");
+    setEditing(false);
+    onSaved();
+  }
+
+  if (!editable) return <>{peso(monthlySalary)}</>;
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number" min={0} autoFocus value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+          className="w-24 rounded-lg border border-[var(--line-2)] bg-[var(--card)] px-2 py-1 text-[18px] font-extrabold text-[var(--ink)]"
+        />
+        <button onClick={save} disabled={saving} className="text-[11px] font-extrabold text-rausch disabled:opacity-50">{saving ? "…" : "Save"}</button>
+        <button onClick={() => setEditing(false)} disabled={saving} className="text-[11px] font-extrabold text-[var(--gray)]">Cancel</button>
+      </div>
+    );
+  }
+
+  return (
+    <button type="button" onClick={startEdit} className="group inline-flex items-center gap-1.5 text-left">
+      <span>{peso(monthlySalary)}</span>
+      <EditIcon className="h-3.5 w-3.5 text-[var(--gray)]/50 group-hover:text-rausch" />
+    </button>
+  );
+}
+
 export function EarningsView({
   role, isAdminViewer, ownEmployeeId, employees,
 }: {
@@ -296,7 +366,19 @@ export function EarningsView({
         <StatCard label="Upcoming payroll date" value={fmtDate(data.upcomingPayrollDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} />
         <StatCard label="Gross salary" value={peso(data.grossThisMonth)} sub="this month" />
         <StatCard label="Net salary" value={peso(data.netThisMonth)} sub="this month" />
-        <StatCard label="Base salary" value={peso(data.employee.monthlySalary)} sub="monthly equivalent" />
+        <StatCard
+          label="Base salary"
+          value={
+            <BaseSalaryStat
+              employeeId={data.employee.id}
+              monthlySalary={data.employee.monthlySalary}
+              salaryType={data.employee.salaryType}
+              editable={isAdminViewer && !isOwnerSummary}
+              onSaved={load}
+            />
+          }
+          sub="monthly equivalent"
+        />
         <StatCard label="Commission/incentives" value={peso(data.thisWeek.total)} sub="activity this week" />
         <StatCard label="Bonuses" value={peso(data.bonusAwards.reduce((s, a) => s + a.amount, 0))} sub="lifetime, all units" />
         <StatCard label="Lifetime earnings" value={peso(data.lifetimeEarnings)} sub="estimated, all-time" />

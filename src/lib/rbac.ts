@@ -42,6 +42,10 @@ export function canEditSpecificBooking(role: Role, bookingBookerId: string | nul
 export function canEditHousekeeping(role: Role) {
   return role === "OWNER_ADMIN" || role === "HOUSEKEEPING";
 }
+/** Narrower than canEditHousekeeping: Housekeeping can adjust an existing supply's count (and used to be able to add/remove new supply items entirely), but adding brand-new stock items is now Admin-only — new items get added centrally via Admin > Supplies. */
+export function canAddHousekeepingStock(role: Role) {
+  return role === "OWNER_ADMIN";
+}
 /** Auditor + Housekeeping never write financial records — read-only there. */
 export function isReadOnlyFinancials(role: Role) {
   return role === "AUDITOR" || role === "HOUSEKEEPING";

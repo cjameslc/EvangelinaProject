@@ -12,12 +12,18 @@ type Unit = { id: string; name: string; shortName: string };
 type Stock = { id: string; unitId: string; name: string; count: number };
 
 export function StockPanel({
-  units, stocks, canEdit, canDelete = canEdit, onChanged,
+  units, stocks, canEdit, canAdd = canEdit, canDelete = canEdit, onChanged,
 }: {
-  units: Unit[]; stocks: Stock[]; canEdit: boolean;
-  /** Separate from canEdit — Housekeeping can adjust quantities and add
-   * items, but removing a supply item entirely is Admin-only, regardless of
-   * who's viewing this same panel from the Housekeeping page. */
+  units: Unit[]; stocks: Stock[];
+  /** Adjusting an existing item's quantity (+/-). */
+  canEdit: boolean;
+  /** Separate from canEdit — Housekeeping can adjust quantities but adding
+   * a brand-new stock item is Admin-only (added centrally via Admin >
+   * Supplies), regardless of who's viewing this same panel from the
+   * Housekeeping page. */
+  canAdd?: boolean;
+  /** Separate from canEdit — removing a supply item entirely is Admin-only,
+   * regardless of who's viewing this same panel from the Housekeeping page. */
   canDelete?: boolean;
   onChanged: () => void;
 }) {
@@ -45,7 +51,7 @@ export function StockPanel({
 
   return (
     <div className="space-y-3">
-      {canEdit && units.length > 1 && (
+      {canAdd && units.length > 1 && (
         <button onClick={() => setBulkAdding(true)} className="btn btn-sm">
           <PlusIcon className="h-3.5 w-3.5" /> Add supply to multiple units
         </button>
@@ -87,7 +93,7 @@ export function StockPanel({
                     )}
                   </div>
                 ))}
-                {canEdit && (
+                {canAdd && (
                   <div className="mt-2 flex gap-2">
                     <input value={newItem[u.id] ?? ""} onChange={(e) => setNewItem((s) => ({ ...s, [u.id]: e.target.value }))} placeholder="Add a supply item…" className="field-input flex-1" onKeyDown={(e) => e.key === "Enter" && addItem(u.id)} />
                     <EmojiPickerButton onSelect={(emoji) => setNewItem((s) => ({ ...s, [u.id]: (s[u.id] ?? "") + emoji }))} />

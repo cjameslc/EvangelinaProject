@@ -8,7 +8,7 @@ import { ChevronDownIcon } from "@/components/ui/Icons";
 import { fmtDate, fmtTime, fmtTimeStr, unitLabel } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
-import { canEditHousekeeping } from "@/lib/rbac";
+import { canEditHousekeeping, canAddHousekeepingStock } from "@/lib/rbac";
 import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
@@ -63,6 +63,7 @@ export function HousekeepingView({
   const [showLogs, setShowLogs] = useState(true);
   const [scheduleTab, setScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   const canEdit = canEditHousekeeping(role as any);
+  const canAddStock = canAddHousekeepingStock(role as any);
   const userName = session?.user?.name ?? "";
   // Clocking in/out is a Housekeeping-only action — Owner/Admin can still
   // edit rooms/checklists/supplies (that's what canEdit above gates), but
@@ -408,7 +409,7 @@ export function HousekeepingView({
       </Accordion>
 
       <Accordion title="Supplies & stocks" sub="set the count per unit">
-        <StockPanel units={units} stocks={stocks} canEdit={canEdit} canDelete={false} onChanged={refreshStocks} />
+        <StockPanel units={units} stocks={stocks} canEdit={canEdit} canAdd={canAddStock} canDelete={false} onChanged={refreshStocks} />
       </Accordion>
 
       <Accordion title="💳 Bills tracker" sub="association dues, utilities & subscriptions">
