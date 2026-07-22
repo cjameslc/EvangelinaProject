@@ -11,6 +11,7 @@ import { netProfitCentavos, paidExpensesCentavos, cashFlowCentavos, pendingExpen
 import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot } from "@/lib/analytics/housekeeping";
 import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
+import { unitPerformance, bestWorstUnits, type UnitPerformanceRow } from "@/lib/analytics/units";
 
 export type AnalyticsFilters = {
   preset: AnalyticsPeriodPreset;
@@ -649,4 +650,61 @@ export async function getStaffAnalytics(user: { role: string; ownedUnitIds: stri
     rows,
     bookings: bookings.map((b: any) => ({ id: b.id, date: b.date, stayType: b.stayType, bookerId: b.bookerId, cleanerId: b.cleanerId })),
   };
+}
+
+async function fetchUnitPerformanceData(
+  role: string,
+  ownedUnitIds: string[],
+  preset: AnalyticsPeriodPreset,
+  customStart: string,
+  customEnd: string,
+  filterUnitIdsJoined: string
+) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+  const billUnitWhere = effective ? { unitId: { in: effective } } : {};
+
+  const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
+
+  const [units, bookings, bills, blocks] = await Promise.all([
+    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, rating: true } }),
+    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true } }),
+    prismaPool[2].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { unitId: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
+    prismaPool[3].calendarBlock.findMany({
+      where: { ...bookingUnitWhere, type: { in: ["Maintenance", "Cleaning"] }, date: { lt: current.end }, OR: [{ endDate: null }, { endDate: { gt: current.start } }] },
+      select: { unitId: true, type: true, date: true, endDate: true },
+    }),
+  ]);
+  return JSON.parse(JSON.stringify({ units, bookings, bills, blocks }));
+}
+
+const cachedFetchUnitPerformanceData = unstable_cache(fetchUnitPerformanceData, ["analytics-units"], { revalidate: 60 });
+
+export type UnitPerformanceAnalytics = {
+  rows: UnitPerformanceRow[];
+  best: UnitPerformanceRow | null;
+  worst: UnitPerformanceRow | null;
+};
+
+export async function getUnitPerformance(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<UnitPerformanceAnalytics> {
+  const data = await cachedFetchUnitPerformanceData(
+    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+  );
+  const { units, bookings, bills, blocks } = data;
+  const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
+
+  const rows = unitPerformance(
+    units.map((u: any) => ({ id: u.id, name: u.shortName, rating: u.rating })),
+    bookings,
+    bills,
+    blocks.filter((b: any) => b.type === "Maintenance"),
+    blocks.filter((b: any) => b.type === "Cleaning"),
+    new Date(current.start),
+    new Date(current.end)
+  );
+  const { best, worst } = bestWorstUnits(rows, "revenueCentavos");
+  return { rows, best, worst };
 }

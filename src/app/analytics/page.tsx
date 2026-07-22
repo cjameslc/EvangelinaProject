@@ -13,6 +13,7 @@ import { OccupancySection } from "@/components/analytics/sections/OccupancySecti
 import { GuestSection } from "@/components/analytics/sections/GuestSection";
 import { HousekeepingSection } from "@/components/analytics/sections/HousekeepingSection";
 import { StaffSection } from "@/components/analytics/sections/StaffSection";
+import { UnitPerformanceSection } from "@/components/analytics/sections/UnitPerformanceSection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -91,6 +92,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
           <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`units-${JSON.stringify(filters)}`}>
+          <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
       </div>
     </div>
