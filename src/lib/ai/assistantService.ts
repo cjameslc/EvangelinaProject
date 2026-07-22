@@ -1,5 +1,5 @@
 import { askGemini } from "@/lib/ai/geminiClient";
-import { buildAssistantContext } from "@/lib/ai/assistantContext";
+import { getCachedAssistantContext } from "@/lib/ai/assistantContext";
 
 const SYSTEM_PROMPT_TEMPLATE = (contextJson: string, signedIn: boolean) => `You are the guest-facing assistant for Evangelina's Staycation, a 5-unit short-term rental business in Cubao, Araneta City, Quezon City, Philippines.
 
@@ -17,7 +17,7 @@ Hard rules:
 - If you cannot actually resolve the question from the data given, end your reply with exactly this line on its own: [ESCALATE]`;
 
 export async function askAssistant(guestId: string | null, message: string): Promise<{ reply: string; escalate: boolean }> {
-  const context = await buildAssistantContext(guestId);
+  const context = await getCachedAssistantContext(guestId);
   const systemPrompt = SYSTEM_PROMPT_TEMPLATE(JSON.stringify(context), !!guestId);
   const raw = await askGemini(systemPrompt, message);
   const escalate = raw.includes("[ESCALATE]");
