@@ -41,6 +41,7 @@ const config: Config = {
         shimmer: { "0%": { backgroundPosition: "-200% 0" }, "100%": { backgroundPosition: "200% 0" } },
         "glow-pulse": { "0%, 100%": { boxShadow: "0 0 0 0 rgba(255,56,92,.45)" }, "50%": { boxShadow: "0 0 0 8px rgba(255,56,92,0)" } },
         float: { "0%, 100%": { transform: "translateY(0)" }, "50%": { transform: "translateY(-4px)" } },
+        "fade-up": { from: { opacity: "0", transform: "translateY(28px)" }, to: { opacity: "1", transform: "translateY(0)" } },
       },
       animation: {
         "toast-in": "toast-in .25s ease forwards",
@@ -48,6 +49,7 @@ const config: Config = {
         shimmer: "shimmer 2.5s linear infinite",
         "glow-pulse": "glow-pulse 1.8s ease-out infinite",
         float: "float 2.4s ease-in-out infinite",
+        "fade-up": "fade-up .7s cubic-bezier(.16,1,.3,1) forwards",
       },
     },
   },
