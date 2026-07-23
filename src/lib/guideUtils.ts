@@ -11,6 +11,23 @@ export function wazeUrl(place: string, context = "Cubao, Quezon City"): string {
   return `https://waze.com/ul?q=${encodeURIComponent(`${place}, ${context}`)}&navigate=yes`;
 }
 
+/** Turn-by-turn directions from the property to a specific place. Uses
+ * real coordinates when both ends have them (a precise route, not a name
+ * search Maps has to resolve itself); falls back to a named-destination
+ * search when coordinates are missing so the button still works. */
+export function directionsUrl(
+  destination: { lat: number; lng: number } | string,
+  origin?: { lat: number; lng: number } | null,
+  mode: "walking" | "driving" = "walking"
+): string {
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("destination", typeof destination === "string" ? destination : `${destination.lat},${destination.lng}`);
+  if (origin) url.searchParams.set("origin", `${origin.lat},${origin.lng}`);
+  url.searchParams.set("travelmode", mode);
+  return url.toString();
+}
+
 /** Grab has no public place-specific deep link without merchant/geo IDs this
  * app doesn't have — links to the Grab PH site, which app-banners into the
  * installed app on mobile rather than risking a broken custom URI scheme. */

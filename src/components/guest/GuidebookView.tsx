@@ -34,6 +34,8 @@ type Guidebook = {
   hostBio: string | null;
   team: TeamMember[];
   placeInsights?: Record<string, PlaceInsightData>;
+  propertyLat?: number | null;
+  propertyLng?: number | null;
 };
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation instead of
@@ -290,7 +292,11 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
       </div>
 
       <div className="mt-5">
-        <NearbyPlacesSection categories={guidebook.categories} insights={guidebook.placeInsights} />
+        <NearbyPlacesSection
+          categories={guidebook.categories}
+          insights={guidebook.placeInsights}
+          origin={guidebook.propertyLat != null && guidebook.propertyLng != null ? { lat: guidebook.propertyLat, lng: guidebook.propertyLng } : null}
+        />
       </div>
 
       <div className="mt-3">

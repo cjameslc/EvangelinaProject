@@ -12,6 +12,12 @@ const config: Config = {
         amber: "#C87D00",
         teal: "#0B7C74",
         blue: "#3B71E8",
+        // Guidebook/Nearby hero + card accents only — the app's primary
+        // interactive color stays rausch everywhere (buttons, links, nav)
+        // for consistency; these are warm-hospitality gradient accents,
+        // not a site-wide rebrand.
+        navy: "#0B1E3D",
+        gold: "#C9A24B",
         fb: "#1877F2",
         gcash: "#007DFE",
         tiktok: "#111111",

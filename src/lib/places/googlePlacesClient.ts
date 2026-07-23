@@ -27,6 +27,7 @@ export type PlaceLookupResult = {
   priceLevel: number | null;
   phoneNumber: string | null;
   website: string | null;
+  photoReference: string | null;
   walkMinutes: number | null;
   driveMinutes: number | null;
   error: string | null;
@@ -35,7 +36,7 @@ export type PlaceLookupResult = {
 const EMPTY_RESULT: Omit<PlaceLookupResult, "error"> = {
   placeId: null, lat: null, lng: null, rating: null, ratingCount: null,
   openingHoursText: null, openNow: null, summary: null, businessStatus: null,
-  priceLevel: null, phoneNumber: null, website: null, walkMinutes: null, driveMinutes: null,
+  priceLevel: null, phoneNumber: null, website: null, photoReference: null, walkMinutes: null, driveMinutes: null,
 };
 
 async function findPlaceId(query: string, apiKey: string): Promise<{ placeId: string | null; error: string | null }> {
@@ -60,7 +61,7 @@ async function getPlaceDetails(placeId: string, apiKey: string): Promise<{ resul
   url.searchParams.set("place_id", placeId);
   url.searchParams.set(
     "fields",
-    "geometry,opening_hours,rating,user_ratings_total,editorial_summary,business_status,price_level,formatted_phone_number,website"
+    "geometry,opening_hours,rating,user_ratings_total,editorial_summary,business_status,price_level,formatted_phone_number,website,photos"
   );
   url.searchParams.set("language", "en");
   url.searchParams.set("key", apiKey);
@@ -142,6 +143,7 @@ export async function lookupPlace(
       priceLevel: result.price_level ?? null,
       phoneNumber: result.formatted_phone_number ?? null,
       website: result.website ?? null,
+      photoReference: result.photos?.[0]?.photo_reference ?? null,
       walkMinutes, driveMinutes,
       error: null,
     };

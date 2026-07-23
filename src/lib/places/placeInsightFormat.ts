@@ -9,6 +9,14 @@ export function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km away`;
 }
 
+/** The real featured photo for a place, proxied through /api/places/photo
+ * so the server-only Places key never reaches the browser (see that
+ * route). Null in, null out — never a stock/placeholder image URL. */
+export function placePhotoUrl(photoReference: string | null | undefined, width = 800): string | null {
+  if (!photoReference) return null;
+  return `/api/places/photo?ref=${encodeURIComponent(photoReference)}&w=${width}`;
+}
+
 /** Picks today's line out of Google's weekday_text (requested with
  * language=en, so this is a reliable "Monday:"-style prefix match) —
  * evaluated on the Asia/Manila calendar day, same convention as the rest

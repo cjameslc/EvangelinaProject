@@ -816,6 +816,11 @@ model PlaceInsight {
   priceLevel   Int?    // Google's 0 (free) - 4 (very expensive) scale, when it has one
   phoneNumber  String?
   website      String?
+  // Google's own photo_reference for this place's first listed photo (not
+  // the image itself — see /api/places/photo, which fetches the actual
+  // bytes server-side per request using the server-only Places key, so
+  // that key never reaches the browser). Null if Google has no photo.
+  photoReference String?
   // A short, host-voiced blurb generated once per refresh (Gemini),
   // strictly grounded in this row's own real fields (name, category,
   // distance, rating, Google's summary) — never a claim this data doesn't

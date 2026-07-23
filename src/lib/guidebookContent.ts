@@ -105,6 +105,24 @@ export const SMART_RECOMMENDATIONS: { key: string; label: string; icon: string; 
   { key: "couple", label: "Here as a couple", icon: "💑", categoryKeys: ["coffee", "restaurants", "entertainment", "attractions"] },
   { key: "concert", label: "Here for a concert", icon: "🎤", categoryKeys: ["attractions", "fastfood", "convenience", "transportation"] },
   { key: "business", label: "Business trip", icon: "💼", categoryKeys: ["coffee", "business", "essentials", "banks"] },
+  { key: "nightlife", label: "Nightlife & evenings", icon: "🌃", categoryKeys: ["entertainment", "restaurants", "fastfood"] },
+  { key: "work", label: "Working remotely", icon: "💻", categoryKeys: ["coffee", "business", "essentials"] },
+  { key: "photo", label: "Photo-worthy spots", icon: "📸", categoryKeys: ["attractions", "parks"] },
+  { key: "latenight", label: "Late-night food", icon: "🍜", categoryKeys: ["fastfood", "convenience"] },
+];
+
+/** Hospitality quick-tips — each just jumps to a real existing category
+ * below (via a search-term match against that category's label), never a
+ * specific "hidden gem" place this app has no real data to back up. */
+export const GUEST_TIPS: { icon: string; label: string; blurb: string; searchTerm: string }[] = [
+  { icon: "🥐", label: "Best breakfast nearby", blurb: "Quick options for your first morning.", searchTerm: "fast food" },
+  { icon: "🛒", label: "Grocery before check-in", blurb: "Stock up on snacks and drinks for the room.", searchTerm: "grocery" },
+  { icon: "🌙", label: "Late-night food", blurb: "Look for the 24-hour badge below.", searchTerm: "fast food" },
+  { icon: "🏧", label: "Nearest ATM", blurb: "Several banks within a short walk.", searchTerm: "bank" },
+  { icon: "💊", label: "Nearest pharmacy", blurb: "Mercury Drug, Watsons, and more nearby.", searchTerm: "pharmac" },
+  { icon: "🏥", label: "Emergency hospital", blurb: "Good to know before you need it.", searchTerm: "hospital" },
+  { icon: "🎤", label: "After a Smart Araneta concert", blurb: "Grab a late bite on the way back.", searchTerm: "fast food" },
+  { icon: "📸", label: "Photo-worthy spots", blurb: "Parks and landmarks worth a visit.", searchTerm: "attraction" },
 ];
 
 /** Suggested opening questions for the AI Concierge quick-start chips. */

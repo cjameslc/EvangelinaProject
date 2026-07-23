@@ -98,3 +98,14 @@ body {
 @keyframes guide-view-in {
   from { opacity: 0; transform: scale(1.015); }
 }
+
+/* Horizontally-scrolling chip rows (Smart Recommendations, category
+   shortcuts) — the scroll itself is the affordance, a visible scrollbar
+   just adds clutter. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

@@ -32,6 +32,8 @@ export type GuidebookSettings = {
   weekendRate12h: number;
   weekendRate21h: number;
   weekdayNightPromoPct: number;
+  propertyLat: number | null;
+  propertyLng: number | null;
 };
 
 type CachedCore = Omit<GuidebookSettings, "hostPhotoUrl" | "team"> & { team: Omit<TeamMember, "avatarUrl">[] };
@@ -81,6 +83,8 @@ export const getCachedGuidebookCore = unstable_cache(
       weekendRate12h: settings.weekendRate12h,
       weekendRate21h: settings.weekendRate21h,
       weekdayNightPromoPct: settings.weekdayNightPromoPct,
+      propertyLat: settings.propertyLat,
+      propertyLng: settings.propertyLng,
     };
   },
   ["guidebook-core"],

@@ -40,6 +40,7 @@ export async function refreshPlaceInsight(category: string, categoryLabel: strin
     summary: result.summary, businessStatus: result.businessStatus,
     walkMinutes: result.walkMinutes, driveMinutes: result.driveMinutes,
     priceLevel: result.priceLevel, phoneNumber: result.phoneNumber, website: result.website,
+    photoReference: result.photoReference,
     hostOverview, fetchError: result.error,
   };
 
