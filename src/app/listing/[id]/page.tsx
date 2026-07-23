@@ -1,14 +1,15 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import { peso } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
+import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
 
 export default async function ListingPage({ params }: { params: { id: string } }) {
-  const unit = await prisma.unit.findUnique({
-    where: { id: params.id, active: true },
-    select: { id: true, name: true, shortName: true, unitNumber: true, location: true, nightlyRate: true, photoUrl: true, rating: true },
-  });
+  // Same cached list the home page and booking-quote already use — a
+  // second DB round trip here for one row wasn't buying anything the
+  // shared cache doesn't already have warm.
+  const units = await getCachedActiveUnits();
+  const unit = units.find((u) => u.id === params.id);
   if (!unit) notFound();
 
   return (

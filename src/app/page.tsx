@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
 import { getViewMode } from "@/lib/viewMode";
+import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
+import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuestHomeView } from "@/components/guest/GuestHomeView";
 
 export default async function Home() {
@@ -21,12 +22,11 @@ export default async function Home() {
   // No staff session (or a staff session in Travel Mode) — render the
   // public Airbnb-inspired homepage instead of forcing a login
   // (middleware.ts's authorized callback special-cases "/" to make this
-  // reachable unauthenticated).
-  const units = await prisma.unit.findMany({
-    where: { active: true },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, name: true, shortName: true, unitNumber: true, location: true, nightlyRate: true, photoUrl: true, rating: true },
-  });
+  // reachable unauthenticated). Also the page a staff member's own Travel
+  // Mode toggle shows them — so it doubles as a lightweight Guest
+  // Experience preview for someone actually out and about, not just a
+  // marketing page for prospective guests.
+  const [units, guidebook] = await Promise.all([getCachedActiveUnits(), getGuidebookSettings()]);
 
-  return <GuestHomeView units={JSON.parse(JSON.stringify(units))} />;
+  return <GuestHomeView units={units} guidebook={guidebook} />;
 }

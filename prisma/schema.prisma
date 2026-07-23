@@ -462,6 +462,11 @@ model Booking {
   // [date] indexes above.
   @@index([bookerId])
   @@index([cleanerId])
+  // Every Guest Portal booking list/detail lookup (getGuestBookings,
+  // getGuestBookingForGuide, cancel/payment-proof/request ownership
+  // checks) filters directly on this — same gap as bookerId/cleanerId
+  // above, just never indexed when guestId was added.
+  @@index([guestId])
   @@map("bookings")
 }
 

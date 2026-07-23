@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { checkAvailabilityForUnits } from "@/lib/bookingEngine/availabilityService";
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
+import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
 import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
@@ -32,14 +32,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "A Flexible stay needs both a check-in and check-out time." }, { status: 400 });
   }
 
-  const [units, settings] = await Promise.all([
-    prisma.unit.findMany({
-      where: { active: true },
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, shortName: true, unitNumber: true, photoUrl: true },
-    }),
-    getCachedBookingSettings(),
-  ]);
+  const [units, settings] = await Promise.all([getCachedActiveUnits(), getCachedBookingSettings()]);
 
   // Never trust a client-supplied checkOutDate for a Night stay — always
   // exactly one night. Full stay may span more; Daycation never has one.
