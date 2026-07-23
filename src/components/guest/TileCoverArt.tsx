@@ -9,7 +9,19 @@ import type { TileArt } from "@/lib/guideNav";
  * this renders identically on the server and after hydration — no
  * Math.random() here.
  */
-export function TileCoverArt({ icon, art, patternCount = 9 }: { icon: string; art: TileArt; patternCount?: number }) {
+export function TileCoverArt({
+  icon,
+  art,
+  patternCount = 9,
+  size = "lg",
+}: {
+  icon: string;
+  art: TileArt;
+  patternCount?: number;
+  /** "sm" = the dense hub-grid tile (badge starts tiny on a phone, grows
+   * with the tile at sm+); "lg" = a page header banner, always full size. */
+  size?: "sm" | "lg";
+}) {
   return (
     <div
       className="absolute inset-0 overflow-hidden"
@@ -34,7 +46,13 @@ export function TileCoverArt({ icon, art, patternCount = 9 }: { icon: string; ar
       {/* Soft vignette, same treatment as the photo tiles' bottom gradient — keeps the badge/icon legible. */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_100%_at_50%_20%,rgba(255,255,255,.14),transparent_60%)]" />
       <div className="absolute inset-0 grid place-items-center">
-        <div className="grid h-16 w-16 place-items-center rounded-full bg-white/15 text-[30px] shadow-lg ring-1 ring-white/25 backdrop-blur-sm">
+        <div
+          className={
+            size === "sm"
+              ? "grid h-6 w-6 place-items-center rounded-full bg-white/15 text-[11px] shadow-lg ring-1 ring-white/25 backdrop-blur-sm sm:h-12 sm:w-12 sm:text-[22px]"
+              : "grid h-16 w-16 place-items-center rounded-full bg-white/15 text-[30px] shadow-lg ring-1 ring-white/25 backdrop-blur-sm"
+          }
+        >
           {icon}
         </div>
       </div>

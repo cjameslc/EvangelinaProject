@@ -5,34 +5,37 @@ import { TransitionLink } from "@/components/guest/TransitionLink";
 /**
  * The default landing page: an image-first tile grid grouped into scannable
  * sections, completely independent of the Booking module (see BookFlowView
- * for the separate booking flow). 4-col desktop / 2-col tablet / 1-col
- * mobile per the spec. Tiles use TransitionLink so opening one animates
+ * for the separate booking flow). Deliberately dense — 4 tiles per row even
+ * on a phone (compact square tiles, subtitle hidden below the icon+title
+ * fits), scaling up to 5/6 per row on tablet/desktop with more breathing
+ * room and the subtitle restored, rather than just shrinking the same
+ * large photo card. Tiles use TransitionLink so opening one animates
  * smoothly (same window, no new tab) instead of an abrupt page swap.
  */
 export function GuideHubView({ hostName }: { hostName: string | null }) {
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 sm:py-14">
-      <div className="mb-8 text-center sm:mb-10">
+    <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14">
+      <div className="mb-6 text-center sm:mb-10">
         <div className="text-[11px] font-bold uppercase tracking-wide text-rausch">Digital Guidebook</div>
-        <h1 className="mt-1 text-[30px] font-extrabold tracking-tight sm:text-[38px]">
+        <h1 className="mt-1 text-[24px] font-extrabold tracking-tight sm:text-[38px]">
           Welcome to Evangelina&apos;s Staycation
         </h1>
-        <p className="mx-auto mt-2 max-w-[560px] text-[14.5px] leading-relaxed text-[var(--gray)]">
+        <p className="mx-auto mt-2 max-w-[560px] text-[13px] leading-relaxed text-[var(--gray)] sm:text-[14.5px]">
           Everything you need for your stay in one place{hostName ? ` — hosted by ${hostName}` : ""}. Browse below, or{" "}
           <TransitionLink href="/book" className="font-bold text-rausch hover:underline">book a unit</TransitionLink>.
         </p>
       </div>
 
-      <div className="space-y-9">
+      <div className="space-y-6 sm:space-y-9">
         {GUIDE_SECTIONS.map((section) => (
           <div key={section.label}>
-            <h2 className="mb-3.5 text-[13px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{section.label}</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <h2 className="mb-2.5 text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)] sm:mb-3.5 sm:text-[13px]">{section.label}</h2>
+            <div className="grid grid-cols-4 gap-2 sm:gap-3 md:grid-cols-5 lg:grid-cols-6 lg:gap-4">
               {section.tiles.map((tile) => (
                 <TransitionLink
                   key={tile.key}
                   href={tile.href}
-                  className="group relative flex aspect-[4/5] flex-col justify-end overflow-hidden rounded-2xl bg-[var(--bg-2)] shadow-s transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(0,0,0,.22)] active:scale-[0.97] active:duration-100"
+                  className="group relative flex aspect-square flex-col justify-end overflow-hidden rounded-xl bg-[var(--bg-2)] shadow-s transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(0,0,0,.22)] active:scale-[0.96] active:duration-100 sm:aspect-[4/5] sm:rounded-2xl"
                 >
                   {tile.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -43,14 +46,14 @@ export function GuideHubView({ hostName }: { hostName: string | null }) {
                     />
                   ) : tile.art ? (
                     <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-110">
-                      <TileCoverArt icon={tile.icon} art={tile.art} />
+                      <TileCoverArt icon={tile.icon} art={tile.art} size="sm" />
                     </div>
                   ) : null}
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-                  <div className="relative z-10 p-4">
-                    <div className="text-[24px] leading-none drop-shadow">{tile.icon}</div>
-                    <div className="mt-1.5 text-[15px] font-extrabold leading-tight text-white drop-shadow">{tile.title}</div>
-                    <div className="mt-0.5 text-[11.5px] leading-snug text-white/85 drop-shadow">{tile.subtitle}</div>
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent" />
+                  <div className="relative z-10 p-1.5 sm:p-3 md:p-3.5">
+                    <div className="text-[13px] leading-none drop-shadow sm:text-[20px] md:text-[24px]">{tile.icon}</div>
+                    <div className="mt-1 line-clamp-2 text-[9px] font-extrabold leading-tight text-white drop-shadow sm:mt-1.5 sm:text-[13px] md:text-[15px]">{tile.title}</div>
+                    <div className="mt-0.5 hidden text-[11px] leading-snug text-white/85 drop-shadow sm:block md:text-[11.5px]">{tile.subtitle}</div>
                   </div>
                 </TransitionLink>
               ))}
