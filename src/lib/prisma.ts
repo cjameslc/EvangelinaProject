@@ -99,6 +99,10 @@ function makePrismaClient() {
         auditLog: {
           create: ({ args, query }) => { stringifyField(args.data as any, "meta"); return query(args); },
         },
+        feedbackResponse: {
+          create: ({ args, query }) => { stringifyField(args.data as any, "likedTags"); return query(args); },
+          update: ({ args, query }) => { stringifyField(args.data as any, "likedTags"); return query(args); },
+        },
       },
     })
     .$extends({
@@ -164,6 +168,12 @@ function makePrismaClient() {
           meta: {
             needs: { meta: true },
             compute: (row): unknown => (row.meta == null ? null : parseJson(row.meta, null)),
+          },
+        },
+        feedbackResponse: {
+          likedTags: {
+            needs: { likedTags: true },
+            compute: (row): string[] => parseJson(row.likedTags, []),
           },
         },
       },

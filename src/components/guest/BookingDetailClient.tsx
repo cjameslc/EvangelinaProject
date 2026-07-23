@@ -150,6 +150,16 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         </div>
       )}
 
+      {completed && (
+        <a href={`/guide/feedback/${booking.id}`} className="card mt-3 flex items-center justify-between gap-2 p-4 transition hover:bg-[var(--bg-2)]">
+          <div>
+            <div className="text-[13.5px] font-extrabold">⭐ Rate your stay</div>
+            <div className="text-[12px] text-[var(--gray)]">Takes under a minute — unlock a reward.</div>
+          </div>
+          <span className="text-[18px] text-[var(--gray)]">›</span>
+        </a>
+      )}
+
       <div className="card mt-3 grid grid-cols-2 gap-4 p-5 text-[13.5px]">
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Booking ID</div><div className="font-extrabold">{booking.id.slice(-8)}</div></div>
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Stay type</div><div className="font-extrabold">{STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType}</div></div>

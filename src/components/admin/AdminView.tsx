@@ -8,6 +8,7 @@ import { SettingsTab } from "./SettingsTab";
 import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
 import { CouponsTab } from "./CouponsTab";
+import { FeedbackTab } from "./FeedbackTab";
 import { BillsPanel } from "@/components/housekeeping/BillsPanel";
 import { StockPanel } from "@/components/housekeeping/StockPanel";
 import { Pill } from "@/components/ui/Pill";
@@ -27,14 +28,16 @@ import { cn } from "@/lib/utils";
 // itself uses); Housekeeping checklist + Login logs are folded into
 // "Settings" as collapsible sections, since the checklist already lives on
 // the same Settings record. Units and Users & roles are untouched.
-const TABS = ["Units", "Users & roles", "Operations", "Settings"] as const;
+const TABS = ["Units", "Users & roles", "Operations", "Feedback", "Settings"] as const;
 
 export function AdminView({
   units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs,
   bills: initialBills, stocks: initialStocks, coupons: initialCoupons,
+  feedback, feedbackAnalytics,
 }: {
   units: any[]; users: any[]; settings: any; loginLogs: any[];
   bills: any[]; stocks: any[]; coupons: any[];
+  feedback: any[]; feedbackAnalytics: any;
 }) {
   const searchParams = useSearchParams();
   const initialTab = TABS.find((t) => t.toLowerCase() === searchParams?.get("tab")?.toLowerCase()) ?? "Units";
@@ -84,6 +87,8 @@ export function AdminView({
           {opsView === "Supplies" && <StockPanel units={units} stocks={stocks} canEdit onChanged={refreshStocks} />}
         </div>
       )}
+
+      {tab === "Feedback" && <FeedbackTab feedback={feedback} analytics={feedbackAnalytics} />}
 
       {tab === "Settings" && (
         <div>

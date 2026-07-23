@@ -45,6 +45,10 @@ const config: Config = {
         "ken-burns": { "0%": { transform: "scale(1) translate(0,0)" }, "50%": { transform: "scale(1.14) translate(-2%,-1.5%)" }, "100%": { transform: "scale(1) translate(0,0)" } },
         sheen: { "0%": { backgroundPosition: "220% 0" }, "100%": { backgroundPosition: "-220% 0" } },
         dust: { "0%": { transform: "translateY(0)", opacity: "0" }, "10%": { opacity: "0.8" }, "85%": { opacity: "0.3" }, "100%": { transform: "translateY(-46px)", opacity: "0" } },
+        "confetti-fall": {
+          "0%": { transform: "translateY(0) translateX(0) rotate(0deg)", opacity: "1" },
+          "100%": { transform: "translateY(105vh) translateX(var(--confetti-drift)) rotate(var(--confetti-rotate))", opacity: "0.3" },
+        },
       },
       animation: {
         "toast-in": "toast-in .25s ease forwards",
@@ -56,6 +60,7 @@ const config: Config = {
         "ken-burns": "ken-burns 16s ease-in-out infinite",
         sheen: "sheen 7s linear infinite",
         dust: "dust 7s ease-in-out infinite",
+        "confetti-fall": "confetti-fall linear forwards",
       },
     },
   },

@@ -5,8 +5,9 @@ import { wifiQrPayload } from "@/lib/guideUtils";
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation — same
  * pattern as GuidebookView/BookingDetailClient, the guest portal has no
- * toast system. */
-function useCopy() {
+ * toast system. Exported so FeedbackFormView's voucher card can reuse it
+ * too instead of a third copy of the same hook. */
+export function useCopy() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   async function copy(key: string, value: string) {
     try {

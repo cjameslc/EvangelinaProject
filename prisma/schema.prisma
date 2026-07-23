@@ -107,6 +107,7 @@ model Unit {
   icalSyncLogs  IcalSyncLog[]
   expenseRequests ExpenseRequest[]
   guestRequests GuestRequest[]
+  feedbackResponses FeedbackResponse[]
 
   @@map("units")
 }
@@ -378,6 +379,7 @@ model Booking {
   // exactly as today. Purely additive; nothing existing reads this field.
   guestId         String?
   guest           Guest?        @relation(fields: [guestId], references: [id], onDelete: SetNull)
+  feedback        FeedbackResponse?
   specialRequest  String?
   // Cancellation — set instead of deleting the row, so a guest still sees a
   // cancelled stay in their booking history, and so staff retain an audit
@@ -815,6 +817,7 @@ model Guest {
   bookings      Booking[]
   notifications GuestNotification[]
   requests      GuestRequest[]
+  feedbackResponses FeedbackResponse[]
 
   @@map("guests")
 }
@@ -863,6 +866,49 @@ model Coupon {
   createdAt   DateTime  @default(now())
 
   @@map("coupons")
+}
+
+// Guest Feedback & Rewards — a 5-step post-stay survey (src/app/guide/
+// feedback/[bookingId]) that unlocks a one-time reward on submission. One
+// response per booking (bookingId is @unique) — enforced at the DB level,
+// not just client-side, so a duplicate/replayed POST can never mint a
+// second reward for the same completed stay. The ₱100-off reward reuses
+// the real Coupon model above (a genuine, single-use Coupon row is created
+// and its own code is what's shown here) — deliberately no FK relation to
+// Coupon, same denormalized-snapshot convention Booking.couponCode already
+// uses, so editing/deleting a Coupon later never corrupts historical
+// feedback records. The other two reward types (late checkout, coffee) are
+// redeemed in person by staff — redeemedAt lets Admin mark them used.
+model FeedbackResponse {
+  id        String  @id @default(cuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  guestId   String
+  guest     Guest   @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  unitId    String
+  unit      Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  overallRating Int // 1 (Poor) .. 5 (Excellent)
+  // JSON-encoded string[] — same TEXT-column pattern as Booking.guests
+  // (see the Prisma Client Extension in src/lib/prisma.ts).
+  likedTags      String  @default("[]")
+  improveComment String?
+  wouldRecommend String // "definitely" | "probably" | "maybe" | "no"
+
+  rewardType       String // "discount" | "late_checkout" | "coffee"
+  voucherCode      String    @unique
+  voucherExpiresAt DateTime
+  redeemedAt       DateTime?
+
+  contactName  String
+  contactPhone String
+  contactEmail String?
+
+  createdAt DateTime @default(now())
+
+  @@index([guestId])
+  @@index([unitId])
+  @@map("feedback_responses")
 }
 
 // In-app inbox for the events notificationService.notify() already fires
