@@ -9,6 +9,7 @@ import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
 import { CouponsTab } from "./CouponsTab";
 import { FeedbackTab } from "./FeedbackTab";
+import { PlaceInsightsPanel } from "./PlaceInsightsPanel";
 import { BillsPanel } from "@/components/housekeeping/BillsPanel";
 import { StockPanel } from "@/components/housekeeping/StockPanel";
 import { Pill } from "@/components/ui/Pill";
@@ -33,11 +34,12 @@ const TABS = ["Units", "Users & roles", "Operations", "Feedback", "Settings"] as
 export function AdminView({
   units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs,
   bills: initialBills, stocks: initialStocks, coupons: initialCoupons,
-  feedback, feedbackAnalytics,
+  feedback, feedbackAnalytics, guidebookCategories, placeInsightSummary,
 }: {
   units: any[]; users: any[]; settings: any; loginLogs: any[];
   bills: any[]; stocks: any[]; coupons: any[];
   feedback: any[]; feedbackAnalytics: any;
+  guidebookCategories: any[]; placeInsightSummary: any[];
 }) {
   const searchParams = useSearchParams();
   const initialTab = TABS.find((t) => t.toLowerCase() === searchParams?.get("tab")?.toLowerCase()) ?? "Units";
@@ -103,6 +105,9 @@ export function AdminView({
           </Accordion>
           <Accordion title="Login logs" defaultOpen={false}>
             <LoginLogsTab logs={loginLogs} />
+          </Accordion>
+          <Accordion title="Nearby places data" defaultOpen={false}>
+            <PlaceInsightsPanel categories={settings.guidebookCategories ?? guidebookCategories} initialSummary={placeInsightSummary} />
           </Accordion>
         </div>
       )}

@@ -9,6 +9,7 @@ import type { EmergencyContact, FaqCategory } from "@/lib/guidebookService";
 
 type Settings = {
   businessName: string; address: string; nightlyRate: number; dpFee: number;
+  propertyLat?: number | null; propertyLng?: number | null;
   housekeepingDayRate: number; housekeepingNightBonus: number; bookerCommission: number; auditorWeeklyRate: number;
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
   extensionFeePerHour: number; flexibleTimeFee: number; parkingCarRate: number; parkingMotorcycleRate: number;
@@ -88,6 +89,24 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       <div>
         <label className="field-label">Address</label>
         <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="field-input mt-1.5" />
+      </div>
+      <div>
+        <label className="field-label">Property coordinates</label>
+        <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">
+          Distances on the Nearby pages are measured from this point. Find it on Google Maps: right-click the building → the lat, lng shown at the top is what to paste below.
+        </p>
+        <div className="mt-1.5 grid grid-cols-2 gap-3">
+          <input
+            type="number" step="any" placeholder="Latitude" value={form.propertyLat ?? ""}
+            onChange={(e) => setForm({ ...form, propertyLat: e.target.value === "" ? null : Number(e.target.value) })}
+            className="field-input"
+          />
+          <input
+            type="number" step="any" placeholder="Longitude" value={form.propertyLng ?? ""}
+            onChange={(e) => setForm({ ...form, propertyLng: e.target.value === "" ? null : Number(e.target.value) })}
+            className="field-input"
+          />
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>

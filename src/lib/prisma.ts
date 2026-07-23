@@ -103,6 +103,15 @@ function makePrismaClient() {
           create: ({ args, query }) => { stringifyField(args.data as any, "likedTags"); return query(args); },
           update: ({ args, query }) => { stringifyField(args.data as any, "likedTags"); return query(args); },
         },
+        placeInsight: {
+          create: ({ args, query }) => { stringifyField(args.data as any, "openingHours"); return query(args); },
+          update: ({ args, query }) => { stringifyField(args.data as any, "openingHours"); return query(args); },
+          upsert: ({ args, query }) => {
+            stringifyField(args.create as any, "openingHours");
+            stringifyField(args.update as any, "openingHours");
+            return query(args);
+          },
+        },
       },
     })
     .$extends({
@@ -174,6 +183,12 @@ function makePrismaClient() {
           likedTags: {
             needs: { likedTags: true },
             compute: (row): string[] => parseJson(row.likedTags, []),
+          },
+        },
+        placeInsight: {
+          openingHours: {
+            needs: { openingHours: true },
+            compute: (row): string[] | null => (row.openingHours == null ? null : parseJson(row.openingHours, [])),
           },
         },
       },

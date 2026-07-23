@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookingForGuide } from "@/lib/bookingEngine/guestService";
 import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
 import { GuestBookingHub } from "@/components/guest/GuestBookingHub";
 
 export default async function BookingDetailPage({ params }: { params: { id: string } }) {
@@ -22,5 +23,13 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
   ]);
   if (!booking) notFound();
 
-  return <GuestBookingHub booking={JSON.parse(JSON.stringify(booking))} guidebook={guidebook} />;
+  const insightRows = await getPlaceInsightsByNames(guidebook.categories.flatMap((c) => c.items));
+  const placeInsights = Object.fromEntries(insightRows);
+
+  return (
+    <GuestBookingHub
+      booking={JSON.parse(JSON.stringify(booking))}
+      guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)) }}
+    />
+  );
 }

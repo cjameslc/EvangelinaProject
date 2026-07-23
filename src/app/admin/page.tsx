@@ -6,6 +6,7 @@ import { CHECKLIST_GROUPS } from "@/lib/constants";
 import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 import { computeFeedbackAnalytics } from "@/lib/bookingEngine/feedbackService";
+import { GUIDEBOOK_CATEGORIES, type GuidebookCategory } from "@/lib/guidebookContent";
 import { AdminView } from "@/components/admin/AdminView";
 
 export default async function AdminPage() {
@@ -16,7 +17,7 @@ export default async function AdminPage() {
   const month = manilaMonthStart();
   await ensureRecurringBillsForMonth(month).catch(() => {});
 
-  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows] = await Promise.all([
+  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows] = await Promise.all([
     prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
     // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
     // profile photo) IS fetched here now so Users & roles shows each
@@ -49,10 +50,15 @@ export default async function AdminPage() {
       orderBy: { createdAt: "desc" },
       include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } },
     }),
+    // Feeds the Settings tab's "Nearby places data" refresh panel — one
+    // row per category that's been refreshed at least once.
+    prismaPool[8].placeInsight.groupBy({ by: ["category"], _count: { _all: true }, _max: { lastFetchedAt: true } }),
   ]);
 
   const safeSettings = { ...settings, checklistGroups: (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS };
   const feedbackAnalytics = computeFeedbackAnalytics(feedbackRows);
+  const guidebookCategories = (settings.guidebookCategories as unknown as GuidebookCategory[] | null) ?? GUIDEBOOK_CATEGORIES;
+  const placeInsightSummary = placeSummaryRows.map((r) => ({ category: r.category, count: r._count._all, lastFetchedAt: r._max.lastFetchedAt }));
 
   return (
     <AdminView
@@ -65,6 +71,8 @@ export default async function AdminPage() {
       coupons={JSON.parse(JSON.stringify(coupons))}
       feedback={JSON.parse(JSON.stringify(feedbackRows))}
       feedbackAnalytics={JSON.parse(JSON.stringify(feedbackAnalytics))}
+      guidebookCategories={JSON.parse(JSON.stringify(guidebookCategories))}
+      placeInsightSummary={JSON.parse(JSON.stringify(placeInsightSummary))}
     />
   );
 }

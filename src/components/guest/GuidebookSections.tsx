@@ -6,9 +6,9 @@ import {
   SMART_RECOMMENDATIONS, CONCIERGE_SAMPLE_QUESTIONS, BUILDING_INFO,
   type GuidebookCategory, type Amenity,
 } from "@/lib/guidebookContent";
-import { mapsSearchUrl } from "@/lib/guideUtils";
 import { OPEN_CONCIERGE_EVENT } from "@/components/guest/AIAssistantWidget";
 import type { TeamMember } from "@/lib/guidebookService";
+import { PlaceInsightRow, type PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 
 /**
  * The booking-independent Guest Experience sections — amenities, nearby
@@ -141,7 +141,7 @@ export function ConciergeEntrySection({ blurb }: { blurb?: string }) {
 /** Smart-recommendation filter chips + search + the categorized nearby-places
  * list — one self-contained unit (owns its own search/filter state) so
  * either caller just drops it in with the raw category list. */
-export function NearbyPlacesSection({ categories }: { categories: GuidebookCategory[] }) {
+export function NearbyPlacesSection({ categories, insights }: { categories: GuidebookCategory[]; insights?: Record<string, PlaceInsightData> }) {
   const [search, setSearch] = useState("");
   const [recType, setRecType] = useState<string | null>(null);
   const activeRec = SMART_RECOMMENDATIONS.find((r) => r.key === recType) ?? null;
@@ -185,17 +185,9 @@ export function NearbyPlacesSection({ categories }: { categories: GuidebookCateg
             <div className="mb-2 flex items-center gap-2 text-[13.5px] font-extrabold">
               <span className="text-[17px]">{c.icon}</span> {c.label}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="space-y-1.5">
               {c.items.map((item) => (
-                <a
-                  key={item}
-                  href={mapsSearchUrl(item)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-full bg-[var(--bg-2)] px-2.5 py-1.5 text-[12px] font-semibold transition hover:bg-rausch/10 hover:text-rausch"
-                >
-                  {item}
-                </a>
+                <PlaceInsightRow key={item} name={item} insight={insights?.[item]} />
               ))}
             </div>
           </div>

@@ -245,6 +245,16 @@ export const amenitySchema = z.object({
   label: z.string().min(1),
 });
 
+export const emergencyContactSchema = z.object({
+  name: z.string().min(1),
+  phones: z.array(z.string().min(1)).min(1),
+});
+
+export const faqCategorySchema = z.object({
+  category: z.string().min(1),
+  items: z.array(z.object({ q: z.string().min(1), a: z.string().min(1) })),
+});
+
 export const settingsSchema = z.object({
   businessName: z.string().min(1),
   address: z.string().min(1),
@@ -260,6 +270,16 @@ export const settingsSchema = z.object({
   weekendRate12h: z.number().int().positive().optional(),
   weekendRate21h: z.number().int().positive().optional(),
   weekdayNightPromoPct: z.number().int().min(0).max(100).optional(),
+  extensionFeePerHour: z.number().int().nonnegative().optional(),
+  flexibleTimeFee: z.number().int().nonnegative().optional(),
+  parkingCarRate: z.number().int().nonnegative().optional(),
+  parkingMotorcycleRate: z.number().int().nonnegative().optional(),
+  celebrationPackagePrice: z.number().int().nonnegative().optional(),
+  // Property coordinates — the origin PlaceInsight distances are measured
+  // from (see src/lib/places/). Latitude/longitude have real-world bounds,
+  // unlike a generic float.
+  propertyLat: z.number().min(-90).max(90).nullable().optional(),
+  propertyLng: z.number().min(-180).max(180).nullable().optional(),
   // Guest Experience module
   contactPhone: z.string().nullable().optional(),
   emergencyContactPhone: z.string().nullable().optional(),
@@ -275,6 +295,9 @@ export const settingsSchema = z.object({
   guidebookCategories: z.array(guidebookCategorySchema).nullable().optional(),
   amenities: z.array(amenitySchema).nullable().optional(),
   houseRules: z.array(z.string()).nullable().optional(),
+  celebrationPackageItems: z.array(z.string()).nullable().optional(),
+  emergencyContacts: z.array(emergencyContactSchema).nullable().optional(),
+  faqs: z.array(faqCategorySchema).nullable().optional(),
 });
 
 export const auditFindingCreateSchema = z.object({

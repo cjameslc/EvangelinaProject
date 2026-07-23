@@ -10,6 +10,7 @@ import {
   HouseRulesSection, ConciergeEntrySection, NearbyPlacesSection,
 } from "@/components/guest/GuidebookSections";
 import type { TeamMember } from "@/lib/guidebookService";
+import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -32,6 +33,7 @@ type Guidebook = {
   hostPhotoUrl: string | null;
   hostBio: string | null;
   team: TeamMember[];
+  placeInsights?: Record<string, PlaceInsightData>;
 };
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation instead of
@@ -288,7 +290,7 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
       </div>
 
       <div className="mt-5">
-        <NearbyPlacesSection categories={guidebook.categories} />
+        <NearbyPlacesSection categories={guidebook.categories} insights={guidebook.placeInsights} />
       </div>
 
       <div className="mt-3">

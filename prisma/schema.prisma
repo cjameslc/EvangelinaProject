@@ -760,9 +760,60 @@ model Settings {
   // in; the app never fabricates an answer it doesn't have).
   faqs String? // JSON-encoded { category: string; items: { q: string; a: string }[] }[]
 
+  // The property's own coordinates (all 5 units are one building) — the
+  // fixed origin point PlaceInsight.distanceMeters is measured from. Null
+  // until Admin sets it (Nearby place cards just omit distance until then,
+  // never a guessed number). See src/lib/places/.
+  propertyLat Float?
+  propertyLng Float?
+
   updatedAt     DateTime @updatedAt
 
   @@map("settings")
+}
+
+// Guest Experience "Nearby" pages (NearbyPlacesSection, /guide/nearby/
+// [category]) — real, Google-sourced distance/hours/rating for each named
+// place in GUIDEBOOK_CATEGORIES, instead of ever guessing. One row per
+// (category, name) pair, refreshed on demand by Admin (POST /api/places/
+// refresh — never on a schedule, since each refresh is a real, billed
+// Google Places API call) via src/lib/places/placeInsightService.ts. A
+// place that hasn't been refreshed yet, or whose lookup failed, simply has
+// no distance/hours/rating shown — fetchError records why for Admin's
+// benefit, it's never surfaced to a guest.
+model PlaceInsight {
+  id       String @id @default(cuid())
+  category String // GuidebookCategory.key, e.g. "coffee"
+  name     String // exact item string from that category's items[], e.g. "Starbucks"
+
+  placeId String? // Google place_id, once resolved
+  lat     Float?
+  lng     Float?
+  // Straight-line (haversine) distance from Settings.propertyLat/Lng —
+  // deliberately not a claimed walking-route distance, which would need a
+  // second billed Directions/Distance Matrix call per place.
+  distanceMeters Int?
+
+  rating         Float?
+  ratingCount    Int?
+  // JSON-encoded string[] — Google's own weekday_text (e.g. "Monday:
+  // 9:00 AM – 9:00 PM"), shown as-is, never reformatted/guessed.
+  openingHours   String?
+  // Snapshot of "open right now" at the moment of the last refresh — can
+  // go stale between refreshes, so the UI always pairs it with
+  // lastFetchedAt rather than presenting it as live.
+  openNow        Boolean?
+  // Google's editorial_summary, when it has one — never a generated
+  // description standing in for it.
+  summary        String?
+  businessStatus String? // "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY"
+
+  fetchError    String? // set (and every other field left as-is) when a refresh fails, so a bad lookup doesn't wipe prior good data
+  lastFetchedAt DateTime @default(now())
+
+  @@unique([category, name])
+  @@index([category])
+  @@map("place_insights")
 }
 
 // Append-only trail for the Auditor page.
