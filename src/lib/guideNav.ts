@@ -5,24 +5,32 @@
 
 import { GALLERY } from "@/lib/galleryContent";
 
-/** Generated cover-art config for sections with no real photo (nearby
- * places, reviews, FAQs, contact, emergency) — see TileCoverArt.tsx. A
- * gradient + a scattered icon motif, deliberately not a fabricated photo
- * of a real place (this app has no image-generation model access, and
- * wouldn't invent one even if it did) — just a designed, on-brand graphic
- * so every tile in the grid feels equally finished. Keyed once here so the
- * hub tile and that section's own page header always match exactly.
- */
+/** Cover photos for sections that aren't a real room but do have a real
+ * (business-supplied, non-watermarked) photo — resized/optimized copies
+ * live in public/gallery/category-*.jpg. Two supplied images were
+ * deliberately left out: a Canva marketplace template with a visible
+ * "Canva 3 Sizes" badge baked into the image (unusable on a live site),
+ * and two flat clip-art illustrations on a plain white background that
+ * would look broken under the tile's full-bleed dark-gradient treatment —
+ * those three sections keep the generated CATEGORY_ART cover instead. */
+export const CATEGORY_COVER_PHOTOS: Record<string, string> = {
+  food: "/gallery/category-food.jpg",
+  coffee: "/gallery/category-coffee.jpg",
+  grocery: "/gallery/category-grocery.jpg",
+  transportation: "/gallery/category-transportation.jpg",
+  emergency: "/gallery/category-emergency.jpg",
+};
+
+/** Generated cover-art config for sections with no real photo at all —
+ * see TileCoverArt.tsx. A gradient + a scattered icon motif, deliberately
+ * not a fabricated photo of a real place — just a designed, on-brand
+ * graphic so every tile in the grid feels equally finished. Keyed once
+ * here so the hub tile and that section's own page header always match. */
 export type TileArt = { gradient: [string, string]; pattern: string };
 export const CATEGORY_ART: Record<string, TileArt> = {
-  food: { gradient: ["#FF7A5C", "#E23B57"], pattern: "🍜" },
-  coffee: { gradient: ["#8B5E3C", "#4A2E1E"], pattern: "☕" },
-  grocery: { gradient: ["#3EA66B", "#1C6E45"], pattern: "🥬" },
-  transportation: { gradient: ["#3B82C4", "#1E4E8C"], pattern: "🚏" },
   reviews: { gradient: ["#F5A623", "#D97706"], pattern: "⭐" },
   faqs: { gradient: ["#7C6CE8", "#4C3FB0"], pattern: "❓" },
   contact: { gradient: ["#FF385C", "#B01E3F"], pattern: "💬" },
-  emergency: { gradient: ["#E5484D", "#9E1F23"], pattern: "🚨" },
 };
 
 export type GuideTile = {
@@ -62,10 +70,10 @@ export const GUIDE_SECTIONS: GuideSection[] = [
   {
     label: "Explore the neighborhood",
     tiles: [
-      { key: "nearby-food", href: "/guide/nearby/food", icon: "🍽️", title: "Nearby Food", subtitle: "Restaurants around Cubao", art: CATEGORY_ART.food },
-      { key: "nearby-coffee", href: "/guide/nearby/coffee", icon: "☕", title: "Coffee Shops", subtitle: "Nearby cafés", art: CATEGORY_ART.coffee },
-      { key: "nearby-grocery", href: "/guide/nearby/grocery", icon: "🛒", title: "Grocery", subtitle: "Where to stock up", art: CATEGORY_ART.grocery },
-      { key: "transportation", href: "/guide/nearby/transportation", icon: "🚆", title: "Transportation", subtitle: "Getting around", art: CATEGORY_ART.transportation },
+      { key: "nearby-food", href: "/guide/nearby/food", icon: "🍽️", title: "Nearby Food", subtitle: "Restaurants around Cubao", image: CATEGORY_COVER_PHOTOS.food },
+      { key: "nearby-coffee", href: "/guide/nearby/coffee", icon: "☕", title: "Coffee Shops", subtitle: "Nearby cafés", image: CATEGORY_COVER_PHOTOS.coffee },
+      { key: "nearby-grocery", href: "/guide/nearby/grocery", icon: "🛒", title: "Grocery", subtitle: "Where to stock up", image: CATEGORY_COVER_PHOTOS.grocery },
+      { key: "transportation", href: "/guide/nearby/transportation", icon: "🚆", title: "Transportation", subtitle: "Getting around", image: CATEGORY_COVER_PHOTOS.transportation },
     ],
   },
   {
@@ -74,7 +82,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
       { key: "reviews", href: "/guide/reviews", icon: "⭐", title: "Guest Reviews", subtitle: "What guests say", art: CATEGORY_ART.reviews },
       { key: "faqs", href: "/guide/faqs", icon: "❓", title: "FAQs", subtitle: "Common questions", art: CATEGORY_ART.faqs },
       { key: "contact", href: "/guide/contact", icon: "📞", title: "Contact Host", subtitle: "Get in touch", art: CATEGORY_ART.contact },
-      { key: "emergency", href: "/guide/emergency", icon: "🚨", title: "Emergency", subtitle: "Help when you need it", art: CATEGORY_ART.emergency },
+      { key: "emergency", href: "/guide/emergency", icon: "🚨", title: "Emergency", subtitle: "Help when you need it", image: CATEGORY_COVER_PHOTOS.emergency },
     ],
   },
 ];
@@ -85,9 +93,9 @@ export const GUIDE_TILES: GuideTile[] = GUIDE_SECTIONS.flatMap((s) => s.tiles);
 
 export type NearbySlug = "food" | "coffee" | "grocery" | "transportation";
 
-export const NEARBY_SLUGS: Record<NearbySlug, { label: string; icon: string; categoryKeys: string[]; art: TileArt }> = {
-  food: { label: "Nearby Food", icon: "🍽️", categoryKeys: ["restaurants", "fastfood"], art: CATEGORY_ART.food },
-  coffee: { label: "Coffee Shops", icon: "☕", categoryKeys: ["coffee"], art: CATEGORY_ART.coffee },
-  grocery: { label: "Grocery", icon: "🛒", categoryKeys: ["grocery", "convenience"], art: CATEGORY_ART.grocery },
-  transportation: { label: "Transportation", icon: "🚆", categoryKeys: ["transportation"], art: CATEGORY_ART.transportation },
+export const NEARBY_SLUGS: Record<NearbySlug, { label: string; icon: string; categoryKeys: string[]; image: string }> = {
+  food: { label: "Nearby Food", icon: "🍽️", categoryKeys: ["restaurants", "fastfood"], image: CATEGORY_COVER_PHOTOS.food },
+  coffee: { label: "Coffee Shops", icon: "☕", categoryKeys: ["coffee"], image: CATEGORY_COVER_PHOTOS.coffee },
+  grocery: { label: "Grocery", icon: "🛒", categoryKeys: ["grocery", "convenience"], image: CATEGORY_COVER_PHOTOS.grocery },
+  transportation: { label: "Transportation", icon: "🚆", categoryKeys: ["transportation"], image: CATEGORY_COVER_PHOTOS.transportation },
 };

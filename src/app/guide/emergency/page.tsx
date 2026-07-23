@@ -1,6 +1,6 @@
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
-import { CATEGORY_ART } from "@/lib/guideNav";
+import { CATEGORY_COVER_PHOTOS } from "@/lib/guideNav";
 import { telUrl, PH_NATIONAL_EMERGENCY_HOTLINE } from "@/lib/guideUtils";
 
 export default async function EmergencyPage() {
@@ -8,7 +8,7 @@ export default async function EmergencyPage() {
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon="🚨" art={CATEGORY_ART.emergency} title="Emergency" subtitle="Help when you need it." />
+      <GuidePageHeader icon="🚨" image={CATEGORY_COVER_PHOTOS.emergency} title="Emergency" subtitle="Help when you need it." />
 
       <div className="card mt-3 p-5">
         <a href={telUrl(PH_NATIONAL_EMERGENCY_HOTLINE)} className="flex items-center justify-between rounded-xl border border-[var(--line)] px-4 py-3 transition hover:bg-[var(--bg-2)]">
