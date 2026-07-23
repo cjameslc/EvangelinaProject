@@ -78,6 +78,9 @@ function makePrismaClient() {
             stringifyField(args.data as any, "guidebookCategories");
             stringifyField(args.data as any, "amenities");
             stringifyField(args.data as any, "houseRules");
+            stringifyField(args.data as any, "celebrationPackageItems");
+            stringifyField(args.data as any, "emergencyContacts");
+            stringifyField(args.data as any, "faqs");
             return query(args);
           },
           upsert: ({ args, query }) => {
@@ -86,6 +89,9 @@ function makePrismaClient() {
               stringifyField(target as any, "guidebookCategories");
               stringifyField(target as any, "amenities");
               stringifyField(target as any, "houseRules");
+              stringifyField(target as any, "celebrationPackageItems");
+              stringifyField(target as any, "emergencyContacts");
+              stringifyField(target as any, "faqs");
             }
             return query(args);
           },
@@ -140,6 +146,18 @@ function makePrismaClient() {
           houseRules: {
             needs: { houseRules: true },
             compute: (row): unknown[] | null => (row.houseRules == null ? null : parseJson(row.houseRules, [])),
+          },
+          celebrationPackageItems: {
+            needs: { celebrationPackageItems: true },
+            compute: (row): unknown[] | null => (row.celebrationPackageItems == null ? null : parseJson(row.celebrationPackageItems, [])),
+          },
+          emergencyContacts: {
+            needs: { emergencyContacts: true },
+            compute: (row): unknown[] | null => (row.emergencyContacts == null ? null : parseJson(row.emergencyContacts, [])),
+          },
+          faqs: {
+            needs: { faqs: true },
+            compute: (row): unknown[] | null => (row.faqs == null ? null : parseJson(row.faqs, [])),
           },
         },
         auditLog: {

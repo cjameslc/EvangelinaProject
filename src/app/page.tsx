@@ -2,9 +2,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
 import { getViewMode } from "@/lib/viewMode";
-import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
-import { getGuidebookSettings } from "@/lib/guidebookService";
-import { GuestHomeView } from "@/components/guest/GuestHomeView";
+import { getCachedGuidebookCore } from "@/lib/guidebookService";
+import { GuideHubView } from "@/components/guest/GuideHubView";
 
 export default async function Home() {
   const user = await getCurrentUser();
@@ -20,13 +19,12 @@ export default async function Home() {
   }
 
   // No staff session (or a staff session in Travel Mode) — render the
-  // public Airbnb-inspired homepage instead of forcing a login
-  // (middleware.ts's authorized callback special-cases "/" to make this
-  // reachable unauthenticated). Also the page a staff member's own Travel
-  // Mode toggle shows them — so it doubles as a lightweight Guest
-  // Experience preview for someone actually out and about, not just a
-  // marketing page for prospective guests.
-  const [units, guidebook] = await Promise.all([getCachedActiveUnits(), getGuidebookSettings()]);
+  // Guest Experience tile hub, the app's default landing page per the
+  // Guest Experience Module spec. Completely independent of Booking (see
+  // /book and BookFlowView) — this page links out to booking, it never
+  // renders booking content itself. (middleware.ts's authorized callback
+  // special-cases "/" to make this reachable unauthenticated.)
+  const { hostName } = await getCachedGuidebookCore();
 
-  return <GuestHomeView units={units} guidebook={guidebook} />;
+  return <GuideHubView hostName={hostName} />;
 }

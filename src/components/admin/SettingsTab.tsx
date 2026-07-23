@@ -5,14 +5,18 @@ import { useToast } from "@/components/ui/Toast";
 import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
 import { PlusIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
 import { fileToDataUrl } from "@/lib/file";
+import type { EmergencyContact, FaqCategory } from "@/lib/guidebookService";
 
 type Settings = {
   businessName: string; address: string; nightlyRate: number; dpFee: number;
   housekeepingDayRate: number; housekeepingNightBonus: number; bookerCommission: number; auditorWeeklyRate: number;
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
+  extensionFeePerHour: number; flexibleTimeFee: number; parkingCarRate: number; parkingMotorcycleRate: number;
+  celebrationPackagePrice: number; celebrationPackageItems?: string[] | null;
   contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
   guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
   hostName?: string | null; hostPhotoUrl?: string | null; hostBio?: string | null;
+  emergencyContacts?: EmergencyContact[] | null; faqs?: FaqCategory[] | null;
 };
 
 export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?: (s: Settings) => void }) {
@@ -28,6 +32,9 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     hostName: initial.hostName ?? "",
     hostPhotoUrl: initial.hostPhotoUrl ?? null,
     hostBio: initial.hostBio ?? "",
+    celebrationPackageItems: initial.celebrationPackageItems ?? [],
+    emergencyContacts: initial.emergencyContacts ?? [],
+    faqs: initial.faqs ?? [],
   });
   const [saving, setSaving] = useState(false);
 
@@ -42,6 +49,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     const numericFields: (keyof Settings)[] = [
       "nightlyRate", "dpFee", "housekeepingDayRate", "housekeepingNightBonus", "bookerCommission", "auditorWeeklyRate",
       "weekdayRate12h", "weekdayRate21h", "weekendRate12h", "weekendRate21h", "weekdayNightPromoPct",
+      "extensionFeePerHour", "flexibleTimeFee", "parkingCarRate", "parkingMotorcycleRate", "celebrationPackagePrice",
     ];
     for (const key of numericFields) {
       const v = form[key];
@@ -55,6 +63,13 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       guidebookCategories: form.guidebookCategories.map((c) => ({ ...c, items: c.items.map((i) => i.trim()).filter(Boolean) })),
       amenities: form.amenities.filter((a) => a.label.trim()),
       houseRules: form.houseRules.map((r) => r.trim()).filter(Boolean),
+      celebrationPackageItems: form.celebrationPackageItems.map((i) => i.trim()).filter(Boolean),
+      emergencyContacts: form.emergencyContacts
+        .map((c) => ({ name: c.name.trim(), phones: c.phones.map((p) => p.trim()).filter(Boolean) }))
+        .filter((c) => c.name && c.phones.length > 0),
+      faqs: form.faqs
+        .map((cat) => ({ category: cat.category.trim(), items: cat.items.map((i) => ({ q: i.q.trim(), a: i.a.trim() })).filter((i) => i.q && i.a) }))
+        .filter((cat) => cat.category && cat.items.length > 0),
     };
     setSaving(true);
     const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -107,6 +122,47 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           <div>
             <label className="field-label">Weekday Night-stay promo (%)</label>
             <input type="number" min={0} max={100} value={form.weekdayNightPromoPct} onChange={(e) => setForm({ ...form, weekdayNightPromoPct: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Extension fee (₱/hour)</label>
+            <input type="number" min={0} value={form.extensionFeePerHour} onChange={(e) => setForm({ ...form, extensionFeePerHour: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Flexible time fee (₱)</label>
+            <input type="number" min={0} value={form.flexibleTimeFee} onChange={(e) => setForm({ ...form, flexibleTimeFee: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Parking</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Paid parking, advance reservation required — shown on the Guest Experience Parking page.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Car (₱)</label>
+            <input type="number" min={0} value={form.parkingCarRate} onChange={(e) => setForm({ ...form, parkingCarRate: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Motorcycle (₱)</label>
+            <input type="number" min={0} value={form.parkingMotorcycleRate} onChange={(e) => setForm({ ...form, parkingMotorcycleRate: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Celebration package</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Birthday/anniversary setup — shown on Rates and in the FAQs.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Package price (₱)</label>
+            <input type="number" min={0} value={form.celebrationPackagePrice} onChange={(e) => setForm({ ...form, celebrationPackagePrice: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Items included (one per line)</label>
+            <textarea
+              value={form.celebrationPackageItems.join("\n")}
+              onChange={(e) => setForm({ ...form, celebrationPackageItems: e.target.value.split("\n") })}
+              className="field-input mt-1.5 min-h-[64px]"
+              placeholder="Banner&#10;Balloons&#10;Cake"
+            />
           </div>
         </div>
       </div>
@@ -220,6 +276,88 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           className="field-input min-h-[80px]"
           placeholder="e.g. No smoking inside the unit&#10;Quiet hours after 10 PM"
         />
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — emergency contacts</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Named contacts, each with one or more numbers — shown as tap-to-call cards on the Emergency page.</p>
+        <div className="space-y-3">
+          {form.emergencyContacts.map((c, i) => (
+            <div key={i} className="rounded-xl border border-[var(--line)] p-3">
+              <div className="flex items-center gap-2">
+                <input
+                  value={c.name}
+                  onChange={(e) => setForm({ ...form, emergencyContacts: form.emergencyContacts.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })}
+                  className="field-input flex-1"
+                  placeholder="Name (e.g. Housekeeping)"
+                />
+                <button onClick={() => setForm({ ...form, emergencyContacts: form.emergencyContacts.filter((_, j) => j !== i) })} className="grid h-9 w-9 flex-none place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+              <textarea
+                value={c.phones.join("\n")}
+                onChange={(e) => setForm({ ...form, emergencyContacts: form.emergencyContacts.map((x, j) => (j === i ? { ...x, phones: e.target.value.split("\n") } : x)) })}
+                className="field-input mt-2 min-h-[48px]"
+                placeholder="One number per line"
+              />
+            </div>
+          ))}
+          <button onClick={() => setForm({ ...form, emergencyContacts: [...form.emergencyContacts, { name: "", phones: [] }] })} className="btn-sm btn"><PlusIcon className="h-3.5 w-3.5" /> Add contact</button>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — FAQs</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Grouped into categories — shown as a searchable accordion on the FAQs page.</p>
+        <div className="space-y-4">
+          {form.faqs.map((cat, ci) => (
+            <div key={ci} className="rounded-xl border border-[var(--line)] p-3">
+              <div className="flex items-center gap-2">
+                <input
+                  value={cat.category}
+                  onChange={(e) => setForm({ ...form, faqs: form.faqs.map((x, j) => (j === ci ? { ...x, category: e.target.value } : x)) })}
+                  className="field-input flex-1 font-bold"
+                  placeholder="Category (e.g. Booking & Security)"
+                />
+                <button onClick={() => setForm({ ...form, faqs: form.faqs.filter((_, j) => j !== ci) })} className="grid h-9 w-9 flex-none place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+              <div className="mt-2 space-y-2">
+                {cat.items.map((item, ii) => (
+                  <div key={ii} className="space-y-1 rounded-lg bg-[var(--bg-2)] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={item.q}
+                        onChange={(e) => setForm({
+                          ...form,
+                          faqs: form.faqs.map((x, j) => (j === ci ? { ...x, items: x.items.map((y, k) => (k === ii ? { ...y, q: e.target.value } : y)) } : x)),
+                        })}
+                        className="field-input flex-1"
+                        placeholder="Question"
+                      />
+                      <button
+                        onClick={() => setForm({ ...form, faqs: form.faqs.map((x, j) => (j === ci ? { ...x, items: x.items.filter((_, k) => k !== ii) } : x)) })}
+                        className="grid h-9 w-9 flex-none place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"
+                      ><TrashIcon className="h-4 w-4" /></button>
+                    </div>
+                    <textarea
+                      value={item.a}
+                      onChange={(e) => setForm({
+                        ...form,
+                        faqs: form.faqs.map((x, j) => (j === ci ? { ...x, items: x.items.map((y, k) => (k === ii ? { ...y, a: e.target.value } : y)) } : x)),
+                      })}
+                      className="field-input min-h-[48px]"
+                      placeholder="Answer"
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={() => setForm({ ...form, faqs: form.faqs.map((x, j) => (j === ci ? { ...x, items: [...x.items, { q: "", a: "" }] } : x)) })}
+                  className="btn-sm btn"
+                ><PlusIcon className="h-3.5 w-3.5" /> Add question</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setForm({ ...form, faqs: [...form.faqs, { category: "", items: [] }] })} className="btn-sm btn"><PlusIcon className="h-3.5 w-3.5" /> Add category</button>
+        </div>
       </div>
 
       <button onClick={save} disabled={saving} className="btn-primary">{saving ? "Saving…" : "Save settings"}</button>

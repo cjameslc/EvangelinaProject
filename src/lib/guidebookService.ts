@@ -4,6 +4,8 @@ import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, t
 import { ROLE_LABEL } from "@/lib/constants";
 
 export type TeamMember = { id: string; name: string; avatarUrl: string | null; avatarColor: string; role: string };
+export type EmergencyContact = { name: string; phones: string[] };
+export type FaqCategory = { category: string; items: { q: string; a: string }[] };
 
 export type GuidebookSettings = {
   categories: GuidebookCategory[];
@@ -16,6 +18,20 @@ export type GuidebookSettings = {
   hostPhotoUrl: string | null;
   hostBio: string | null;
   team: TeamMember[];
+  extensionFeePerHour: number;
+  flexibleTimeFee: number;
+  parkingCarRate: number;
+  parkingMotorcycleRate: number;
+  celebrationPackagePrice: number;
+  celebrationPackageItems: string[];
+  emergencyContacts: EmergencyContact[];
+  faqs: FaqCategory[];
+  dpFee: number;
+  weekdayRate12h: number;
+  weekdayRate21h: number;
+  weekendRate12h: number;
+  weekendRate21h: number;
+  weekdayNightPromoPct: number;
 };
 
 type CachedCore = Omit<GuidebookSettings, "hostPhotoUrl" | "team"> & { team: Omit<TeamMember, "avatarUrl">[] };
@@ -31,7 +47,7 @@ type CachedCore = Omit<GuidebookSettings, "hostPhotoUrl" | "team"> & { team: Omi
  * limit) and fetched fresh, uncached, in the small merge step below
  * instead.
  */
-const getCachedGuidebookCore = unstable_cache(
+export const getCachedGuidebookCore = unstable_cache(
   async (): Promise<CachedCore> => {
     const [settings, teamUsers] = await Promise.all([
       prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
@@ -51,6 +67,20 @@ const getCachedGuidebookCore = unstable_cache(
       hostName: settings.hostName,
       hostBio: settings.hostBio,
       team: teamUsers.map((u) => ({ id: u.id, name: u.name, avatarColor: u.avatarColor, role: ROLE_LABEL[u.role] ?? u.role })),
+      extensionFeePerHour: settings.extensionFeePerHour,
+      flexibleTimeFee: settings.flexibleTimeFee,
+      parkingCarRate: settings.parkingCarRate,
+      parkingMotorcycleRate: settings.parkingMotorcycleRate,
+      celebrationPackagePrice: settings.celebrationPackagePrice,
+      celebrationPackageItems: (settings.celebrationPackageItems as unknown as string[] | null) ?? [],
+      emergencyContacts: (settings.emergencyContacts as unknown as EmergencyContact[] | null) ?? [],
+      faqs: (settings.faqs as unknown as FaqCategory[] | null) ?? [],
+      dpFee: settings.dpFee,
+      weekdayRate12h: settings.weekdayRate12h,
+      weekdayRate21h: settings.weekdayRate21h,
+      weekendRate12h: settings.weekendRate12h,
+      weekendRate21h: settings.weekendRate21h,
+      weekdayNightPromoPct: settings.weekdayNightPromoPct,
     };
   },
   ["guidebook-core"],

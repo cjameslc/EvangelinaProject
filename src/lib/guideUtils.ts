@@ -38,3 +38,9 @@ function escapeWifiField(v: string): string {
 export function wifiQrPayload(ssid: string, password: string, hidden = false): string {
   return `WIFI:T:WPA;S:${escapeWifiField(ssid)};P:${escapeWifiField(password)};H:${hidden ? "true" : "false"};;`;
 }
+
+/** Philippines' single nationwide emergency hotline — a verifiable public
+ * fact (National Emergency Hotline), not business-specific data, so it's
+ * safe to always show regardless of whether Admin has set their own
+ * property-specific emergencyContactPhone/emergencyContacts. */
+export const PH_NATIONAL_EMERGENCY_HOTLINE = "911";

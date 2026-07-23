@@ -734,6 +734,29 @@ model Settings {
   weekendRate21h         Int @default(1899)
   // 10% off weekday (Mon-Thu) Night-stay bookings only.
   weekdayNightPromoPct   Int @default(10)
+  // Extending a stay past checkout, and Flexible stay's own-choice-of-time
+  // option — both flat fees, same admin-editable-rate convention as the
+  // rate table above. See the Guest Experience "Rates" page.
+  extensionFeePerHour    Int @default(100)
+  flexibleTimeFee        Int @default(150)
+  // Guest Experience "Parking" page — paid parking, advance reservation
+  // required (not a guarantee of availability).
+  parkingCarRate         Int @default(400)
+  parkingMotorcycleRate  Int @default(300)
+  // Guest Experience "Celebrations" FAQ + package card.
+  celebrationPackagePrice Int @default(1300)
+  celebrationPackageItems String? // JSON-encoded string[]
+
+  // Guest Experience "Emergency" page — named contacts, each with one or
+  // more phone numbers (richer than the single emergencyContactPhone
+  // above, which stays as the one always-shown number on the Guidebook's
+  // compact emergency card).
+  emergencyContacts String? // JSON-encoded { name: string; phones: string[] }[]
+
+  // Guest Experience "FAQs" page — categorized question/answer pairs,
+  // same null-falls-back-to-empty pattern as houseRules (Admin fills these
+  // in; the app never fabricates an answer it doesn't have).
+  faqs String? // JSON-encoded { category: string; items: { q: string; a: string }[] }[]
 
   updatedAt     DateTime @updatedAt
 

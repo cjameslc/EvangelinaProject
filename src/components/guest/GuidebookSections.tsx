@@ -14,9 +14,10 @@ import type { TeamMember } from "@/lib/guidebookService";
  * The booking-independent Guest Experience sections — amenities, nearby
  * places, meet your host/team, house rules, the AI Concierge entry point —
  * shared between the guest booking hub's Guidebook tab (GuidebookView.tsx,
- * one specific stay/unit) and the public home page's "Explore" preview
- * (GuestHomeView.tsx, no booking, no single unit). Extracted so the two
- * never drift into two different implementations of the same content.
+ * one specific stay/unit) and the standalone /guide/* pages (no booking, no
+ * single unit — see src/app/guide/amenities, /guide/house-manual, etc.).
+ * Extracted so these never drift into two different implementations of the
+ * same content.
  */
 
 export function AmenitiesSection({ amenities }: { amenities: Amenity[] }) {

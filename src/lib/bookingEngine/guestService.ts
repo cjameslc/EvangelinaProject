@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/bookingEngine/notificationService";
 import { analyzePaymentScreenshot } from "@/lib/ai/paymentVerification";
+import { manilaTodayISO } from "@/lib/manilaTime";
 
 const publicBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, stayType: true,
@@ -47,6 +48,33 @@ const guideBookingSelect = {
 export async function getGuestBookingForGuide(guestId: string, bookingId: string) {
   return prisma.booking.findFirst({
     where: { id: bookingId, guestId },
+    select: guideBookingSelect,
+  });
+}
+
+/**
+ * The security-sensitive Guide pages (WiFi/Check-in/Checkout — see
+ * src/app/guide/wifi etc.) have no bookingId in their URL, unlike
+ * /my-bookings/[id], so they resolve "which unit's secrets do I show this
+ * guest" via this lookup instead: their nearest non-cancelled booking whose
+ * stay hasn't ended yet. Booking.date/checkOutDate are UTC-midnight-stamped
+ * calendar days (see fmtDate's {timeZone:"UTC"} usage elsewhere), so the
+ * cutoff below is today's Manila calendar date at UTC midnight to match
+ * that same convention — never a real "now" timestamp. A booking with no
+ * checkOutDate (Daycation/same-day) is active through the end of its own
+ * check-in day. Once a stay has fully ended this deliberately returns
+ * nothing rather than falling back to a past booking — no reason to keep
+ * surfacing a door code after checkout.
+ */
+export async function getActiveGuideBooking(guestId: string) {
+  const todayUTCMidnight = new Date(`${manilaTodayISO()}T00:00:00.000Z`);
+  return prisma.booking.findFirst({
+    where: {
+      guestId,
+      cancelledAt: null,
+      OR: [{ checkOutDate: { gte: todayUTCMidnight } }, { checkOutDate: null, date: { gte: todayUTCMidnight } }],
+    },
+    orderBy: { date: "asc" },
     select: guideBookingSelect,
   });
 }

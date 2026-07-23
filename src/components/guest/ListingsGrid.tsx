@@ -5,22 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { peso } from "@/lib/format";
 import { manilaTodayISO } from "@/lib/manilaTime";
-import {
-  AmenitiesSection, MeetYourHostSection, MeetOurTeamSection, HouseRulesSection, ConciergeEntrySection, NearbyPlacesSection,
-} from "@/components/guest/GuidebookSections";
-import type { GuidebookCategory, Amenity } from "@/lib/guidebookContent";
-import type { TeamMember } from "@/lib/guidebookService";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; location: string; nightlyRate: number; photoUrl: string | null; rating: number };
-type Guidebook = {
-  categories: GuidebookCategory[];
-  amenities: Amenity[];
-  houseRules: string[];
-  hostName: string | null;
-  hostPhotoUrl: string | null;
-  hostBio: string | null;
-  team: TeamMember[];
-};
 
 /**
  * Lightweight, dependency-free 3D tilt — perspective + rotateX/rotateY driven
@@ -156,7 +142,15 @@ function CinematicHero({ units }: { units: Unit[] }) {
   );
 }
 
-export function GuestHomeView({ units, guidebook }: { units: Unit[]; guidebook: Guidebook }) {
+/**
+ * Booking module's landing header — hero + date search + listings grid.
+ * Deliberately Booking-only content (unit selection, date selection): the
+ * Guest Experience Digital Guidebook preview that used to live below this
+ * on the old homepage has moved to "/" (see GuideHubView) and is not
+ * reproduced here, keeping the two modules independent per the Guest
+ * Experience Module spec.
+ */
+export function ListingsGrid({ units }: { units: Unit[] }) {
   const router = useRouter();
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
@@ -215,36 +209,14 @@ export function GuestHomeView({ units, guidebook }: { units: Unit[]; guidebook: 
             No listings are available right now — please check back soon.
           </div>
         ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {units.map((u, i) => (
-            <Reveal key={u.id} delayMs={(i % 3) * 90}>
-              <ListingCard unit={u} />
-            </Reveal>
-          ))}
-        </div>
-        )}
-      </div>
-
-      {/* Guest Experience preview — the same booking-independent guidebook
-          content (amenities, nearby places, host/team, house rules) as the
-          Guidebook tab a booked guest sees, minus anything that needs an
-          actual stay (WiFi, door code, check-in guide). Also what a staff
-          member's Travel Mode toggle shows them, so this doubles as a
-          quick reference for someone actually out and about, not just a
-          marketing section for prospective guests. */}
-      <div className="border-t border-[var(--line)] bg-[var(--bg-2)]/40">
-        <div className="mx-auto max-w-[900px] space-y-3 px-4 py-10 sm:px-6">
-          <div className="mb-2 text-center">
-            <h2 className="text-[20px] font-extrabold tracking-tight">Explore the neighborhood</h2>
-            <p className="mt-1 text-[13.5px] text-[var(--gray)]">Everything a guest gets in the Digital Guidebook — browse it anytime, booking or not.</p>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {units.map((u, i) => (
+              <Reveal key={u.id} delayMs={(i % 3) * 90}>
+                <ListingCard unit={u} />
+              </Reveal>
+            ))}
           </div>
-          <Reveal><AmenitiesSection amenities={guidebook.amenities} /></Reveal>
-          <Reveal delayMs={60}><ConciergeEntrySection blurb="Ask about the neighborhood, our units, or anything else — tap to start chatting." /></Reveal>
-          <Reveal delayMs={120}><NearbyPlacesSection categories={guidebook.categories} /></Reveal>
-          <Reveal delayMs={90}><MeetYourHostSection hostName={guidebook.hostName} hostPhotoUrl={guidebook.hostPhotoUrl} hostBio={guidebook.hostBio} /></Reveal>
-          <Reveal delayMs={90}><MeetOurTeamSection team={guidebook.team} /></Reveal>
-          <Reveal><HouseRulesSection houseRules={guidebook.houseRules} /></Reveal>
-        </div>
+        )}
       </div>
     </div>
   );

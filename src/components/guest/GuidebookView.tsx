@@ -4,18 +4,12 @@ import { useEffect, useState } from "react";
 import { fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import type { GuidebookCategory, Amenity } from "@/lib/guidebookContent";
-import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, wifiQrPayload } from "@/lib/guideUtils";
+import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, wifiQrPayload, PH_NATIONAL_EMERGENCY_HOTLINE } from "@/lib/guideUtils";
 import {
   AmenitiesSection, InsideTheBuildingSection, MeetYourHostSection, MeetOurTeamSection,
   HouseRulesSection, ConciergeEntrySection, NearbyPlacesSection,
 } from "@/components/guest/GuidebookSections";
 import type { TeamMember } from "@/lib/guidebookService";
-
-// Philippines' single nationwide emergency hotline — a verifiable public
-// fact (National Emergency Hotline), not business-specific data, so it's
-// safe to always show regardless of whether Admin has set their own
-// property-specific emergencyContactPhone below.
-const PH_NATIONAL_EMERGENCY_HOTLINE = "911";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;

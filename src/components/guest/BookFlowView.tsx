@@ -273,6 +273,10 @@ export function BookFlowView() {
         <p className="mt-2 text-[13.5px] text-[var(--gray)]">
           You&apos;re signed in — we also emailed a confirmation to {email}.
         </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+          <a href="/" className="btn-primary">📖 View Guest Experience</a>
+          <a href={`/my-bookings/${confirmedBookingId}`} className="btn">🧾 Manage this booking</a>
+        </div>
       </div>
     );
   }

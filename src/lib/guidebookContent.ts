@@ -48,15 +48,21 @@ export const AMENITIES: Amenity[] = [
   { icon: "🛏️", label: "Queen Size Bed" },
   { icon: "❄️", label: "Carrier 1HP Air Conditioner" },
   { icon: "📺", label: "50-inch Smart TV with Netflix, HBO, Amazon Prime & Vivamax" },
-  { icon: "📶", label: "High Speed WiFi" },
+  { icon: "📶", label: "Free WiFi" },
   { icon: "☕", label: "Free Coffee" },
-  { icon: "💧", label: "Free Drinking Water" },
-  { icon: "🍳", label: "Multipurpose Cooker" },
+  { icon: "💧", label: "Filtered Drinking Water" },
+  { icon: "🧊", label: "Refrigerator" },
+  { icon: "🍽️", label: "Microwave" },
   { icon: "🍚", label: "Rice Cooker" },
+  { icon: "🍳", label: "Multipurpose Cooker" },
+  { icon: "☕", label: "Electric Kettle" },
+  { icon: "💇", label: "Hair Dryer" },
+  { icon: "🚿", label: "Hot Shower" },
+  { icon: "🚽", label: "Bidet" },
   { icon: "🍴", label: "Basic Kitchenware" },
   { icon: "🧂", label: "Salt & Pepper" },
   { icon: "🛁", label: "Towels" },
-  { icon: "🎁", label: "Guest Kit (Shampoo, Soap, Toothbrush, Toothpaste, Tissue)" },
+  { icon: "🎁", label: "Guest Toiletries (Shampoo, Soap, Toothbrush, Toothpaste, Tissue)" },
   { icon: "🎲", label: "Board Games, Chess & Playing Cards" },
 ];
 
@@ -64,6 +70,33 @@ export const AMENITIES: Amenity[] = [
  * the guidebook content editor rather than the guidebook fabricating policy
  * language the business never actually set. */
 export const HOUSE_RULES: string[] = [];
+
+/** The self check-in walkthrough — fixed building procedure (not a
+ * per-unit or admin-editable field, since it describes how the building's
+ * front desk/security process works, not this business's own content).
+ * The final step's actual code is filled in per-unit at render time from
+ * Unit.doorCode — never hardcoded here. */
+export type CheckInStep = { step: number; title: string; body: string[] };
+export const CHECKIN_STEPS: CheckInStep[] = [
+  { step: 1, title: "Before check-in", body: ["Please send the valid IDs of ALL guests before arrival.", "This is required by the building administration."] },
+  { step: 2, title: "Arrival", body: ["Pin \"Urban Deca Towers Cubao\" in Grab or JoyRide."] },
+  { step: 3, title: "Lobby", body: ["Proceed to the Main Lobby facing EDSA."] },
+  { step: 4, title: "Security guard", body: ["Present your booking confirmation, a valid ID, and complete the guest form.", "Security may temporarily hold one valid ID."] },
+  { step: 5, title: "RFID card", body: ["A staff member will meet you in the lobby and hand over the RFID tap card."] },
+  { step: 6, title: "Access your unit", body: ["Use your assigned door code below."] },
+];
+
+/** The checkout checklist — same reasoning as CHECKIN_STEPS: fixed
+ * procedure, not admin-editable content. */
+export const CHECKOUT_CHECKLIST: string[] = [
+  "Turn off aircon",
+  "Turn off TV",
+  "Dispose of trash",
+  "Wash used dishes",
+  "Lock the door",
+  "Leave the RFID card inside the room",
+  "Final inspection",
+];
 
 /** Guest-type quick filters for the guidebook's "For you" recommendations —
  * each maps to a subset of the categories above, not fabricated new places. */
