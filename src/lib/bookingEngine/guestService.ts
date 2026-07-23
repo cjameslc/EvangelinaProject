@@ -28,24 +28,18 @@ export async function getGuestBookings(guestId: string) {
   });
 }
 
-export async function getGuestBooking(guestId: string, bookingId: string) {
-  return prisma.booking.findFirst({
-    where: { id: bookingId, guestId },
-    select: publicBookingSelect,
-  });
-}
-
-// Door code/WiFi password are sensitive — deliberately not part of
-// publicBookingSelect (used by the booking list + detail page), only ever
-// fetched here, for the one page that actually needs to show them: the
-// Digital Guidebook, and only to the guest who owns this exact booking.
+// The single-booking detail page (my-bookings/[id]) is now a tabbed
+// Guidebook + Booking experience, so it needs the union of both: everything
+// publicBookingSelect has (payment/invoice fields for the Booking tab) plus
+// the sensitive per-unit guide fields (WiFi/door code/check-in instructions
+// — deliberately NOT part of publicBookingSelect, since that one also backs
+// the booking LIST page, which has no business surfacing a door code).
 const guideBookingSelect = {
-  id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, stayType: true,
-  guests: true, confirmationNumber: true, cancelledAt: true, checkedInAt: true, checkedOutAt: true,
+  ...publicBookingSelect,
   unit: {
     select: {
       id: true, name: true, shortName: true, unitNumber: true, photoUrl: true, location: true,
-      wifiSsid: true, wifiPassword: true, doorCode: true, checkInInstructions: true, videoTutorialUrl: true,
+      wifiSsid: true, wifiPassword: true, doorCode: true, checkInInstructions: true, checkOutInstructions: true, videoTutorialUrl: true,
     },
   },
 } as const;

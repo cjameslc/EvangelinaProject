@@ -1,12 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
-import { SMART_RECOMMENDATIONS, CONCIERGE_SAMPLE_QUESTIONS, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
+import { SMART_RECOMMENDATIONS, CONCIERGE_SAMPLE_QUESTIONS, BUILDING_INFO, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
 import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, wifiQrPayload } from "@/lib/guideUtils";
 import { OPEN_CONCIERGE_EVENT } from "@/components/guest/AIAssistantWidget";
+
+// Philippines' single nationwide emergency hotline — a verifiable public
+// fact (National Emergency Hotline), not business-specific data, so it's
+// safe to always show regardless of whether Admin has set their own
+// property-specific emergencyContactPhone below.
+const PH_NATIONAL_EMERGENCY_HOTLINE = "911";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -14,7 +19,8 @@ type GuideBooking = {
   checkedInAt: string | null; checkedOutAt: string | null;
   unit: {
     id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string;
-    wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; checkInInstructions: string | null; videoTutorialUrl: string | null;
+    wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null;
+    checkInInstructions: string | null; checkOutInstructions: string | null; videoTutorialUrl: string | null;
   };
 };
 type Guidebook = {
@@ -24,6 +30,9 @@ type Guidebook = {
   contactPhone: string | null;
   emergencyContactPhone: string | null;
   messengerUsername: string | null;
+  hostName: string | null;
+  hostPhotoUrl: string | null;
+  hostBio: string | null;
 };
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation instead of
@@ -124,11 +133,9 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
   }
 
   return (
-    <div className="mx-auto max-w-[640px] px-4 py-8 sm:px-6">
-      <Link href={`/my-bookings/${booking.id}`} className="text-[13px] font-semibold text-[var(--gray)] hover:text-[var(--ink)]">‹ Back to booking</Link>
-
+    <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
       {/* Welcome header */}
-      <div className="card mt-3 overflow-hidden">
+      <div className="card overflow-hidden">
         <div className="aspect-[21/9] w-full bg-[var(--bg-2)]">
           {booking.unit.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -203,6 +210,25 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
         </div>
       )}
 
+      {/* Check-out guide */}
+      {booking.unit.checkOutInstructions && (
+        <div className="card mt-3 p-5">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🚪 Check-out guide</div>
+          <p className="text-[13.5px] leading-relaxed">{booking.unit.checkOutInstructions}</p>
+        </div>
+      )}
+
+      {/* Emergency */}
+      <div className="card mt-3 p-5">
+        <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🚨 Emergency</div>
+        <div className="flex flex-wrap gap-2">
+          <a href={telUrl(PH_NATIONAL_EMERGENCY_HOTLINE)} className="btn btn-sm">📞 National emergency hotline — {PH_NATIONAL_EMERGENCY_HOTLINE}</a>
+          {guidebook.emergencyContactPhone && (
+            <a href={telUrl(guidebook.emergencyContactPhone)} className="btn btn-sm text-rausch">🏠 Property emergency contact</a>
+          )}
+        </div>
+      </div>
+
       {/* WiFi */}
       {hasWifi && (
         <div className="card mt-3 p-5">
@@ -248,6 +274,44 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
         </div>
       </div>
 
+      {/* Inside the building */}
+      <div className="card mt-3 p-5">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🏢 Inside the building</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="mb-1.5 text-[11px] font-bold text-[var(--gray)]">Ground floor</div>
+            <ul className="space-y-1 text-[12.5px]">
+              {BUILDING_INFO.groundFloor.map((f) => <li key={f}>• {f}</li>)}
+            </ul>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] font-bold text-[var(--gray)]">Building features</div>
+            <ul className="space-y-1 text-[12.5px]">
+              {BUILDING_INFO.features.map((f) => <li key={f}>• {f}</li>)}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Meet your host */}
+      {guidebook.hostName && (
+        <div className="card mt-3 p-5">
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">👋 Meet your host</div>
+          <div className="flex items-center gap-3">
+            {guidebook.hostPhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={guidebook.hostPhotoUrl} alt={guidebook.hostName} className="h-14 w-14 flex-none rounded-full object-cover" />
+            ) : (
+              <span className="grid h-14 w-14 flex-none place-items-center rounded-full bg-[var(--bg-2)] text-[20px]">👤</span>
+            )}
+            <div>
+              <div className="text-[14.5px] font-extrabold">{guidebook.hostName}</div>
+              {guidebook.hostBio && <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--gray)]">{guidebook.hostBio}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Guest requests */}
       <div className="card mt-3 p-5">
         <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🙋 Need something?</div>
@@ -265,10 +329,9 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
           ))}
         </div>
         {requestError && <p className="mt-2 text-[12.5px] font-semibold text-rausch">{requestError}</p>}
-        {(guidebook.contactPhone || guidebook.emergencyContactPhone) && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {guidebook.contactPhone && <a href={telUrl(guidebook.contactPhone)} className="btn btn-sm">📞 Contact host</a>}
-            {guidebook.emergencyContactPhone && <a href={telUrl(guidebook.emergencyContactPhone)} className="btn btn-sm text-rausch">🚨 Emergency</a>}
+        {guidebook.contactPhone && (
+          <div className="mt-3">
+            <a href={telUrl(guidebook.contactPhone)} className="btn btn-sm">📞 Contact host</a>
           </div>
         )}
       </div>
@@ -348,10 +411,9 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
         </div>
       )}
 
-      <div className="mt-6 text-center text-[12px] text-[var(--gray)]">
-        {booking.confirmationNumber && <>Confirmation {booking.confirmationNumber} · </>}
-        <Link href={`/my-bookings/${booking.id}`} className="font-bold text-rausch hover:underline">View booking details</Link>
-      </div>
+      {booking.confirmationNumber && (
+        <div className="mt-6 text-center text-[12px] text-[var(--gray)]">Confirmation {booking.confirmationNumber}</div>
+      )}
     </div>
   );
 }

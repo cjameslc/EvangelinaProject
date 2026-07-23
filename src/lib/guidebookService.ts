@@ -8,6 +8,9 @@ export type GuidebookSettings = {
   contactPhone: string | null;
   emergencyContactPhone: string | null;
   messengerUsername: string | null;
+  hostName: string | null;
+  hostPhotoUrl: string | null;
+  hostBio: string | null;
 };
 
 /** Same null-falls-back-to-default pattern as CHECKLIST_GROUPS — an Admin
@@ -21,5 +24,8 @@ export async function getGuidebookSettings(): Promise<GuidebookSettings> {
     contactPhone: settings.contactPhone,
     emergencyContactPhone: settings.emergencyContactPhone,
     messengerUsername: settings.messengerUsername,
+    hostName: settings.hostName,
+    hostPhotoUrl: settings.hostPhotoUrl,
+    hostBio: settings.hostBio,
   };
 }

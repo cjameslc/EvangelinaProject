@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentGuest } from "@/lib/guestSession";
-import { getGuestBooking } from "@/lib/bookingEngine/guestService";
-import { BookingDetailClient } from "@/components/guest/BookingDetailClient";
+import { getGuestBookingForGuide } from "@/lib/bookingEngine/guestService";
+import { getGuidebookSettings } from "@/lib/guidebookService";
+import { GuestBookingHub } from "@/components/guest/GuestBookingHub";
 
 export default async function BookingDetailPage({ params }: { params: { id: string } }) {
   const guest = await getCurrentGuest();
@@ -15,8 +16,11 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
     );
   }
 
-  const booking = await getGuestBooking(guest.id, params.id);
+  const [booking, guidebook] = await Promise.all([
+    getGuestBookingForGuide(guest.id, params.id),
+    getGuidebookSettings(),
+  ]);
   if (!booking) notFound();
 
-  return <BookingDetailClient booking={JSON.parse(JSON.stringify(booking))} />;
+  return <GuestBookingHub booking={JSON.parse(JSON.stringify(booking))} guidebook={guidebook} />;
 }

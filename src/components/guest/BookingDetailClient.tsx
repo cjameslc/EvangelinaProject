@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useRef, useState } from "react";
 import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
@@ -121,7 +120,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
   }
 
   return (
-    <div className="mx-auto max-w-[600px] px-4 py-9 sm:px-6">
+    <div className="mx-auto max-w-[600px] px-4 py-5 sm:px-6">
       <div className="aspect-video w-full overflow-hidden rounded-2xl bg-[var(--bg-2)]">
         {booking.unit.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -143,22 +142,6 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
           <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Confirmation number</div>
           <div className="mt-1 text-[18px] font-extrabold tracking-wide">{booking.confirmationNumber}</div>
         </div>
-      )}
-
-      {!booking.cancelledAt && (
-        <Link
-          href={`/my-bookings/${booking.id}/guide`}
-          className="card mt-3 flex items-center justify-between gap-3 bg-gradient-to-r from-rausch/10 to-violet/10 p-4 transition hover:from-rausch/15 hover:to-violet/15"
-        >
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 flex-none place-items-center rounded-full bg-white text-[22px] shadow-sm dark:bg-white/10">📖</span>
-            <div>
-              <div className="text-[14.5px] font-extrabold">Digital Guidebook</div>
-              <div className="text-[12px] text-[var(--gray)]">WiFi, door code, nearby places & the AI Concierge</div>
-            </div>
-          </div>
-          <span className="text-[18px] text-[var(--gray)]">›</span>
-        </Link>
       )}
 
       <div className="card mt-3 grid grid-cols-2 gap-4 p-5 text-[13.5px]">

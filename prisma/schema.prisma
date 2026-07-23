@@ -84,6 +84,7 @@ model Unit {
   wifiPassword         String?
   doorCode             String?
   checkInInstructions  String? // free text — e.g. "Elevator to 11F, unit is on your left"
+  checkOutInstructions String? // free text — e.g. "Leave keys on the counter, lock the door behind you"
   videoTutorialUrl     String? // optional walkthrough video (YouTube/Drive link)
 
   createdAt   DateTime @default(now())
@@ -689,6 +690,13 @@ model Settings {
   guidebookCategories String? // JSON-encoded GuidebookCategory[]
   amenities            String? // JSON-encoded string[]
   houseRules           String? // JSON-encoded string[]
+
+  // Guest Experience module — "Meet your host" card in the Digital
+  // Guidebook. All null (hidden) until Admin actually fills these in —
+  // never a fabricated bio/photo.
+  hostName    String?
+  hostPhotoUrl String?
+  hostBio      String?
 
   // Payroll rates — the "Your team" formula on Dashboard/Admin reads these
   // instead of hardcoding them, so Admin can tune pay without a code change.

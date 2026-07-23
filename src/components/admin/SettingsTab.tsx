@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
-import { PlusIcon, TrashIcon } from "@/components/ui/Icons";
+import { PlusIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
+import { fileToDataUrl } from "@/lib/file";
 
 type Settings = {
   businessName: string; address: string; nightlyRate: number; dpFee: number;
@@ -11,6 +12,7 @@ type Settings = {
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
   contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
   guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
+  hostName?: string | null; hostPhotoUrl?: string | null; hostBio?: string | null;
 };
 
 export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?: (s: Settings) => void }) {
@@ -23,8 +25,18 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     guidebookCategories: initial.guidebookCategories ?? GUIDEBOOK_CATEGORIES,
     amenities: initial.amenities ?? AMENITIES,
     houseRules: initial.houseRules ?? HOUSE_RULES,
+    hostName: initial.hostName ?? "",
+    hostPhotoUrl: initial.hostPhotoUrl ?? null,
+    hostBio: initial.hostBio ?? "",
   });
   const [saving, setSaving] = useState(false);
+
+  async function handleHostPhoto(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { toast("Photo is too large (max 4MB)", true); return; }
+    const dataUrl = await fileToDataUrl(file);
+    setForm((f) => ({ ...f, hostPhotoUrl: dataUrl }));
+  }
 
   async function save() {
     const numericFields: (keyof Settings)[] = [
@@ -120,6 +132,31 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           </div>
         </div>
       </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — meet your host</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">A personal welcome card in the Digital Guidebook. Leave blank to hide it — never shown with placeholder text.</p>
+        <div className="flex gap-3">
+          <div className="flex-none">
+            <input id="host-photo" type="file" accept="image/*" className="hidden" onChange={(e) => handleHostPhoto(e.target.files?.[0])} />
+            {form.hostPhotoUrl ? (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.hostPhotoUrl} alt="Host" className="h-20 w-20 rounded-full object-cover" />
+                <button onClick={() => setForm((f) => ({ ...f, hostPhotoUrl: null }))} className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-rausch text-[10px] text-white">✕</button>
+              </div>
+            ) : (
+              <label htmlFor="host-photo" className="grid h-20 w-20 cursor-pointer place-items-center rounded-full border border-dashed border-[var(--line-2)] text-[var(--gray)]">
+                <UploadIcon className="h-5 w-5" />
+              </label>
+            )}
+          </div>
+          <div className="flex-1 space-y-2">
+            <input value={form.hostName} onChange={(e) => setForm({ ...form, hostName: e.target.value })} className="field-input" placeholder="Host name" />
+            <textarea value={form.hostBio} onChange={(e) => setForm({ ...form, hostBio: e.target.value })} className="field-input min-h-[60px]" placeholder="A short personal welcome message…" />
+          </div>
+        </div>
+      </div>
+
       <div className="border-t border-[var(--line)] pt-4">
         <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — contact channels</h3>
         <p className="mb-3 text-[12px] text-[var(--gray)]">Powers the Digital Guidebook&rsquo;s Contact host / Emergency / Message us buttons. Left blank hides that button rather than showing a placeholder.</p>

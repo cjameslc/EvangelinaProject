@@ -97,6 +97,7 @@ export const unitSchema = z.object({
   wifiPassword: z.string().nullable().optional(),
   doorCode: z.string().nullable().optional(),
   checkInInstructions: z.string().nullable().optional(),
+  checkOutInstructions: z.string().nullable().optional(),
   videoTutorialUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
 });
 
@@ -238,6 +239,9 @@ export const settingsSchema = z.object({
   contactPhone: z.string().nullable().optional(),
   emergencyContactPhone: z.string().nullable().optional(),
   messengerUsername: z.string().nullable().optional(),
+  hostName: z.string().nullable().optional(),
+  hostPhotoUrl: z.string().nullable().optional(),
+  hostBio: z.string().nullable().optional(),
   // .nullable() as well as .optional() — GET /api/settings genuinely
   // returns null for any of these until an admin saves once (see
   // src/lib/prisma.ts's parse extension), and the natural client pattern is
