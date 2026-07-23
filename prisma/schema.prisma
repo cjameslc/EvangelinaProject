@@ -413,9 +413,22 @@ model Booking {
   conflict        Boolean       @default(false) // imported booking overlaps an existing confirmed one — flagged, not auto-overwritten
 
   // Guest Portal: short human-friendly code for email/confirmation-number
-  // login (e.g. "EVA-7K2M9X") — null for staff-logged bookings, which have
-  // no self-service login use for one.
+  // login (e.g. "EVA-7K2M9X") and for the WiFi/door-code reveal gate —
+  // generated for every booking (guest self-service, staff-manual, and
+  // bulk import all funnel through createBookingCore). Immutable via the
+  // normal edit form/API (not part of bookingSchema) — see
+  // confirmationOverrideUntil below for the one deliberate, audited
+  // exception (an OWNER_ADMIN reactivating or reissuing it).
   confirmationNumber String? @unique
+  // Null = validity is computed automatically from the stay itself (see
+  // isConfirmationValid in confirmationValidity.ts — usable from booking
+  // creation through checkOutDate/date plus a short grace period, so an
+  // extended stay's later checkOutDate is honored automatically with no
+  // extra step). Set = an OWNER_ADMIN's explicit "reactivate" override,
+  // valid through this exact timestamp regardless of the stay dates —
+  // for a guest who legitimately needs access again after their natural
+  // window closed.
+  confirmationOverrideUntil DateTime?
   // Pre-discount rate total and the promo % applied, from src/lib/pricing/
   // rates.ts's quote at booking time — kept alongside `amount` (which is
   // already net of any discount, same convention as everywhere else in the

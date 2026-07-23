@@ -7,6 +7,7 @@ import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr, unitLabel, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 
 // Airbnb bookings only ever enter the system automatically (iCal import —
 // see syncCalendarMirror), never manually, so it's excluded from what staff
@@ -87,7 +88,10 @@ function addUtcDays(iso: string, days: number) {
 }
 
 export function BookingForm({
-  units, employees, initial, defaultDpFee, bookingId, confirmationNumber, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
+  units, employees, initial, defaultDpFee, bookingId, confirmationNumber, confirmationOverrideUntil,
+  confirmationDate, confirmationCheckOutDate, confirmationCancelled,
+  onReactivateConfirmation, onRegenerateConfirmation,
+  onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
 }: {
   units: Unit[];
   employees: Employee[];
@@ -96,9 +100,21 @@ export function BookingForm({
   /** The booking being edited, if any — excluded from its own conflict check. */
   bookingId?: string;
   /** Read-only — auto-generated at creation (see confirmationNumber.ts),
-   * never editable here. The guest's own sign-in code, and what unlocks
-   * this specific unit's WiFi/door code in the Digital Guidebook. */
+   * never editable here as a text field. The guest's own sign-in code, and
+   * what unlocks this specific unit's WiFi/door code in the Digital
+   * Guidebook. An OWNER_ADMIN can still take the two deliberate, audited
+   * actions below — reactivate or regenerate — never a free-text edit. */
   confirmationNumber?: string | null;
+  confirmationOverrideUntil?: string | null;
+  confirmationDate?: string;
+  confirmationCheckOutDate?: string | null;
+  confirmationCancelled?: boolean;
+  /** Present only for an OWNER_ADMIN editing an existing booking — extends
+   * validity past the normal stay window. */
+  onReactivateConfirmation?: () => void;
+  /** Present only for an OWNER_ADMIN editing an existing booking — issues a
+   * brand-new code, immediately invalidating the old one. */
+  onRegenerateConfirmation?: () => void;
   /** Return `false` on failure — anything else (including void) counts as
    * success. The form only resets its fields on success, so a failed save
    * (network error, server rejection) never wipes out what staff typed. */
@@ -314,9 +330,41 @@ export function BookingForm({
         </div>
       )}
       {confirmationNumber && (
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5">
-          <span className="text-[12.5px] font-semibold text-[var(--gray)]">Booking ID — the guest&rsquo;s sign-in / WiFi &amp; door code</span>
-          <span className="font-mono text-[14px] font-extrabold tracking-wide">{confirmationNumber}</span>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12.5px] font-semibold text-[var(--gray)]">Booking ID — the guest&rsquo;s sign-in / WiFi &amp; door code</span>
+            <span className="font-mono text-[14px] font-extrabold tracking-wide">{confirmationNumber}</span>
+          </div>
+          {confirmationDate && (
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              {isConfirmationValid({
+                date: confirmationDate,
+                checkOutDate: confirmationCheckOutDate ?? null,
+                cancelledAt: confirmationCancelled ? confirmationDate : null,
+                confirmationOverrideUntil: confirmationOverrideUntil ?? null,
+              }) ? (
+                <span className="text-[11px] font-bold text-green">● Active{confirmationOverrideUntil ? ` — reactivated through ${fmtDate(confirmationOverrideUntil, { month: "short", day: "numeric" })}` : ""}</span>
+              ) : (
+                <span className="text-[11px] font-bold text-rausch">● Expired — won&rsquo;t sign the guest in or reveal WiFi/door code</span>
+              )}
+              {(onReactivateConfirmation || onRegenerateConfirmation) && (
+                <div className="flex gap-1.5">
+                  {onReactivateConfirmation && (
+                    <button type="button" onClick={onReactivateConfirmation} className="btn-sm btn">Reactivate</button>
+                  )}
+                  {onRegenerateConfirmation && (
+                    <button
+                      type="button"
+                      onClick={() => { if (confirm("Generate a new booking ID? The current one will stop working immediately.")) onRegenerateConfirmation(); }}
+                      className="btn-sm btn"
+                    >
+                      Generate new code
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       <fieldset disabled={saving} className="contents">

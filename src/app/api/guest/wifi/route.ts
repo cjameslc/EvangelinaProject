@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getActiveGuideBooking, getGuestBookingForGuide } from "@/lib/bookingEngine/guestService";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
+import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 
 /**
  * Same gate as /api/guest/door-code, same reasoning: the WiFi password is
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (!confirmationNumber) return NextResponse.json({ error: "Enter your booking ID." }, { status: 400 });
 
   const booking = bookingId ? await getGuestBookingForGuide(guest.id, bookingId) : await getActiveGuideBooking(guest.id);
-  if (!booking || !booking.unit.wifiSsid || !booking.unit.wifiPassword || booking.confirmationNumber?.toUpperCase() !== confirmationNumber) {
+  if (!booking || !booking.unit.wifiSsid || !booking.unit.wifiPassword || booking.confirmationNumber?.toUpperCase() !== confirmationNumber || !isConfirmationValid(booking)) {
     return NextResponse.json({ error: "That booking ID doesn't match your active stay." }, { status: 403 });
   }
 

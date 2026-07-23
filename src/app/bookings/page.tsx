@@ -28,7 +28,7 @@ export default async function BookingsPage() {
         guests: true, pax: true, contactNumber: true, bookerId: true, cleanerId: true, platform: true, platformOther: true,
         dpAmount: true, dpReceivedById: true, dpMethod: true, amount: true, receivedById: true, method: true, paid: true,
         source: true, conflict: true, checkedInAt: true, checkedOutAt: true, cancelledAt: true, cancellationReason: true, refundedAt: true, refundReason: true, notes: true,
-        confirmationNumber: true,
+        confirmationNumber: true, confirmationOverrideUntil: true,
         unit: { select: { id: true, name: true, unitNumber: true, shortName: true, nightlyRate: true, owners: { include: { user: { select: { name: true } } } } } },
         booker: { select: { id: true, name: true } },
         cleaner: { select: { id: true, name: true } },

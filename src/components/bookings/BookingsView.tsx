@@ -33,6 +33,7 @@ type Booking = {
   refundedAt?: string | null; refundReason?: string | null;
   notes?: string | null;
   confirmationNumber?: string | null;
+  confirmationOverrideUntil?: string | null;
 };
 type HkState = { unitId: string; status: string };
 
@@ -150,6 +151,19 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     setEditing(null);
     refresh();
     return true;
+  }
+
+  async function updateConfirmation(id: string, action: "reactivate" | "regenerate") {
+    const res = await fetch(`/api/bookings/${id}/confirmation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) { toast(j?.error ?? "Couldn't update the booking ID.", true); return; }
+    toast(action === "reactivate" ? "Booking ID reactivated ✓" : "New booking ID generated ✓");
+    setEditing((e) => (e && e.id === id ? { ...e, confirmationNumber: j.confirmationNumber, confirmationOverrideUntil: j.confirmationOverrideUntil } : e));
+    refresh();
   }
 
   async function deleteBooking(id: string) {
@@ -747,6 +761,12 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             initial={editingInitial}
             bookingId={editing.id}
             confirmationNumber={editing.confirmationNumber}
+            confirmationOverrideUntil={editing.confirmationOverrideUntil}
+            confirmationDate={editing.date}
+            confirmationCheckOutDate={editing.checkOutDate}
+            confirmationCancelled={!!editing.cancelledAt}
+            onReactivateConfirmation={role === "OWNER_ADMIN" ? () => updateConfirmation(editing.id, "reactivate") : undefined}
+            onRegenerateConfirmation={role === "OWNER_ADMIN" ? () => updateConfirmation(editing.id, "regenerate") : undefined}
             onCancel={() => setEditing(null)}
             onSubmit={(v) => updateBooking(editing.id, v)}
             ownEmployeeId={ownEmployeeId}
