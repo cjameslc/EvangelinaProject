@@ -1,6 +1,6 @@
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
-import { CATEGORY_ART } from "@/lib/guideNav";
+import { CATEGORY_COVER_PHOTOS } from "@/lib/guideNav";
 import { FaqAccordion } from "@/components/guest/FaqAccordion";
 
 export default async function FaqsPage() {
@@ -8,7 +8,7 @@ export default async function FaqsPage() {
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon="❓" art={CATEGORY_ART.faqs} title="FAQs" subtitle="Common questions from guests." />
+      <GuidePageHeader icon="❓" image={CATEGORY_COVER_PHOTOS.faqs} title="FAQs" subtitle="Common questions from guests." />
 
       <div className="mt-3">
         {g.faqs.length === 0 ? (

@@ -87,7 +87,7 @@ function addUtcDays(iso: string, days: number) {
 }
 
 export function BookingForm({
-  units, employees, initial, defaultDpFee, bookingId, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
+  units, employees, initial, defaultDpFee, bookingId, confirmationNumber, onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
 }: {
   units: Unit[];
   employees: Employee[];
@@ -95,6 +95,10 @@ export function BookingForm({
   defaultDpFee?: number;
   /** The booking being edited, if any — excluded from its own conflict check. */
   bookingId?: string;
+  /** Read-only — auto-generated at creation (see confirmationNumber.ts),
+   * never editable here. The guest's own sign-in code, and what unlocks
+   * this specific unit's WiFi/door code in the Digital Guidebook. */
+  confirmationNumber?: string | null;
   /** Return `false` on failure — anything else (including void) counts as
    * success. The form only resets its fields on success, so a failed save
    * (network error, server rejection) never wipes out what staff typed. */
@@ -307,6 +311,12 @@ export function BookingForm({
         <div className="sticky top-0 z-30 -mx-1 -mt-1 mb-1 flex items-center gap-2.5 rounded-2xl bg-[var(--ink)] px-4 py-3 text-[13.5px] font-bold text-[var(--bg)] shadow-card">
           <span className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-[var(--bg)]/30 border-t-[var(--bg)]" />
           Saving your changes — please wait, this can take a few seconds…
+        </div>
+      )}
+      {confirmationNumber && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5">
+          <span className="text-[12.5px] font-semibold text-[var(--gray)]">Booking ID — the guest&rsquo;s sign-in / WiFi &amp; door code</span>
+          <span className="font-mono text-[14px] font-extrabold tracking-wide">{confirmationNumber}</span>
         </div>
       )}
       <fieldset disabled={saving} className="contents">

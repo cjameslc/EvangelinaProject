@@ -808,6 +808,20 @@ model PlaceInsight {
   summary        String?
   businessStatus String? // "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY"
 
+  // Real walking/driving duration from the property, via the Distance
+  // Matrix API (distanceMeters above stays haversine/free — this is the
+  // one place an actual route-time call happens, once per refresh).
+  walkMinutes  Int?
+  driveMinutes Int?
+  priceLevel   Int?    // Google's 0 (free) - 4 (very expensive) scale, when it has one
+  phoneNumber  String?
+  website      String?
+  // A short, host-voiced blurb generated once per refresh (Gemini),
+  // strictly grounded in this row's own real fields (name, category,
+  // distance, rating, Google's summary) — never a claim this data doesn't
+  // support. Regenerated every refresh alongside everything else here.
+  hostOverview String?
+
   fetchError    String? // set (and every other field left as-is) when a refresh fails, so a bad lookup doesn't wipe prior good data
   lastFetchedAt DateTime @default(now())
 

@@ -32,6 +32,7 @@ type Booking = {
   cancelledAt?: string | null; cancellationReason?: string | null;
   refundedAt?: string | null; refundReason?: string | null;
   notes?: string | null;
+  confirmationNumber?: string | null;
 };
 type HkState = { unitId: string; status: string };
 
@@ -349,7 +350,9 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       if (platformFilter !== "all" && b.platform !== platformFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        const hay = [b.guests.join(" "), b.contactNumber, b.booker?.name, b.receivedBy?.name, b.unit.name].join(" ").toLowerCase();
+        const hay = [b.guests.join(" "), b.contactNumber, b.booker?.name, b.receivedBy?.name, b.unit.name, b.confirmationNumber]
+          .join(" ")
+          .toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -658,7 +661,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div className="relative min-w-[180px] flex-1">
           <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--gray)]" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, number, booker, or receiver" className="field-input pl-10" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, phone, booking ID, booker, or receiver" className="field-input pl-10" />
         </div>
         <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="field-input w-auto">
           <option value="today">Today</option>
@@ -743,6 +746,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
             submitLabel="Save changes"
             initial={editingInitial}
             bookingId={editing.id}
+            confirmationNumber={editing.confirmationNumber}
             onCancel={() => setEditing(null)}
             onSubmit={(v) => updateBooking(editing.id, v)}
             ownEmployeeId={ownEmployeeId}
@@ -791,6 +795,11 @@ function BookingLine({
         <div className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5 text-[12.5px] text-[var(--gray)]">
           <span>{b.contactNumber || "no contact"}</span>
           <span>{time ?? "time not set"}</span>
+          {b.confirmationNumber && (
+            <span className="font-mono font-bold tracking-wide text-[var(--ink)]" title="Booking ID — guest uses this to sign in and unlock this unit's WiFi/door code">
+              🔑 {b.confirmationNumber}
+            </span>
+          )}
         </div>
         <div className="text-[12px] text-[var(--gray)]">
           Checkout {fmtDate(outIso, { month: "short", day: "numeric" })}
@@ -857,6 +866,7 @@ function OccupiedLine({ b }: { b: Booking }) {
       <span className="rounded-full bg-amber/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber">Occupied</span>
       <span className="font-extrabold text-rausch">Unit {b.unit.unitNumber} · {b.unit.shortName}</span>
       <span className="font-bold">{b.guests.join(", ") || "Guest"}</span>
+      {b.confirmationNumber && <span className="font-mono text-[12px] font-bold text-[var(--gray)]">🔑 {b.confirmationNumber}</span>}
     </div>
   );
 }

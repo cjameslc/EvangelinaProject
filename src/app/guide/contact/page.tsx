@@ -1,6 +1,6 @@
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
-import { CATEGORY_ART } from "@/lib/guideNav";
+import { CATEGORY_COVER_PHOTOS } from "@/lib/guideNav";
 import { telUrl, messengerUrl } from "@/lib/guideUtils";
 
 export default async function ContactPage() {
@@ -8,7 +8,7 @@ export default async function ContactPage() {
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon="📞" art={CATEGORY_ART.contact} title="Contact Host" subtitle={g.hostName ? `Reach ${g.hostName} directly.` : "Get in touch with your host."} />
+      <GuidePageHeader icon="📞" image={CATEGORY_COVER_PHOTOS.contact} title="Contact Host" subtitle={g.hostName ? `Reach ${g.hostName} directly.` : "Get in touch with your host."} />
 
       <div className="card mt-3 space-y-2.5 p-5">
         {g.contactPhone ? (

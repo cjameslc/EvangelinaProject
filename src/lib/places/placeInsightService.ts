@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { lookupPlace, haversineMeters } from "@/lib/places/googlePlacesClient";
+import { generateHostOverview } from "@/lib/ai/placeOverview";
 import { formatDistance } from "@/lib/places/placeInsightFormat";
 
 export { formatDistance };
@@ -12,40 +13,47 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function refreshPlaceInsight(category: string, name: string) {
-  const [settings, result] = await Promise.all([
-    prisma.settings.findUnique({ where: { id: 1 }, select: { propertyLat: true, propertyLng: true } }),
-    lookupPlace(name),
-  ]);
+export async function refreshPlaceInsight(category: string, categoryLabel: string, name: string) {
+  const settings = await prisma.settings.findUnique({ where: { id: 1 }, select: { propertyLat: true, propertyLng: true } });
+  const origin = settings?.propertyLat != null && settings?.propertyLng != null ? { lat: settings.propertyLat, lng: settings.propertyLng } : null;
+
+  const result = await lookupPlace(name, origin);
 
   let distanceMeters: number | null = null;
-  if (result.lat != null && result.lng != null && settings?.propertyLat != null && settings?.propertyLng != null) {
-    distanceMeters = Math.round(haversineMeters(settings.propertyLat, settings.propertyLng, result.lat, result.lng));
+  if (result.lat != null && result.lng != null && origin) {
+    distanceMeters = Math.round(haversineMeters(origin.lat, origin.lng, result.lat, result.lng));
   }
+
+  // Only worth the extra Gemini call when the lookup actually succeeded —
+  // no point generating a blurb for a place that failed to resolve.
+  const hostOverview = result.error
+    ? null
+    : await generateHostOverview({
+        name, categoryLabel, distanceMeters, walkMinutes: result.walkMinutes,
+        rating: result.rating, ratingCount: result.ratingCount, priceLevel: result.priceLevel, googleSummary: result.summary,
+      });
+
+  const data = {
+    placeId: result.placeId, lat: result.lat, lng: result.lng, distanceMeters,
+    rating: result.rating, ratingCount: result.ratingCount,
+    openingHours: result.openingHoursText as any, openNow: result.openNow,
+    summary: result.summary, businessStatus: result.businessStatus,
+    walkMinutes: result.walkMinutes, driveMinutes: result.driveMinutes,
+    priceLevel: result.priceLevel, phoneNumber: result.phoneNumber, website: result.website,
+    hostOverview, fetchError: result.error,
+  };
 
   return prisma.placeInsight.upsert({
     where: { category_name: { category, name } },
-    create: {
-      category, name,
-      placeId: result.placeId, lat: result.lat, lng: result.lng, distanceMeters,
-      rating: result.rating, ratingCount: result.ratingCount,
-      openingHours: result.openingHoursText as any, openNow: result.openNow,
-      summary: result.summary, businessStatus: result.businessStatus, fetchError: result.error,
-    },
-    update: {
-      placeId: result.placeId, lat: result.lat, lng: result.lng, distanceMeters,
-      rating: result.rating, ratingCount: result.ratingCount,
-      openingHours: result.openingHoursText as any, openNow: result.openNow,
-      summary: result.summary, businessStatus: result.businessStatus, fetchError: result.error,
-      lastFetchedAt: new Date(),
-    },
+    create: { category, name, ...data },
+    update: { ...data, lastFetchedAt: new Date() },
   });
 }
 
-export async function refreshCategoryInsights(category: string, names: string[]) {
+export async function refreshCategoryInsights(category: string, categoryLabel: string, names: string[]) {
   const results: { name: string; ok: boolean; error: string | null }[] = [];
   for (const name of names) {
-    const row = await refreshPlaceInsight(category, name);
+    const row = await refreshPlaceInsight(category, categoryLabel, name);
     results.push({ name, ok: !row.fetchError, error: row.fetchError });
     if (name !== names[names.length - 1]) await sleep(REFRESH_DELAY_MS);
   }

@@ -7,31 +7,25 @@ import { GALLERY } from "@/lib/galleryContent";
 
 /** Cover photos for sections that aren't a real room but do have a real
  * (business-supplied, non-watermarked) photo — resized/optimized copies
- * live in public/gallery/category-*.jpg. Two supplied images were
- * deliberately left out: a Canva marketplace template with a visible
- * "Canva 3 Sizes" badge baked into the image (unusable on a live site),
- * and two flat clip-art illustrations on a plain white background that
- * would look broken under the tile's full-bleed dark-gradient treatment —
- * those three sections keep the generated CATEGORY_ART cover instead. */
+ * live in public/gallery/category-*.jpg. */
 export const CATEGORY_COVER_PHOTOS: Record<string, string> = {
   food: "/gallery/category-food.jpg",
   coffee: "/gallery/category-coffee.jpg",
   grocery: "/gallery/category-grocery.jpg",
   transportation: "/gallery/category-transportation.jpg",
   emergency: "/gallery/category-emergency.jpg",
+  reviews: "/gallery/category-reviews.jpg",
+  faqs: "/gallery/category-faqs.jpg",
+  contact: "/gallery/category-contact.jpg",
 };
 
-/** Generated cover-art config for sections with no real photo at all —
+/** Generated cover-art fallback for a section with no real photo at all —
  * see TileCoverArt.tsx. A gradient + a scattered icon motif, deliberately
  * not a fabricated photo of a real place — just a designed, on-brand
- * graphic so every tile in the grid feels equally finished. Keyed once
- * here so the hub tile and that section's own page header always match. */
+ * graphic so the tile still feels finished. Nothing uses this today (every
+ * section now has a real photo), kept ready in case a future category
+ * doesn't. */
 export type TileArt = { gradient: [string, string]; pattern: string };
-export const CATEGORY_ART: Record<string, TileArt> = {
-  reviews: { gradient: ["#F5A623", "#D97706"], pattern: "⭐" },
-  faqs: { gradient: ["#7C6CE8", "#4C3FB0"], pattern: "❓" },
-  contact: { gradient: ["#FF385C", "#B01E3F"], pattern: "💬" },
-};
 
 export type GuideTile = {
   key: string;
@@ -79,9 +73,9 @@ export const GUIDE_SECTIONS: GuideSection[] = [
   {
     label: "Support",
     tiles: [
-      { key: "reviews", href: "/guide/reviews", icon: "⭐", title: "Guest Reviews", subtitle: "What guests say", art: CATEGORY_ART.reviews },
-      { key: "faqs", href: "/guide/faqs", icon: "❓", title: "FAQs", subtitle: "Common questions", art: CATEGORY_ART.faqs },
-      { key: "contact", href: "/guide/contact", icon: "📞", title: "Contact Host", subtitle: "Get in touch", art: CATEGORY_ART.contact },
+      { key: "reviews", href: "/guide/reviews", icon: "⭐", title: "Guest Reviews", subtitle: "What guests say", image: CATEGORY_COVER_PHOTOS.reviews },
+      { key: "faqs", href: "/guide/faqs", icon: "❓", title: "FAQs", subtitle: "Common questions", image: CATEGORY_COVER_PHOTOS.faqs },
+      { key: "contact", href: "/guide/contact", icon: "📞", title: "Contact Host", subtitle: "Get in touch", image: CATEGORY_COVER_PHOTOS.contact },
       { key: "emergency", href: "/guide/emergency", icon: "🚨", title: "Emergency", subtitle: "Help when you need it", image: CATEGORY_COVER_PHOTOS.emergency },
     ],
   },

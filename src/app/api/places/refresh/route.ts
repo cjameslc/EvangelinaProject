@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const match = categories.find((c) => c.key === category);
   if (!match) return NextResponse.json({ error: "Unknown category." }, { status: 404 });
 
-  const results = await refreshCategoryInsights(category, match.items);
+  const results = await refreshCategoryInsights(category, match.label, match.items);
   await logAudit(user.id, "places.refresh", "PlaceInsight", category, { count: results.length, failed: results.filter((r) => !r.ok).length });
   return NextResponse.json({ results });
 }
