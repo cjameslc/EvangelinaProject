@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
 import { getViewMode } from "@/lib/viewMode";
-import { getCachedGuidebookCore } from "@/lib/guidebookService";
-import { GuideHubView } from "@/components/guest/GuideHubView";
+import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
+import { NEARBY_SLUGS, type NearbySlug } from "@/lib/guideNav";
+import { GuideHubView, type NearbySummary } from "@/components/guest/GuideHubView";
 
 export default async function Home() {
   const user = await getCurrentUser();
@@ -24,7 +26,30 @@ export default async function Home() {
   // /book and BookFlowView) — this page links out to booking, it never
   // renders booking content itself. (middleware.ts's authorized callback
   // special-cases "/" to make this reachable unauthenticated.)
-  const { hostName } = await getCachedGuidebookCore();
+  const g = await getGuidebookSettings();
 
-  return <GuideHubView hostName={hostName} />;
+  // Real walk/drive time from the property (Urban Deca Towers Cubao) to
+  // the nearest real place in each "Explore the neighborhood" category —
+  // shown right on the hub tile so a guest gets a sense of distance before
+  // even opening it. Computed from the same Google-sourced PlaceInsight
+  // data the category pages themselves use (see placeInsightService.ts) —
+  // never a fabricated/estimated number, and a category with no refreshed
+  // data yet just falls back to its plain subtitle.
+  const allItems = g.categories.flatMap((c) => c.items);
+  const insightsByName = await getPlaceInsightsByNames(allItems);
+  const nearbySummaries: Partial<Record<NearbySlug, NearbySummary>> = {};
+  for (const [slug, meta] of Object.entries(NEARBY_SLUGS) as [NearbySlug, (typeof NEARBY_SLUGS)[NearbySlug]][]) {
+    const items = g.categories.filter((c) => meta.categoryKeys.includes(c.key)).flatMap((c) => c.items);
+    let nearest: NearbySummary | null = null;
+    for (const item of items) {
+      const insight = insightsByName.get(item);
+      if (!insight || insight.distanceMeters == null) continue;
+      if (!nearest || insight.distanceMeters < nearest.distanceMeters) {
+        nearest = { distanceMeters: insight.distanceMeters, walkMinutes: insight.walkMinutes, driveMinutes: insight.driveMinutes };
+      }
+    }
+    if (nearest) nearbySummaries[slug] = nearest;
+  }
+
+  return <GuideHubView hostName={g.hostName} nearbySummaries={nearbySummaries} />;
 }

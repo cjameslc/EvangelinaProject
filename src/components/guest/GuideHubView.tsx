@@ -1,6 +1,18 @@
-import { GUIDE_SECTIONS } from "@/lib/guideNav";
+import { GUIDE_SECTIONS, type NearbySlug } from "@/lib/guideNav";
 import { TileCoverArt } from "@/components/guest/TileCoverArt";
 import { TransitionLink } from "@/components/guest/TransitionLink";
+
+export type NearbySummary = { distanceMeters: number; walkMinutes: number | null; driveMinutes: number | null };
+
+/** Real distance/time from the property to the nearest place in that
+ * category — never a fabricated estimate. Walking preferred when it's a
+ * reasonable distance; otherwise driving. */
+function nearbyBadge(s: NearbySummary): string | null {
+  if (s.walkMinutes != null && s.walkMinutes <= 25) return `🚶 ${s.walkMinutes} min`;
+  if (s.driveMinutes != null) return `🚗 ${s.driveMinutes} min`;
+  if (s.walkMinutes != null) return `🚶 ${s.walkMinutes} min`;
+  return null;
+}
 
 /**
  * The default landing page: an image-first tile grid grouped into scannable
@@ -13,7 +25,17 @@ import { TransitionLink } from "@/components/guest/TransitionLink";
  * whitespace. Tiles use TransitionLink so opening one animates smoothly
  * (same window, no new tab) instead of an abrupt page swap.
  */
-export function GuideHubView({ hostName }: { hostName: string | null }) {
+export function GuideHubView({
+  hostName,
+  nearbySummaries = {},
+}: {
+  hostName: string | null;
+  /** Keyed by NearbySlug — real walk/drive time to the nearest place in
+   * that "Explore the neighborhood" category, from Urban Deca Towers
+   * Cubao. Only categories with refreshed Google Places data get a badge;
+   * everything else falls back to its plain subtitle. */
+  nearbySummaries?: Partial<Record<NearbySlug, NearbySummary>>;
+}) {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14 lg:max-w-[1320px]">
       <div className="mb-6 text-center sm:mb-10">
@@ -32,32 +54,42 @@ export function GuideHubView({ hostName }: { hostName: string | null }) {
           <div key={section.label}>
             <h2 className="mb-2.5 text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)] sm:mb-3.5 sm:text-[13px]">{section.label}</h2>
             <div className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 lg:gap-5">
-              {section.tiles.map((tile) => (
-                <TransitionLink
-                  key={tile.key}
-                  href={tile.href}
-                  className="group relative flex aspect-square flex-col justify-end overflow-hidden rounded-xl bg-[var(--bg-2)] shadow-s transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(0,0,0,.22)] active:scale-[0.96] active:duration-100 sm:aspect-[4/5] sm:rounded-2xl"
-                >
-                  {tile.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={tile.image}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                  ) : tile.art ? (
-                    <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-110">
-                      <TileCoverArt icon={tile.icon} art={tile.art} size="sm" />
+              {section.tiles.map((tile) => {
+                const slug = tile.href.startsWith("/guide/nearby/") ? (tile.href.split("/").pop() as NearbySlug) : null;
+                const summary = slug ? nearbySummaries[slug] : undefined;
+                const badge = summary ? nearbyBadge(summary) : null;
+                return (
+                  <TransitionLink
+                    key={tile.key}
+                    href={tile.href}
+                    className="group relative flex aspect-square flex-col justify-end overflow-hidden rounded-xl bg-[var(--bg-2)] shadow-s transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(0,0,0,.22)] active:scale-[0.96] active:duration-100 sm:aspect-[4/5] sm:rounded-2xl"
+                  >
+                    {tile.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={tile.image}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                    ) : tile.art ? (
+                      <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-110">
+                        <TileCoverArt icon={tile.icon} art={tile.art} size="sm" />
+                      </div>
+                    ) : null}
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent" />
+                    {badge && (
+                      <div className="absolute right-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[8.5px] font-bold text-white backdrop-blur-sm sm:right-2 sm:top-2 sm:px-2 sm:py-1 sm:text-[10.5px]">
+                        {badge}
+                      </div>
+                    )}
+                    <div className="relative z-10 p-1.5 sm:p-3 md:p-3.5">
+                      <div className="text-[13px] leading-none drop-shadow sm:text-[20px] md:text-[24px]">{tile.icon}</div>
+                      <div className="mt-1 line-clamp-2 text-[9px] font-extrabold leading-tight text-white drop-shadow sm:mt-1.5 sm:text-[13px] md:text-[15px]">{tile.title}</div>
+                      <div className="mt-0.5 hidden text-[11px] leading-snug text-white/85 drop-shadow sm:block md:text-[11.5px]">{tile.subtitle}</div>
                     </div>
-                  ) : null}
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent" />
-                  <div className="relative z-10 p-1.5 sm:p-3 md:p-3.5">
-                    <div className="text-[13px] leading-none drop-shadow sm:text-[20px] md:text-[24px]">{tile.icon}</div>
-                    <div className="mt-1 line-clamp-2 text-[9px] font-extrabold leading-tight text-white drop-shadow sm:mt-1.5 sm:text-[13px] md:text-[15px]">{tile.title}</div>
-                    <div className="mt-0.5 hidden text-[11px] leading-snug text-white/85 drop-shadow sm:block md:text-[11.5px]">{tile.subtitle}</div>
-                  </div>
-                </TransitionLink>
-              ))}
+                  </TransitionLink>
+                );
+              })}
             </div>
           </div>
         ))}
