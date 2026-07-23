@@ -20,7 +20,7 @@ export default async function WifiPage() {
 
       <div className="card mt-3 p-5">
         {hasWifi ? (
-          <SecureWifiCard ssid={booking!.unit.wifiSsid!} password={booking!.unit.wifiPassword!} />
+          <SecureWifiCard />
         ) : (
           <NoActiveStayNotice what="the WiFi network name and password" signedIn={!!guest} />
         )}

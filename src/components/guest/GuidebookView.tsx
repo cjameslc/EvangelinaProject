@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import type { GuidebookCategory, Amenity } from "@/lib/guidebookContent";
-import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, wifiQrPayload, PH_NATIONAL_EMERGENCY_HOTLINE } from "@/lib/guideUtils";
+import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, PH_NATIONAL_EMERGENCY_HOTLINE } from "@/lib/guideUtils";
 import {
   AmenitiesSection, InsideTheBuildingSection, MeetYourHostSection, MeetOurTeamSection,
   HouseRulesSection, ConciergeEntrySection, NearbyPlacesSection,
 } from "@/components/guest/GuidebookSections";
 import type { TeamMember } from "@/lib/guidebookService";
 import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
-import { SecureDoorCodeCard } from "@/components/guest/SecureGuideCards";
+import { SecureDoorCodeCard, SecureWifiCard } from "@/components/guest/SecureGuideCards";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -19,7 +19,7 @@ type GuideBooking = {
   checkedInAt: string | null; checkedOutAt: string | null;
   unit: {
     id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string;
-    wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; hasDoorCode?: boolean;
+    wifiSsid: string | null; wifiPassword: string | null; hasWifi?: boolean; doorCode: string | null; hasDoorCode?: boolean;
     checkInInstructions: string | null; checkOutInstructions: string | null; videoTutorialUrl: string | null;
   };
 };
@@ -78,23 +78,13 @@ const REQUEST_TYPES: { key: string; label: string; icon: string }[] = [
 
 export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; guidebook: Guidebook }) {
   const { copiedKey, copy } = useCopy();
-  const [wifiQr, setWifiQr] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState<string | null>(null);
   const [requestSent, setRequestSent] = useState<string | null>(null);
   const [requestError, setRequestError] = useState("");
 
   const status = stayStatus(booking);
   const stayLabel = STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType;
-  const hasWifi = !!(booking.unit.wifiSsid && booking.unit.wifiPassword);
-
-  useEffect(() => {
-    if (!hasWifi) return;
-    let cancelled = false;
-    import("qrcode").then((QRCode) =>
-      QRCode.toDataURL(wifiQrPayload(booking.unit.wifiSsid!, booking.unit.wifiPassword!), { margin: 1, width: 220 })
-    ).then((url) => { if (!cancelled) setWifiQr(url); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [hasWifi, booking.unit.wifiSsid, booking.unit.wifiPassword]);
+  const hasWifi = !!booking.unit.hasWifi;
 
   async function sendRequest(type: string, label: string) {
     if (requestBusy) return;
@@ -212,31 +202,7 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
       {hasWifi && (
         <div className="card mt-3 p-5">
           <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">📶 WiFi</div>
-          <div className="flex items-center gap-4">
-            <div className="flex-1 space-y-2">
-              <button onClick={() => copy("wifiSsid", booking.unit.wifiSsid!)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
-                <div className="text-[10.5px] font-bold text-[var(--gray)]">Network</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-extrabold">{booking.unit.wifiSsid}</span>
-                  <span className="text-[11px] font-bold text-rausch">{copiedKey === "wifiSsid" ? "Copied ✓" : "Copy"}</span>
-                </div>
-              </button>
-              <button onClick={() => copy("wifiPassword", booking.unit.wifiPassword!)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
-                <div className="text-[10.5px] font-bold text-[var(--gray)]">Password</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-extrabold tracking-wide">{booking.unit.wifiPassword}</span>
-                  <span className="text-[11px] font-bold text-rausch">{copiedKey === "wifiPassword" ? "Copied ✓" : "Copy"}</span>
-                </div>
-              </button>
-            </div>
-            {wifiQr && (
-              <div className="flex-none text-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={wifiQr} alt="Scan to join WiFi" className="h-24 w-24 rounded-lg border border-[var(--line)]" />
-                <div className="mt-1 text-[10px] text-[var(--gray)]">Scan to join</div>
-              </div>
-            )}
-          </div>
+          <SecureWifiCard bookingId={booking.id} />
         </div>
       )}
 

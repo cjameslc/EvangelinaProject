@@ -98,6 +98,21 @@ export const CHECKOUT_CHECKLIST: string[] = [
   "Final inspection",
 ];
 
+/** The closing note on the Checkout Guide — the host's own words, verbatim. */
+export const CHECKOUT_THANK_YOU = {
+  heading: "Thank You for Staying with Us!",
+  paragraphs: [
+    "From the bottom of our hearts, thank you for choosing Evangelina's Staycation. It was truly our pleasure to host you, and we hope your stay was filled with comfort, relaxation, and wonderful memories.",
+    "Whether you visited for business, a concert, a family getaway, or a well-deserved staycation, we hope you felt right at home. Every guest is special to us, and we're grateful to have been part of your journey.",
+    "We sincerely hope to welcome you back on your next visit to Cubao. Our doors are always open, and we'll continue striving to make every stay even more enjoyable than the last.",
+    "If you loved your experience, we'd greatly appreciate it if you could leave us a review and share your stay with others. Your feedback helps us improve and allows more guests to discover Evangelina's Staycation.",
+    "Until we meet again, we wish you safe travels, wonderful adventures, and countless happy memories.",
+  ],
+  closing: "Thank you once again, and we look forward to welcoming you back soon!",
+  signOff: "With gratitude,",
+  signature: "The Evangelina's Staycation Team",
+};
+
 /** Guest-type quick filters for the guidebook's "For you" recommendations —
  * each maps to a subset of the categories above, not fabricated new places. */
 export const SMART_RECOMMENDATIONS: { key: string; label: string; icon: string; categoryKeys: string[] }[] = [
@@ -146,7 +161,7 @@ export const CONCIERGE_SAMPLE_QUESTIONS = [
 export type GuestReview = { name: string; unit: string; date: string; quote: string };
 
 export const REVIEW_SUMMARY = {
-  overallRating: 4.9,
+  overallRating: 5.0,
   reviewCount: 247,
   recommendPct: 98,
   categoryRatings: [

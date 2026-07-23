@@ -22,37 +22,83 @@ export function useCopy() {
   return { copiedKey, copy };
 }
 
-/** The real WiFi credentials for the guest's active unit — only ever
- * rendered by the caller once it has confirmed there IS an active,
- * non-cancelled booking for this guest (see getActiveGuideBooking). Never
- * receives more than one unit's credentials at a time. */
-export function SecureWifiCard({ ssid, password }: { ssid: string; password: string }) {
+/** Gates the real WiFi credentials behind re-entering the booking
+ * confirmation number — same reasoning and server contract as
+ * SecureDoorCodeCard (see /api/guest/wifi): the server never sends the
+ * SSID/password down until this check passes. */
+export function SecureWifiCard({ bookingId }: { bookingId?: string } = {}) {
   const { copiedKey, copy } = useCopy();
+  const [confirmationNumber, setConfirmationNumber] = useState("");
+  const [revealed, setRevealed] = useState<{ ssid: string; password: string; unitName: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!revealed) return;
     let cancelled = false;
     import("qrcode")
-      .then((QRCode) => QRCode.toDataURL(wifiQrPayload(ssid, password), { margin: 1, width: 220 }))
+      .then((QRCode) => QRCode.toDataURL(wifiQrPayload(revealed.ssid, revealed.password), { margin: 1, width: 220 }))
       .then((url) => { if (!cancelled) setQr(url); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [ssid, password]);
+  }, [revealed]);
+
+  async function reveal(e: FormEvent) {
+    e.preventDefault();
+    if (!confirmationNumber.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/guest/wifi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationNumber, bookingId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Couldn't verify that booking ID."); return; }
+      setRevealed(data);
+    } catch {
+      setError("Something went wrong — please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!revealed) {
+    return (
+      <form onSubmit={reveal} className="rounded-xl border border-[var(--line)] p-4">
+        <div className="text-[11px] font-bold text-[var(--gray)]">Enter your booking ID to view your WiFi</div>
+        <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">Sent to you when you booked — e.g. EVA-XXXXXX.</p>
+        <div className="mt-2.5 flex gap-2">
+          <input
+            value={confirmationNumber}
+            onChange={(e) => setConfirmationNumber(e.target.value)}
+            placeholder="EVA-XXXXXX"
+            className="field-input flex-1 uppercase tracking-wide"
+            autoCapitalize="characters"
+          />
+          <button type="submit" disabled={loading} className="btn-primary btn-sm flex-none">{loading ? "Checking…" : "Reveal"}</button>
+        </div>
+        {error && <p className="mt-2 text-[12px] font-bold text-rausch">{error}</p>}
+      </form>
+    );
+  }
 
   return (
     <div className="flex items-center gap-4">
       <div className="flex-1 space-y-2">
-        <button onClick={() => copy("ssid", ssid)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
+        <button onClick={() => copy("ssid", revealed.ssid)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
           <div className="text-[10.5px] font-bold text-[var(--gray)]">Network</div>
           <div className="flex items-center justify-between">
-            <span className="text-[14px] font-extrabold">{ssid}</span>
+            <span className="text-[14px] font-extrabold">{revealed.ssid}</span>
             <span className="text-[11px] font-bold text-rausch">{copiedKey === "ssid" ? "Copied ✓" : "Copy"}</span>
           </div>
         </button>
-        <button onClick={() => copy("password", password)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
+        <button onClick={() => copy("password", revealed.password)} className="block w-full rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-left transition hover:bg-[var(--bg-2)]">
           <div className="text-[10.5px] font-bold text-[var(--gray)]">Password</div>
           <div className="flex items-center justify-between">
-            <span className="text-[14px] font-extrabold tracking-wide">{password}</span>
+            <span className="text-[14px] font-extrabold tracking-wide">{revealed.password}</span>
             <span className="text-[11px] font-bold text-rausch">{copiedKey === "password" ? "Copied ✓" : "Copy"}</span>
           </div>
         </button>

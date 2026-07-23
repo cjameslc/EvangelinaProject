@@ -2,8 +2,7 @@ import { getCurrentGuest } from "@/lib/guestSession";
 import { getActiveGuideBooking } from "@/lib/bookingEngine/guestService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { CheckoutChecklist } from "@/components/guest/CheckoutChecklist";
-import { CHECKOUT_CHECKLIST } from "@/lib/guidebookContent";
-import { fmtDate, fmtTimeStr } from "@/lib/format";
+import { CHECKOUT_CHECKLIST, CHECKOUT_THANK_YOU } from "@/lib/guidebookContent";
 import { GALLERY } from "@/lib/galleryContent";
 
 export default async function CheckOutPage() {
@@ -13,14 +12,6 @@ export default async function CheckOutPage() {
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
       <GuidePageHeader image={GALLERY.bathroom[0].src} icon="✅" title="Checkout Guide" subtitle="A few quick steps before you head out." />
-
-      {booking?.checkOutDate && (
-        <div className="card mt-3 p-5">
-          <div className="text-[11px] font-bold text-[var(--gray)]">Your check-out</div>
-          <div className="text-[16px] font-extrabold">{fmtDate(booking.checkOutDate, { month: "short", day: "numeric", timeZone: "UTC" })}</div>
-          <div className="text-[12.5px] text-[var(--gray)]">{fmtTimeStr(booking.checkOutTime) ?? "Time not set"}</div>
-        </div>
-      )}
 
       <div className="card mt-3 p-5">
         <CheckoutChecklist items={CHECKOUT_CHECKLIST} />
@@ -32,6 +23,19 @@ export default async function CheckOutPage() {
           <p className="text-[13.5px] leading-relaxed">{booking.unit.checkOutInstructions}</p>
         </div>
       )}
+
+      <div className="card mt-3 p-5 text-center">
+        <div className="text-[28px]">💙</div>
+        <h2 className="mt-2 text-[16px] font-extrabold">{CHECKOUT_THANK_YOU.heading}</h2>
+        <div className="mx-auto mt-3 max-w-[520px] space-y-3 text-left text-[13px] leading-relaxed text-[var(--gray)]">
+          {CHECKOUT_THANK_YOU.paragraphs.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </div>
+        <p className="mx-auto mt-3 max-w-[520px] text-left text-[13px] font-bold leading-relaxed">{CHECKOUT_THANK_YOU.closing}</p>
+        <p className="mt-4 text-[13px] text-[var(--gray)]">{CHECKOUT_THANK_YOU.signOff}</p>
+        <p className="text-[13px] font-extrabold">{CHECKOUT_THANK_YOU.signature} 💙</p>
+      </div>
     </div>
   );
 }

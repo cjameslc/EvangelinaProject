@@ -7,6 +7,14 @@ export function mapsSearchUrl(place: string, context = "Cubao, Quezon City"): st
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place}, ${context}`)}`;
 }
 
+/** A plain Google web search — used where this app has no reliable data
+ * source of its own (e.g. "what's playing at Smart Araneta Coliseum this
+ * week") rather than fabricating or guessing a specific event/ticketing
+ * URL. Google's own current results are the source of truth. */
+export function googleSearchUrl(query: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
 export function wazeUrl(place: string, context = "Cubao, Quezon City"): string {
   return `https://waze.com/ul?q=${encodeURIComponent(`${place}, ${context}`)}&navigate=yes`;
 }

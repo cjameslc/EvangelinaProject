@@ -68,6 +68,10 @@ export const GUIDE_SECTIONS: GuideSection[] = [
       { key: "nearby-coffee", href: "/guide/nearby/coffee", icon: "☕", title: "Coffee Shops", subtitle: "Nearby cafés", image: CATEGORY_COVER_PHOTOS.coffee },
       { key: "nearby-grocery", href: "/guide/nearby/grocery", icon: "🛒", title: "Grocery", subtitle: "Where to stock up", image: CATEGORY_COVER_PHOTOS.grocery },
       { key: "transportation", href: "/guide/nearby/transportation", icon: "🚆", title: "Transportation", subtitle: "Getting around", image: CATEGORY_COVER_PHOTOS.transportation },
+      { key: "nearby-hospitals", href: "/guide/nearby/hospitals", icon: "🏥", title: "Hospitals", subtitle: "Nearest medical care", art: { gradient: ["#B3261E", "#7A1913"], pattern: "🏥" } },
+      { key: "nearby-schools", href: "/guide/nearby/schools", icon: "🎓", title: "Schools", subtitle: "Universities & colleges nearby", art: { gradient: ["#1E4FB3", "#0B2A6B"], pattern: "🎓" } },
+      { key: "nearby-nightlife", href: "/guide/nearby/nightlife", icon: "🌃", title: "Nightlife", subtitle: "Bars, karaoke & entertainment", art: { gradient: ["#6B1FB3", "#2E0B6B"], pattern: "🌃" } },
+      { key: "nearby-concert", href: "/guide/nearby/concert", icon: "🎤", title: "Concerts & Theater", subtitle: "Smart Araneta Coliseum & more", art: { gradient: ["#0B1E3D", "#C9A24B"], pattern: "🎤" } },
     ],
   },
   {
@@ -85,11 +89,15 @@ export const GUIDE_SECTIONS: GuideSection[] = [
  * future search index) without caring about section grouping. */
 export const GUIDE_TILES: GuideTile[] = GUIDE_SECTIONS.flatMap((s) => s.tiles);
 
-export type NearbySlug = "food" | "coffee" | "grocery" | "transportation";
+export type NearbySlug = "food" | "coffee" | "grocery" | "transportation" | "hospitals" | "schools" | "nightlife" | "concert";
 
-export const NEARBY_SLUGS: Record<NearbySlug, { label: string; icon: string; categoryKeys: string[]; image: string }> = {
+export const NEARBY_SLUGS: Record<NearbySlug, { label: string; icon: string; categoryKeys: string[]; image?: string; art?: TileArt }> = {
   food: { label: "Nearby Food", icon: "🍽️", categoryKeys: ["restaurants", "fastfood"], image: CATEGORY_COVER_PHOTOS.food },
   coffee: { label: "Coffee Shops", icon: "☕", categoryKeys: ["coffee"], image: CATEGORY_COVER_PHOTOS.coffee },
   grocery: { label: "Grocery", icon: "🛒", categoryKeys: ["grocery", "convenience"], image: CATEGORY_COVER_PHOTOS.grocery },
   transportation: { label: "Transportation", icon: "🚆", categoryKeys: ["transportation"], image: CATEGORY_COVER_PHOTOS.transportation },
+  hospitals: { label: "Hospitals", icon: "🏥", categoryKeys: ["hospitals"], art: { gradient: ["#B3261E", "#7A1913"], pattern: "🏥" } },
+  schools: { label: "Schools", icon: "🎓", categoryKeys: ["schools"], art: { gradient: ["#1E4FB3", "#0B2A6B"], pattern: "🎓" } },
+  nightlife: { label: "Nightlife", icon: "🌃", categoryKeys: ["entertainment"], art: { gradient: ["#6B1FB3", "#2E0B6B"], pattern: "🌃" } },
+  concert: { label: "Concerts & Theater", icon: "🎤", categoryKeys: ["attractions"], art: { gradient: ["#0B1E3D", "#C9A24B"], pattern: "🎤" } },
 };

@@ -11,6 +11,7 @@ import type { TeamMember } from "@/lib/guidebookService";
 import { PlaceInsightRow, type PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 import { NearbyMap, type MapPlace } from "@/components/guest/NearbyMap";
 import { NearbyHero } from "@/components/guest/NearbyHero";
+import { HScrollRow } from "@/components/guest/HScrollRow";
 import { useAllFavorites, favoriteKey } from "@/lib/places/favorites";
 
 /**
@@ -237,7 +238,7 @@ export function NearbyPlacesSection({
 
       <div className="mt-4">
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Guest tips</div>
-        <div className="scrollbar-none flex gap-2.5 overflow-x-auto pb-1">
+        <HScrollRow>
           {GUEST_TIPS.map((tip) => (
             <button
               key={tip.label}
@@ -249,7 +250,7 @@ export function NearbyPlacesSection({
               <span className="text-[10.5px] leading-snug text-[var(--gray)]">{tip.blurb}</span>
             </button>
           ))}
-        </div>
+        </HScrollRow>
       </div>
 
       {mapPlaces.length > 0 && (
@@ -259,7 +260,7 @@ export function NearbyPlacesSection({
       )}
 
       <div className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Personalize your guide</div>
-      <div className="scrollbar-none flex gap-2.5 overflow-x-auto pb-1">
+      <HScrollRow>
         {SMART_RECOMMENDATIONS.map((r) => {
           const on = recType === r.key;
           return (
@@ -277,7 +278,7 @@ export function NearbyPlacesSection({
             </button>
           );
         })}
-      </div>
+      </HScrollRow>
 
       <div className="mt-3">
         <input
