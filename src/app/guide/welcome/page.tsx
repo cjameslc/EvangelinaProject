@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { TransitionLink } from "@/components/guest/TransitionLink";
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { MeetYourHostSection, MeetOurTeamSection } from "@/components/guest/GuidebookSections";
@@ -18,12 +18,12 @@ export default async function WelcomePage() {
       />
 
       <div className="card mt-3 grid grid-cols-1 gap-2.5 p-4 sm:grid-cols-3">
-        <Link href="/book" className="btn-primary justify-center">📅 Book Now</Link>
-        <Link href="/my-bookings" className="btn justify-center">🧾 My Booking</Link>
+        <TransitionLink href="/book" className="btn-primary justify-center">📅 Book Now</TransitionLink>
+        <TransitionLink href="/my-bookings" className="btn justify-center">🧾 My Booking</TransitionLink>
         {guidebook.contactPhone ? (
           <a href={telUrl(guidebook.contactPhone)} className="btn justify-center">📞 Contact Host</a>
         ) : (
-          <Link href="/guide/contact" className="btn justify-center">📞 Contact Host</Link>
+          <TransitionLink href="/guide/contact" className="btn justify-center">📞 Contact Host</TransitionLink>
         )}
       </div>
 
@@ -44,18 +44,18 @@ export default async function WelcomePage() {
             </div>
           ))}
         </div>
-        <Link href="/guide/gallery" className="mt-3 inline-block text-[13px] font-bold text-rausch hover:underline">See the full gallery →</Link>
+        <TransitionLink href="/guide/gallery" className="mt-3 inline-block text-[13px] font-bold text-rausch hover:underline">See the full gallery →</TransitionLink>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2.5">
-        <Link href="/guide/house-manual" className="card p-4 text-center hover:bg-[var(--bg-2)]">
+        <TransitionLink href="/guide/house-manual" className="card p-4 text-center hover:bg-[var(--bg-2)]">
           <div className="text-[20px]">📖</div>
           <div className="mt-1 text-[13px] font-bold">House Manual</div>
-        </Link>
-        <Link href="/guide/faqs" className="card p-4 text-center hover:bg-[var(--bg-2)]">
+        </TransitionLink>
+        <TransitionLink href="/guide/faqs" className="card p-4 text-center hover:bg-[var(--bg-2)]">
           <div className="text-[20px]">❓</div>
           <div className="mt-1 text-[13px] font-bold">FAQs</div>
-        </Link>
+        </TransitionLink>
       </div>
     </div>
   );

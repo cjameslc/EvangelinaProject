@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
+import { CATEGORY_ART } from "@/lib/guideNav";
 
 // No review-collection mechanism exists anywhere in this app yet, and no
 // real guest reviews were supplied — this is an honest empty state rather
@@ -7,7 +8,7 @@ import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 export default function ReviewsPage() {
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon="⭐" title="Guest Reviews" subtitle="What guests are saying." />
+      <GuidePageHeader icon="⭐" art={CATEGORY_ART.reviews} title="Guest Reviews" subtitle="What guests are saying." />
 
       <div className="card mt-3 p-8 text-center">
         <div className="text-[32px]">🌱</div>

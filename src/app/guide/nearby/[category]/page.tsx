@@ -14,7 +14,7 @@ export default async function NearbyCategoryPage({ params }: { params: { categor
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon={meta.icon} title={meta.label} subtitle="Tap a place to open directions — real distance and travel time come straight from Maps." />
+      <GuidePageHeader icon={meta.icon} art={meta.art} title={meta.label} subtitle="Tap a place to open directions — real distance and travel time come straight from Maps." />
 
       <div className="mt-3 space-y-3">
         {categories.length === 0 || categories.every((c) => c.items.length === 0) ? (
