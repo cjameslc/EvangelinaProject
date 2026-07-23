@@ -17,7 +17,7 @@ type Settings = {
   contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
   guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
   hostName?: string | null; hostPhotoUrl?: string | null; hostBio?: string | null;
-  emergencyContacts?: EmergencyContact[] | null; faqs?: FaqCategory[] | null;
+  emergencyContacts?: EmergencyContact[] | null; staffContacts?: EmergencyContact[] | null; faqs?: FaqCategory[] | null;
 };
 
 export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?: (s: Settings) => void }) {
@@ -35,6 +35,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     hostBio: initial.hostBio ?? "",
     celebrationPackageItems: initial.celebrationPackageItems ?? [],
     emergencyContacts: initial.emergencyContacts ?? [],
+    staffContacts: initial.staffContacts ?? [],
     faqs: initial.faqs ?? [],
   });
   const [saving, setSaving] = useState(false);
@@ -66,6 +67,9 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       houseRules: form.houseRules.map((r) => r.trim()).filter(Boolean),
       celebrationPackageItems: form.celebrationPackageItems.map((i) => i.trim()).filter(Boolean),
       emergencyContacts: form.emergencyContacts
+        .map((c) => ({ name: c.name.trim(), phones: c.phones.map((p) => p.trim()).filter(Boolean) }))
+        .filter((c) => c.name && c.phones.length > 0),
+      staffContacts: form.staffContacts
         .map((c) => ({ name: c.name.trim(), phones: c.phones.map((p) => p.trim()).filter(Boolean) }))
         .filter((c) => c.name && c.phones.length > 0),
       faqs: form.faqs
@@ -321,6 +325,33 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
             </div>
           ))}
           <button onClick={() => setForm({ ...form, emergencyContacts: [...form.emergencyContacts, { name: "", phones: [] }] })} className="btn-sm btn"><PlusIcon className="h-3.5 w-3.5" /> Add contact</button>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest Experience — Contact Us staff numbers</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Named staff, each with one or more numbers — shown as tap-to-call cards on the Contact Us page, alongside the main host number.</p>
+        <div className="space-y-3">
+          {form.staffContacts.map((c, i) => (
+            <div key={i} className="rounded-xl border border-[var(--line)] p-3">
+              <div className="flex items-center gap-2">
+                <input
+                  value={c.name}
+                  onChange={(e) => setForm({ ...form, staffContacts: form.staffContacts.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })}
+                  className="field-input flex-1"
+                  placeholder="Name (e.g. Housekeeping)"
+                />
+                <button onClick={() => setForm({ ...form, staffContacts: form.staffContacts.filter((_, j) => j !== i) })} className="grid h-9 w-9 flex-none place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
+              </div>
+              <textarea
+                value={c.phones.join("\n")}
+                onChange={(e) => setForm({ ...form, staffContacts: form.staffContacts.map((x, j) => (j === i ? { ...x, phones: e.target.value.split("\n") } : x)) })}
+                className="field-input mt-2 min-h-[48px]"
+                placeholder="One number per line"
+              />
+            </div>
+          ))}
+          <button onClick={() => setForm({ ...form, staffContacts: [...form.staffContacts, { name: "", phones: [] }] })} className="btn-sm btn"><PlusIcon className="h-3.5 w-3.5" /> Add contact</button>
         </div>
       </div>
 

@@ -80,6 +80,7 @@ function makePrismaClient() {
             stringifyField(args.data as any, "houseRules");
             stringifyField(args.data as any, "celebrationPackageItems");
             stringifyField(args.data as any, "emergencyContacts");
+            stringifyField(args.data as any, "staffContacts");
             stringifyField(args.data as any, "faqs");
             return query(args);
           },
@@ -91,6 +92,7 @@ function makePrismaClient() {
               stringifyField(target as any, "houseRules");
               stringifyField(target as any, "celebrationPackageItems");
               stringifyField(target as any, "emergencyContacts");
+              stringifyField(target as any, "staffContacts");
               stringifyField(target as any, "faqs");
             }
             return query(args);
@@ -167,6 +169,10 @@ function makePrismaClient() {
           emergencyContacts: {
             needs: { emergencyContacts: true },
             compute: (row): unknown[] | null => (row.emergencyContacts == null ? null : parseJson(row.emergencyContacts, [])),
+          },
+          staffContacts: {
+            needs: { staffContacts: true },
+            compute: (row): unknown[] | null => (row.staffContacts == null ? null : parseJson(row.staffContacts, [])),
           },
           faqs: {
             needs: { faqs: true },

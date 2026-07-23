@@ -25,6 +25,7 @@ export type GuidebookSettings = {
   celebrationPackagePrice: number;
   celebrationPackageItems: string[];
   emergencyContacts: EmergencyContact[];
+  staffContacts: EmergencyContact[];
   faqs: FaqCategory[];
   dpFee: number;
   weekdayRate12h: number;
@@ -76,6 +77,7 @@ export const getCachedGuidebookCore = unstable_cache(
       celebrationPackagePrice: settings.celebrationPackagePrice,
       celebrationPackageItems: (settings.celebrationPackageItems as unknown as string[] | null) ?? [],
       emergencyContacts: (settings.emergencyContacts as unknown as EmergencyContact[] | null) ?? [],
+      staffContacts: (settings.staffContacts as unknown as EmergencyContact[] | null) ?? [],
       faqs: (settings.faqs as unknown as FaqCategory[] | null) ?? [],
       dpFee: settings.dpFee,
       weekdayRate12h: settings.weekdayRate12h,

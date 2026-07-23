@@ -11,6 +11,7 @@ import {
 } from "@/components/guest/GuidebookSections";
 import type { TeamMember } from "@/lib/guidebookService";
 import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
+import { SecureDoorCodeCard } from "@/components/guest/SecureGuideCards";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -18,7 +19,7 @@ type GuideBooking = {
   checkedInAt: string | null; checkedOutAt: string | null;
   unit: {
     id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string;
-    wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null;
+    wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; hasDoorCode?: boolean;
     checkInInstructions: string | null; checkOutInstructions: string | null; videoTutorialUrl: string | null;
   };
 };
@@ -173,21 +174,10 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
       </div>
 
       {/* Check-in guide */}
-      {(booking.unit.doorCode || booking.unit.checkInInstructions || booking.unit.videoTutorialUrl) && (
+      {(booking.unit.hasDoorCode || booking.unit.checkInInstructions || booking.unit.videoTutorialUrl) && (
         <div className="card mt-3 p-5">
           <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🔑 Check-in guide</div>
-          {booking.unit.doorCode && (
-            <button
-              onClick={() => copy("doorCode", booking.unit.doorCode!)}
-              className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] px-4 py-3 text-left transition hover:bg-[var(--bg-2)]"
-            >
-              <div>
-                <div className="text-[11px] font-bold text-[var(--gray)]">Door code</div>
-                <div className="text-[19px] font-extrabold tracking-widest">{booking.unit.doorCode}</div>
-              </div>
-              <span className="text-[12.5px] font-bold text-rausch">{copiedKey === "doorCode" ? "Copied ✓" : "Tap to copy"}</span>
-            </button>
-          )}
+          {booking.unit.hasDoorCode && <SecureDoorCodeCard bookingId={booking.id} />}
           {booking.unit.checkInInstructions && (
             <p className="mt-3 text-[13.5px] leading-relaxed">{booking.unit.checkInInstructions}</p>
           )}

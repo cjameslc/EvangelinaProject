@@ -5,16 +5,17 @@ import { TransitionLink } from "@/components/guest/TransitionLink";
 /**
  * The default landing page: an image-first tile grid grouped into scannable
  * sections, completely independent of the Booking module (see BookFlowView
- * for the separate booking flow). Deliberately dense — 4 tiles per row even
- * on a phone (compact square tiles, subtitle hidden below the icon+title
- * fits), scaling up to 5/6 per row on tablet/desktop with more breathing
- * room and the subtitle restored, rather than just shrinking the same
- * large photo card. Tiles use TransitionLink so opening one animates
- * smoothly (same window, no new tab) instead of an abrupt page swap.
+ * for the separate booking flow). Every section in GUIDE_SECTIONS ships
+ * with exactly 4 tiles, so the grid stays a fixed 4 columns at every
+ * breakpoint (more columns would just leave empty trailing tracks) — tiles
+ * grow larger via the widening max-width/gap instead, so desktop fills its
+ * space instead of shrinking the same small phone-sized card into a sea of
+ * whitespace. Tiles use TransitionLink so opening one animates smoothly
+ * (same window, no new tab) instead of an abrupt page swap.
  */
 export function GuideHubView({ hostName }: { hostName: string | null }) {
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14">
+    <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14 lg:max-w-[1320px]">
       <div className="mb-6 text-center sm:mb-10">
         <div className="text-[11px] font-bold uppercase tracking-wide text-rausch">Digital Guidebook</div>
         <h1 className="mt-1 text-[24px] font-extrabold tracking-tight sm:text-[38px]">
@@ -30,7 +31,7 @@ export function GuideHubView({ hostName }: { hostName: string | null }) {
         {GUIDE_SECTIONS.map((section) => (
           <div key={section.label}>
             <h2 className="mb-2.5 text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)] sm:mb-3.5 sm:text-[13px]">{section.label}</h2>
-            <div className="grid grid-cols-4 gap-2 sm:gap-3 md:grid-cols-5 lg:grid-cols-6 lg:gap-4">
+            <div className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 lg:gap-5">
               {section.tiles.map((tile) => (
                 <TransitionLink
                   key={tile.key}

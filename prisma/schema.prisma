@@ -755,6 +755,12 @@ model Settings {
   // compact emergency card).
   emergencyContacts String? // JSON-encoded { name: string; phones: string[] }[]
 
+  // Guest Experience "Contact Us" page — additional named staff a guest can
+  // reach directly (e.g. housekeeping, maintenance), separate from the
+  // single host contactPhone/messengerUsername above. Same shape/pattern
+  // as emergencyContacts.
+  staffContacts String? // JSON-encoded { name: string; phones: string[] }[]
+
   // Guest Experience "FAQs" page — categorized question/answer pairs,
   // same null-falls-back-to-empty pattern as houseRules (Admin fills these
   // in; the app never fabricates an answer it doesn't have).

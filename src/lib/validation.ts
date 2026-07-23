@@ -297,6 +297,7 @@ export const settingsSchema = z.object({
   houseRules: z.array(z.string()).nullable().optional(),
   celebrationPackageItems: z.array(z.string()).nullable().optional(),
   emergencyContacts: z.array(emergencyContactSchema).nullable().optional(),
+  staffContacts: z.array(emergencyContactSchema).nullable().optional(),
   faqs: z.array(faqCategorySchema).nullable().optional(),
 });
 

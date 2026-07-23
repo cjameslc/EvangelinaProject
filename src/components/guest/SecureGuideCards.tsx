@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { wifiQrPayload } from "@/lib/guideUtils";
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation — same
@@ -68,21 +68,70 @@ export function SecureWifiCard({ ssid, password }: { ssid: string; password: str
   );
 }
 
-/** The real door code for the guest's active unit — same one-unit-only
- * guarantee as SecureWifiCard above. */
-export function SecureDoorCodeCard({ doorCode }: { doorCode: string }) {
+/** Gates the real door code behind re-entering the booking confirmation
+ * number — the server never sends the code down until this check passes
+ * (see /api/guest/door-code), so there's nothing in the page source to
+ * read even before the guest types anything. Each of the 5 units has its
+ * own code, so this doubles as a "confirm which stay you mean" step. */
+export function SecureDoorCodeCard({ bookingId }: { bookingId?: string } = {}) {
   const { copiedKey, copy } = useCopy();
+  const [confirmationNumber, setConfirmationNumber] = useState("");
+  const [revealed, setRevealed] = useState<{ doorCode: string; unitName: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function reveal(e: FormEvent) {
+    e.preventDefault();
+    if (!confirmationNumber.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/guest/door-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationNumber, bookingId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Couldn't verify that booking ID."); return; }
+      setRevealed(data);
+    } catch {
+      setError("Something went wrong — please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (revealed) {
+    return (
+      <button
+        onClick={() => copy("doorCode", revealed.doorCode)}
+        className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] px-4 py-3 text-left transition hover:bg-[var(--bg-2)]"
+      >
+        <div>
+          <div className="text-[11px] font-bold text-[var(--gray)]">Your door code — {revealed.unitName}</div>
+          <div className="text-[19px] font-extrabold tracking-widest">{revealed.doorCode}</div>
+        </div>
+        <span className="text-[12.5px] font-bold text-rausch">{copiedKey === "doorCode" ? "Copied ✓" : "Tap to copy"}</span>
+      </button>
+    );
+  }
+
   return (
-    <button
-      onClick={() => copy("doorCode", doorCode)}
-      className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] px-4 py-3 text-left transition hover:bg-[var(--bg-2)]"
-    >
-      <div>
-        <div className="text-[11px] font-bold text-[var(--gray)]">Your door code</div>
-        <div className="text-[19px] font-extrabold tracking-widest">{doorCode}</div>
+    <form onSubmit={reveal} className="rounded-xl border border-[var(--line)] p-4">
+      <div className="text-[11px] font-bold text-[var(--gray)]">Enter your booking ID to view your door code</div>
+      <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">Sent to you when you booked — e.g. EVA-XXXXXX.</p>
+      <div className="mt-2.5 flex gap-2">
+        <input
+          value={confirmationNumber}
+          onChange={(e) => setConfirmationNumber(e.target.value)}
+          placeholder="EVA-XXXXXX"
+          className="field-input flex-1 uppercase tracking-wide"
+          autoCapitalize="characters"
+        />
+        <button type="submit" disabled={loading} className="btn-primary btn-sm flex-none">{loading ? "Checking…" : "Reveal"}</button>
       </div>
-      <span className="text-[12.5px] font-bold text-rausch">{copiedKey === "doorCode" ? "Copied ✓" : "Tap to copy"}</span>
-    </button>
+      {error && <p className="mt-2 text-[12px] font-bold text-rausch">{error}</p>}
+    </form>
   );
 }
 

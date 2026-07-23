@@ -26,9 +26,14 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
   const insightRows = await getPlaceInsightsByNames(guidebook.categories.flatMap((c) => c.items));
   const placeInsights = Object.fromEntries(insightRows);
 
+  // The door code itself never reaches the client here — only whether one
+  // exists — so re-entering the booking ID (see SecureDoorCodeCard /
+  // /api/guest/door-code) is a real gate, not just a hidden-in-the-DOM one.
+  const sanitizedBooking = { ...booking, unit: { ...booking.unit, doorCode: null, hasDoorCode: !!booking.unit.doorCode } };
+
   return (
     <GuestBookingHub
-      booking={JSON.parse(JSON.stringify(booking))}
+      booking={JSON.parse(JSON.stringify(sanitizedBooking))}
       guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)) }}
     />
   );

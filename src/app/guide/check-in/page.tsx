@@ -30,7 +30,7 @@ export default async function CheckInPage() {
               ))}
               {step.step === CHECKIN_STEPS.length && (
                 <div className="mt-3">
-                  {hasCode ? <SecureDoorCodeCard doorCode={booking!.unit.doorCode!} /> : <NoActiveStayNotice what="your unit's door code" signedIn={!!guest} />}
+                  {hasCode ? <SecureDoorCodeCard /> : <NoActiveStayNotice what="your unit's door code" signedIn={!!guest} />}
                 </div>
               )}
             </div>

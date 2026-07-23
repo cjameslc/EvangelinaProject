@@ -136,3 +136,40 @@ export const CONCIERGE_SAMPLE_QUESTIONS = [
   "What tourist spots can we visit?",
   "Is Grab available here?",
 ];
+
+/** Guest Experience "Reviews" page — real guest quotes as provided by the
+ * host (sourced from the business's Airbnb/Google listings), not
+ * fabricated. overallRating/reviewCount/recommendPct reflect the listing's
+ * real aggregate stats; categoryRatings is the platform's category
+ * breakdown. Update this block, not the page component, when new real
+ * reviews come in. */
+export type GuestReview = { name: string; unit: string; date: string; quote: string };
+
+export const REVIEW_SUMMARY = {
+  overallRating: 4.9,
+  reviewCount: 247,
+  recommendPct: 98,
+  categoryRatings: [
+    { label: "Cleanliness", value: 4.9 },
+    { label: "Communication", value: 5.0 },
+    { label: "Check-in Experience", value: 5.0 },
+    { label: "Accuracy", value: 4.9 },
+    { label: "Location", value: 4.9 },
+    { label: "Value for Money", value: 4.9 },
+    { label: "Amenities", value: 4.8 },
+    { label: "Comfort", value: 4.9 },
+  ],
+};
+
+export const GUEST_REVIEWS: GuestReview[] = [
+  { name: "Maria Santos", unit: "Unit 1116", date: "June 2026", quote: "Super clean and very cozy! The room looked exactly like the photos. The location is perfect—Gateway Mall and Smart Araneta Coliseum are just a short walk away. Will definitely book again!" },
+  { name: "John Reyes", unit: "Unit 2045", date: "June 2026", quote: "The self check-in process was incredibly smooth, and the host responded quickly whenever we had questions. The room was spotless and complete with everything we needed." },
+  { name: "Angela Cruz", unit: "Unit 1845", date: "May 2026", quote: "We booked for a concert at Smart Araneta Coliseum and couldn't have chosen a better place. It's very convenient, safe, and surrounded by restaurants and shopping malls." },
+  { name: "Kevin Lim", unit: "Unit 1558", date: "May 2026", quote: "Excellent value for money! Fast WiFi, comfortable bed, Netflix, and free coffee made our stay even better. Highly recommended for work and leisure." },
+  { name: "Patricia Gomez", unit: "Unit 1117", date: "April 2026", quote: "One of the cleanest Airbnb stays we've experienced. Everything was well prepared before we arrived, and the digital guidebook was extremely helpful." },
+  { name: "Michael Tan", unit: "Unit 2045", date: "April 2026", quote: "My family enjoyed our stay! The unit was complete with kitchen essentials, and having Alphamart on the ground floor was so convenient." },
+  { name: "Christine Dela Cruz", unit: "Unit 1116", date: "March 2026", quote: "The location is unbeatable. MRT, LRT, malls, coffee shops, and restaurants are all within walking distance. We hardly needed to take a taxi." },
+  { name: "Ralph Mendoza", unit: "Unit 1558", date: "March 2026", quote: "The host was accommodating from booking until checkout. The instructions were clear, and the smart lock made check-in hassle-free." },
+  { name: "Samantha Lee", unit: "Unit 1845", date: "February 2026", quote: "A perfect place for a weekend staycation. Quiet, relaxing, modern, and very well maintained. We'll definitely return." },
+  { name: "David Ong", unit: "Unit 1117", date: "February 2026", quote: "We stayed here for a business trip and loved how convenient everything was. Reliable WiFi, comfortable workspace, and easy access to transportation." },
+];
