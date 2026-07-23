@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createGuestBooking } from "@/lib/bookingService";
 import { bookingSchema } from "@/lib/validation";
-import { quotePrice } from "@/lib/bookingEngine/pricingService";
+import { quotePrice, applyCouponDiscount } from "@/lib/bookingEngine/pricingService";
+import { checkCoupon } from "@/lib/bookingEngine/couponService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
@@ -22,7 +23,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
-  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType, checkInTime, checkOutTime } = body;
+  const { unitId, date, checkOutDate, stayType, name, email, phone, pax, specialRequest, paymentType, checkInTime, checkOutTime, couponCode } = body;
+  if (couponCode !== undefined && couponCode !== null && typeof couponCode !== "string") {
+    return NextResponse.json({ error: "Invalid coupon code." }, { status: 400 });
+  }
   if (typeof unitId !== "string" || !unitId || !isValidDateString(date) || !stayType || !VALID_STAY_TYPES.includes(stayType)) {
     return NextResponse.json({ error: "Missing or invalid unit, date, or stay type." }, { status: 400 });
   }
@@ -74,7 +78,23 @@ export async function POST(req: NextRequest) {
 
   // Price is always computed server-side from the real Booking Engine quote
   // — never trust a client-supplied amount for what a guest pays.
-  const quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee, checkInTime);
+  let quote = quotePrice(stayType, new Date(date), normalizedCheckOutDate, settings, settings.dpFee, checkInTime);
+
+  // Same discipline as amount above — a client-supplied discount is never
+  // trusted; if a coupon code was sent, it's re-validated fresh against the
+  // real (server-computed) subtotal right here. If it's no longer valid
+  // (expired, deactivated, or used up since the guest last saw it applied),
+  // the whole booking is rejected rather than silently charging full price
+  // for what the guest believes is a discounted stay.
+  let appliedCouponCode: string | null = null;
+  let couponDiscountAmount: number | null = null;
+  if (typeof couponCode === "string" && couponCode.trim()) {
+    const couponCheck = await checkCoupon(couponCode, quote.total);
+    if (!couponCheck.ok) return NextResponse.json({ error: couponCheck.error }, { status: 400 });
+    quote = applyCouponDiscount(quote, couponCheck.discountAmount, settings.dpFee);
+    appliedCouponCode = couponCheck.code;
+    couponDiscountAmount = couponCheck.discountAmount;
+  }
 
   // Same bookingSchema every staff-side booking is validated against — no
   // reason the guest path should skip real shape/type validation just
@@ -101,6 +121,8 @@ export async function POST(req: NextRequest) {
     discountPct: quote.discountPct,
     paymentType: paymentType === "down_payment" ? "down_payment" : "full",
     intendedDpAmount: paymentType === "down_payment" ? quote.dpAmount : null,
+    couponCode: appliedCouponCode,
+    couponDiscountAmount,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid booking details." }, { status: 400 });

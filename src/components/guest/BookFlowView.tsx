@@ -47,10 +47,20 @@ export function BookFlowView() {
   const [pax, setPax] = useState("");
   const [specialRequest, setSpecialRequest] = useState("");
   const [paymentType, setPaymentType] = useState<"full" | "down_payment">("full");
+  const [couponInput, setCouponInput] = useState("");
+  const [couponApplied, setCouponApplied] = useState<{ code: string; discountAmount: number; total: number; dpAmount: number; balanceDue: number } | null>(null);
+  const [couponError, setCouponError] = useState("");
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
   const [confirmationNumber, setConfirmationNumber] = useState<string | null>(null);
+  // The server's own post-coupon quote, captured once the booking actually
+  // succeeds — the payment/done steps read from this (not a client-side
+  // re-derivation) so they can never disagree with what was really
+  // persisted, even if the guest's local coupon math and the server's
+  // somehow drifted.
+  const [finalQuote, setFinalQuote] = useState<PriceQuote | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofResult, setProofResult] = useState<{ status: string; note: string } | null>(null);
   const [proofError, setProofError] = useState("");
@@ -89,6 +99,38 @@ export function BookFlowView() {
     setStep("details");
   }
 
+  async function applyCoupon() {
+    if (!selected || !couponInput.trim() || applyingCoupon) return;
+    setApplyingCoupon(true);
+    setCouponError("");
+    try {
+      const params = new URLSearchParams({ code: couponInput.trim(), subtotal: String(selected.quote.total) });
+      const res = await fetch(`/api/guest/coupon-check?${params}`);
+      const j = await res.json();
+      if (!j.ok) { setCouponError(j.error ?? "That coupon code isn't valid."); setCouponApplied(null); return; }
+      setCouponApplied({ code: j.code, discountAmount: j.discountAmount, total: j.total, dpAmount: j.dpAmount, balanceDue: j.balanceDue });
+    } catch {
+      setCouponError("Couldn't check that coupon. Please try again.");
+    } finally {
+      setApplyingCoupon(false);
+    }
+  }
+
+  function removeCoupon() {
+    setCouponApplied(null);
+    setCouponInput("");
+    setCouponError("");
+  }
+
+  // The coupon-adjusted view of the quote for display and payment-type
+  // math while the guest is still on the details step — total/dpAmount/
+  // balanceDue only, never standardTotal/discountPct/discountAmount (the
+  // weekday-night promo's own numbers stay untouched, shown as a separate
+  // line by RateBreakdown).
+  const effectiveQuote = selected && couponApplied
+    ? { ...selected.quote, total: couponApplied.total, dpAmount: couponApplied.dpAmount, balanceDue: couponApplied.balanceDue }
+    : selected?.quote ?? null;
+
   async function confirm(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || submitting) return;
@@ -103,12 +145,14 @@ export function BookFlowView() {
           checkInTime: stayType === "Flexible" ? checkInTime : null,
           checkOutTime: stayType === "Flexible" ? checkOutTime : null,
           name, email, phone, pax: pax || null, specialRequest: specialRequest || null, paymentType,
+          couponCode: couponApplied?.code,
         }),
       });
       const j = await res.json();
       if (!res.ok) { setError(j.error ?? "Couldn't complete the booking."); return; }
       setConfirmedBookingId(j.booking.id);
       setConfirmationNumber(j.booking.confirmationNumber ?? null);
+      setFinalQuote(j.quote ?? null);
       // The booking API already signed the guest in (session cookie set on
       // its response) and sent a real confirmation email — no separate
       // magic-link request needed just to reach the payment step.
@@ -156,7 +200,8 @@ export function BookFlowView() {
   }, [stayType, date]);
 
   if (step === "payment" && selected) {
-    const amountDueNow = paymentType === "down_payment" ? selected.quote.dpAmount : selected.quote.total;
+    const quote = finalQuote ?? selected.quote;
+    const amountDueNow = paymentType === "down_payment" ? quote.dpAmount : quote.total;
     return (
       <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
         <div className="mb-3 text-5xl">💳</div>
@@ -167,7 +212,7 @@ export function BookFlowView() {
         <div className="card mt-5 p-4 text-left">
           <div className="flex justify-between text-[15px] font-extrabold"><span>{paymentType === "down_payment" ? "Down payment due now" : "Total due now"}</span><span>{peso(amountDueNow)}</span></div>
           {paymentType === "down_payment" && (
-            <div className="mt-1 flex justify-between text-[12.5px] text-[var(--gray)]"><span>Balance due later</span><span>{peso(selected.quote.balanceDue)}</span></div>
+            <div className="mt-1 flex justify-between text-[12.5px] text-[var(--gray)]"><span>Balance due later</span><span>{peso(quote.balanceDue)}</span></div>
           )}
         </div>
 
@@ -199,12 +244,13 @@ export function BookFlowView() {
   }
 
   if (step === "done" && confirmedBookingId && selected) {
+    const quote = finalQuote ?? selected.quote;
     return (
       <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
         <div className="mb-3 text-5xl">🎉</div>
         <h1 className="text-[22px] font-extrabold">Booking request received!</h1>
         <p className="mt-2 text-[14px] text-[var(--gray)]">
-          {selected.shortName} · {STAY_TYPES[stayType].label} · {peso(selected.quote.total)}
+          {selected.shortName} · {STAY_TYPES[stayType].label} · {peso(quote.total)}
         </p>
         {confirmationNumber && (
           <div className="card mt-5 p-4">
@@ -219,10 +265,10 @@ export function BookFlowView() {
           <p className="mt-4 text-[13.5px] text-amber">{proofResult.note}</p>
         ) : paymentType === "down_payment" ? (
           <p className="mt-4 text-[13.5px] text-[var(--gray)]">
-            {peso(selected.quote.dpAmount)} down payment still due — {peso(selected.quote.balanceDue)} balance due later. Manage this anytime from My bookings.
+            {peso(quote.dpAmount)} down payment still due — {peso(quote.balanceDue)} balance due later. Manage this anytime from My bookings.
           </p>
         ) : (
-          <p className="mt-4 text-[13.5px] text-[var(--gray)]">{peso(selected.quote.total)} still due. Manage this anytime from My bookings.</p>
+          <p className="mt-4 text-[13.5px] text-[var(--gray)]">{peso(quote.total)} still due. Manage this anytime from My bookings.</p>
         )}
         <p className="mt-2 text-[13.5px] text-[var(--gray)]">
           You&apos;re signed in — we also emailed a confirmation to {email}.
@@ -328,8 +374,33 @@ export function BookFlowView() {
               {stayType === "Flexible" ? ` · ${checkInTime}–${checkOutTime}` : ` · ${selected.quote.nights} night${selected.quote.nights === 1 ? "" : "s"}`}
             </div>
             <div className="mt-3 border-t border-[var(--line)] pt-3">
-              <RateBreakdown {...selected.quote} />
+              <RateBreakdown {...effectiveQuote!} couponCode={couponApplied?.code} couponDiscountAmount={couponApplied?.discountAmount} />
             </div>
+          </div>
+          <div className="card space-y-2.5 p-5">
+            <div className="field-label">Have a coupon?</div>
+            {couponApplied ? (
+              <div className="flex items-center justify-between rounded-xl border border-teal/30 bg-teal/5 p-3">
+                <div>
+                  <div className="text-[13.5px] font-extrabold text-teal">{couponApplied.code} applied</div>
+                  <div className="text-[12.5px] text-[var(--gray)]">−{peso(couponApplied.discountAmount)} off your total</div>
+                </div>
+                <button type="button" onClick={removeCoupon} className="btn-sm btn-ghost">Remove</button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  value={couponInput}
+                  onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
+                  className="field-input flex-1 font-mono"
+                  placeholder="Enter coupon code"
+                />
+                <button type="button" onClick={applyCoupon} disabled={applyingCoupon || !couponInput.trim()} className="btn flex-none disabled:opacity-50">
+                  {applyingCoupon ? "Checking…" : "Apply"}
+                </button>
+              </div>
+            )}
+            {couponError && <p className="text-[12.5px] font-semibold text-rausch">{couponError}</p>}
           </div>
           <div className="card space-y-3 p-5">
             <div className="field-label">How would you like to pay?</div>
@@ -340,7 +411,7 @@ export function BookFlowView() {
                 className={`rounded-xl border p-3 text-left transition ${paymentType === "down_payment" ? "border-rausch bg-rausch/5" : "border-[var(--line)]"}`}
               >
                 <div className="text-[13.5px] font-extrabold">Down payment</div>
-                <div className="text-[12.5px] text-[var(--gray)]">{peso(selected.quote.dpAmount)} now · {peso(selected.quote.balanceDue)} balance due later</div>
+                <div className="text-[12.5px] text-[var(--gray)]">{peso(effectiveQuote!.dpAmount)} now · {peso(effectiveQuote!.balanceDue)} balance due later</div>
               </button>
               <button
                 type="button"
@@ -348,7 +419,7 @@ export function BookFlowView() {
                 className={`rounded-xl border p-3 text-left transition ${paymentType === "full" ? "border-rausch bg-rausch/5" : "border-[var(--line)]"}`}
               >
                 <div className="text-[13.5px] font-extrabold">Full payment</div>
-                <div className="text-[12.5px] text-[var(--gray)]">{peso(selected.quote.total)} now · nothing due later</div>
+                <div className="text-[12.5px] text-[var(--gray)]">{peso(effectiveQuote!.total)} now · nothing due later</div>
               </button>
             </div>
           </div>

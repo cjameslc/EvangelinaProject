@@ -437,6 +437,14 @@ model Booking {
   // the only outcome that ever writes dpAmount/paid.
   paymentVerificationStatus String?
   paymentVerificationNote   String?
+  // Optional coupon applied at booking time — a snapshot (code + the peso
+  // amount it actually knocked off), same convention as originalAmount/
+  // discountPct above: independent of and stacked on top of the weekday-
+  // night promo, applied after it. No FK to Coupon (denormalized on
+  // purpose) so a coupon can be edited/deleted later without altering the
+  // historical record of what a past guest actually paid.
+  couponCode                String?
+  couponDiscountAmount      Int?
 
   calendarBlock   CalendarBlock?  @relation("BookingCalendarBlock")
   cleaningBlock   CalendarBlock?  @relation("BookingCleaningBlock")
@@ -805,6 +813,28 @@ model GuestRequest {
 
   @@index([status, createdAt])
   @@map("guest_requests")
+}
+
+// Admin-managed discount codes for the Guest Portal booking flow (Settings
+// tab). No relation to Booking — a coupon's effect on a specific booking is
+// captured as a denormalized snapshot on Booking.couponCode/
+// couponDiscountAmount above, so editing or deleting a Coupon here never
+// alters historical booking records.
+model Coupon {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  // "percent" (value = 1-100) or "fixed" (value = a peso amount)
+  type        String
+  value       Int
+  // null = unlimited uses
+  maxUses     Int?
+  usedCount   Int       @default(0)
+  expiresAt   DateTime?
+  active      Boolean   @default(true)
+  description String?
+  createdAt   DateTime  @default(now())
+
+  @@map("coupons")
 }
 
 // In-app inbox for the events notificationService.notify() already fires

@@ -64,6 +64,30 @@ export const bookingSchema = z.object({
   // Free-text notes the booker adds when logging a booking — staff-only,
   // distinct from specialRequest (guest-submitted via the Guest Portal).
   notes: z.string().nullable().optional(),
+  // Guest Portal only — an applied coupon's code + the peso amount it
+  // actually discounted, snapshotted at booking time. See
+  // src/lib/bookingEngine/couponService.ts.
+  couponCode: z.string().nullable().optional(),
+  couponDiscountAmount: z.number().int().nonnegative().nullable().optional(),
+});
+
+// Admin-managed discount codes (Settings tab) — see src/lib/pricing/rates.ts's
+// applyCouponDiscount and src/lib/bookingEngine/couponService.ts.
+// Plain ZodObject (not wrapped in .refine) — same reasoning as bookingSchema
+// above: /api/coupons/[id] calls couponSchema.partial() for PATCH. The
+// "percent can't exceed 100" rule is field-level (value.max(100) only when
+// type is "percent" isn't expressible per-field), so it's checked by hand
+// in the POST/PATCH route instead of via a schema-wide refine.
+export const couponSchema = z.object({
+  code: z.string().trim().min(2, "Code must be at least 2 characters.").max(30, "Keep the code under 30 characters.")
+    .regex(/^[A-Za-z0-9_-]+$/, "Letters, numbers, dashes, and underscores only.")
+    .transform((v) => v.toUpperCase()),
+  type: z.enum(["percent", "fixed"]),
+  value: z.number().int().positive(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  expiresAt: z.string().nullable().optional().refine((v) => !v || isValidDateString(v), "Invalid expiry date."),
+  active: z.boolean().optional(),
+  description: z.string().max(200).nullable().optional(),
 });
 
 // Staff-side cancellation — POST /api/bookings/[id]/cancel. A separate

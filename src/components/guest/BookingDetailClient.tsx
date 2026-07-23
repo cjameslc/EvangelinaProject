@@ -14,6 +14,7 @@ type Booking = {
   platform: string; specialRequest: string | null; checkedInAt: string | null; checkedOutAt: string | null; cancelledAt: string | null;
   proofUrl: string | null; dpProofUrl: string | null; createdAt: string;
   confirmationNumber: string | null; originalAmount: number | null; discountPct: number | null;
+  couponCode: string | null; couponDiscountAmount: number | null;
   paymentType: string; intendedDpAmount: number | null;
   paymentVerificationStatus: string | null; paymentVerificationNote: string | null;
   unit: { id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string };
@@ -39,7 +40,11 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
   // computed once here rather than repeating the formula in the visible
   // card and the PDF export.
   const totalAmount = booking.amount + (booking.dpAmount ?? 0);
-  const discountAmount = (booking.originalAmount ?? 0) - totalAmount;
+  // Promo (weekday-night) and coupon are two independent, stacked
+  // discounts (see RateBreakdown.tsx) — the coupon's own amount is
+  // subtracted out here so this only ever reflects the promo's share,
+  // never a conflated total that wouldn't match discountPct%.
+  const discountAmount = (booking.originalAmount ?? 0) - totalAmount - (booking.couponDiscountAmount ?? 0);
   // "Confirmed" = the required payment step has actually been validated —
   // fully paid, or (for a down-payment booking) the down payment itself is
   // confirmed collected. Reserving with a down payment is a real, secured
@@ -109,6 +114,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         ["Check-in", fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })],
         ["Check-out", booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"],
         ...(booking.discountPct ? [["Standard rate", peso(booking.originalAmount)], [`Weekday night promo (-${booking.discountPct}%)`, `-${peso(discountAmount)}`]] : []),
+        ...(booking.couponCode && booking.couponDiscountAmount ? [[`Coupon (${booking.couponCode})`, `-${peso(booking.couponDiscountAmount)}`]] : []),
         ["Total amount", peso(totalAmount)],
         ["Down payment received", booking.dpAmount ? peso(booking.dpAmount) : "—"],
         ["Balance", peso(booking.amount)],
@@ -153,9 +159,17 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
         <div><div className="text-[11px] font-bold text-[var(--gray)]">Total</div><div className="font-extrabold">{peso(totalAmount)}</div></div>
       </div>
 
-      {!!booking.discountPct && (
+      {(!!booking.discountPct || !!booking.couponCode) && (
         <div className="card mt-3 p-4">
-          <RateBreakdown standardTotal={booking.originalAmount ?? 0} discountPct={booking.discountPct} discountAmount={discountAmount} total={totalAmount} showTotal={false} />
+          <RateBreakdown
+            standardTotal={booking.originalAmount ?? 0}
+            discountPct={booking.discountPct ?? 0}
+            discountAmount={discountAmount}
+            couponCode={booking.couponCode}
+            couponDiscountAmount={booking.couponDiscountAmount}
+            total={totalAmount}
+            showTotal={false}
+          />
         </div>
       )}
 

@@ -82,7 +82,7 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
   }
 
   const total = standardTotal - discountAmount;
-  const dpAmount = Math.min(dpFee, total);
+  const { dpAmount, balanceDue } = splitDownPayment(total, dpFee);
 
   return {
     stayType,
@@ -92,6 +92,27 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
     discountAmount,
     total,
     dpAmount,
-    balanceDue: total - dpAmount,
+    balanceDue,
   };
+}
+
+/** How much of a given total is due now (capped at the total itself) vs.
+ * left as a balance — the same split quotePrice uses internally, reused
+ * wherever a total changes after the fact (e.g. a coupon discount applied
+ * on top of an already-quoted total) so the two never disagree. */
+export function splitDownPayment(total: number, dpFee: number): { dpAmount: number; balanceDue: number } {
+  const dpAmount = Math.min(dpFee, total);
+  return { dpAmount, balanceDue: total - dpAmount };
+}
+
+/** Applies a flat peso discount (e.g. from a coupon) on top of an
+ * already-computed quote's total, recomputing the down-payment split
+ * against the new (lower) total. Never touches standardTotal/discountPct/
+ * discountAmount — those remain the weekday-night promo's own numbers,
+ * kept separate so the UI can show promo and coupon as two distinct lines
+ * rather than one conflated discount. */
+export function applyCouponDiscount(quote: PriceQuote, couponDiscountAmount: number, dpFee: number): PriceQuote {
+  const total = Math.max(0, quote.total - couponDiscountAmount);
+  const { dpAmount, balanceDue } = splitDownPayment(total, dpFee);
+  return { ...quote, total, dpAmount, balanceDue };
 }

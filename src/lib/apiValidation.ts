@@ -16,3 +16,23 @@ export function parseOrError<T>(schema: z.ZodSchema<T>, data: unknown): { ok: tr
   }
   return { ok: true, data: result.data };
 }
+
+/**
+ * A @unique field collision (duplicate username, email, coupon code, …)
+ * should be a clean 409 with a specific message, not an unhandled 500 — the
+ * documented way to detect this is `e.code === "P2002"`, and every such
+ * catch in this app originally checked only that. In practice, this app's
+ * Prisma setup (the libSQL/Turso driver-adapters preview) never actually
+ * produces P2002 for a unique-constraint violation — it leaks the raw
+ * driver error through instead (`code: "SQLITE_CONSTRAINT"`, message
+ * containing "UNIQUE constraint failed"), so every one of those catches was
+ * silently dead code, and every duplicate-key attempt crashed as an
+ * unhandled 500. Found via adversarial testing (POST a duplicate username),
+ * not user-reported. Checking both shapes here keeps this correct whether a
+ * future Prisma/driver-adapter version starts populating P2002 properly.
+ */
+export function isUniqueConstraintError(e: unknown): boolean {
+  const err = e as { code?: string; message?: string } | null | undefined;
+  if (!err) return false;
+  return err.code === "P2002" || (err.code === "SQLITE_CONSTRAINT" && !!err.message?.includes("UNIQUE constraint failed"));
+}

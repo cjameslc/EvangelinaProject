@@ -7,6 +7,7 @@ import { UsersTab } from "./UsersTab";
 import { SettingsTab } from "./SettingsTab";
 import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
+import { CouponsTab } from "./CouponsTab";
 import { BillsPanel } from "@/components/housekeeping/BillsPanel";
 import { StockPanel } from "@/components/housekeeping/StockPanel";
 import { Pill } from "@/components/ui/Pill";
@@ -30,10 +31,10 @@ const TABS = ["Units", "Users & roles", "Operations", "Settings"] as const;
 
 export function AdminView({
   units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs,
-  bills: initialBills, stocks: initialStocks,
+  bills: initialBills, stocks: initialStocks, coupons: initialCoupons,
 }: {
   units: any[]; users: any[]; settings: any; loginLogs: any[];
-  bills: any[]; stocks: any[];
+  bills: any[]; stocks: any[]; coupons: any[];
 }) {
   const searchParams = useSearchParams();
   const initialTab = TABS.find((t) => t.toLowerCase() === searchParams?.get("tab")?.toLowerCase()) ?? "Units";
@@ -43,6 +44,7 @@ export function AdminView({
   const [bills, setBills] = useState(initialBills);
   const [stocks, setStocks] = useState(initialStocks);
   const [settings, setSettings] = useState(initialSettings);
+  const [coupons, setCoupons] = useState(initialCoupons);
   const [opsView, setOpsView] = useState<"Bills" | "Supplies">("Bills");
 
   async function refreshBills() {
@@ -87,6 +89,9 @@ export function AdminView({
         <div>
           <Accordion title="Business & payroll rates">
             <SettingsTab initial={settings} onSaved={setSettings} />
+          </Accordion>
+          <Accordion title="Coupons" defaultOpen={false}>
+            <CouponsTab coupons={coupons} onCouponsChange={setCoupons} />
           </Accordion>
           <Accordion title="Housekeeping checklist" defaultOpen={false}>
             <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />

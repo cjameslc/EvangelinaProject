@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { profileSchema } from "@/lib/validation";
+import { isUniqueConstraintError } from "@/lib/apiValidation";
 
 export async function GET() {
   const { user, error } = await requireUser();
@@ -57,7 +58,7 @@ export async function PATCH(req: NextRequest) {
     const { passwordHash, ...safe } = updated;
     return NextResponse.json(safe);
   } catch (e: any) {
-    if (e?.code === "P2002") return NextResponse.json({ error: "That email is already in use." }, { status: 409 });
+    if (isUniqueConstraintError(e)) return NextResponse.json({ error: "That email is already in use." }, { status: 409 });
     return NextResponse.json({ error: "Couldn't save changes." }, { status: 500 });
   }
 }

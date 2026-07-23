@@ -7,7 +7,7 @@ const publicBookingSelect = {
   guests: true, pax: true, amount: true, dpAmount: true, paid: true, platform: true, specialRequest: true,
   checkedInAt: true, checkedOutAt: true, cancelledAt: true, proofUrl: true, dpProofUrl: true, createdAt: true,
   confirmationNumber: true, originalAmount: true, discountPct: true, paymentType: true, intendedDpAmount: true,
-  paymentVerificationStatus: true, paymentVerificationNote: true,
+  paymentVerificationStatus: true, paymentVerificationNote: true, couponCode: true, couponDiscountAmount: true,
   unit: { select: { id: true, name: true, shortName: true, unitNumber: true, photoUrl: true, location: true } },
 } as const;
 

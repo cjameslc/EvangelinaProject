@@ -15,7 +15,7 @@ export default async function AdminPage() {
   const month = manilaMonthStart();
   await ensureRecurringBillsForMonth(month).catch(() => {});
 
-  const [units, users, settings, loginLogs, bills, stocks] = await Promise.all([
+  const [units, users, settings, loginLogs, bills, stocks, coupons] = await Promise.all([
     prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
     // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
     // profile photo) IS fetched here now so Users & roles shows each
@@ -41,6 +41,8 @@ export default async function AdminPage() {
     prismaPool[4].bill.findMany({ where: { month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
     // Feeds the "Operations" tab's Supplies view.
     prismaPool[5].stock.findMany({ orderBy: { name: "asc" } }),
+    // Feeds the "Settings" tab's Coupons section.
+    prismaPool[6].coupon.findMany({ orderBy: { createdAt: "desc" } }),
   ]);
 
   const safeSettings = { ...settings, checklistGroups: (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS };
@@ -53,6 +55,7 @@ export default async function AdminPage() {
       loginLogs={JSON.parse(JSON.stringify(loginLogs))}
       bills={JSON.parse(JSON.stringify(bills))}
       stocks={JSON.parse(JSON.stringify(stocks))}
+      coupons={JSON.parse(JSON.stringify(coupons))}
     />
   );
 }

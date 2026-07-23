@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { userSchema } from "@/lib/validation";
 import { ensureEmployeeForUser } from "@/lib/employeeProvision";
+import { isUniqueConstraintError } from "@/lib/apiValidation";
 
 export async function GET() {
   const { error } = await requireUser(["OWNER_ADMIN"]);
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
     const { passwordHash: _omit, ...safe } = created;
     return NextResponse.json(safe, { status: 201 });
   } catch (e: any) {
-    if (e?.code === "P2002") return NextResponse.json({ error: "That username is already taken." }, { status: 409 });
+    if (isUniqueConstraintError(e)) return NextResponse.json({ error: "That username is already taken." }, { status: 409 });
     throw e;
   }
 }

@@ -1,7 +1,8 @@
-import { quotePrice as computeQuote, type PriceQuote, type RateTable } from "@/lib/pricing/rates";
+import { quotePrice as computeQuote, applyCouponDiscount, type PriceQuote, type RateTable } from "@/lib/pricing/rates";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 export type { PriceQuote, RateTable };
+export { applyCouponDiscount };
 
 /**
  * There was no reusable pricing calculation anywhere in the app before this

@@ -18,6 +18,14 @@ export type CreateBookingResult =
 // { ok: false, error } result shape the rest of the app expects.
 class BookingConflictError extends Error {}
 
+// Same idea, for a coupon that turns out to be invalid (or races another
+// booking claiming its last remaining use) at the moment the transaction
+// actually commits — the guest bookings route already re-validates the
+// coupon once before opening this transaction, but that check alone isn't
+// safe against two concurrent bookings both passing it and both trying to
+// claim the same limited coupon's last use.
+class CouponConflictError extends Error {}
+
 /**
  * Shared by both createBookingRecord (staff) and createGuestBooking (Guest
  * Portal) — the overlap guard, the actual row, the mirrored CalendarBlock,
@@ -67,6 +75,26 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
       );
       if (!available) throw new BookingConflictError();
 
+      // Atomically claim this coupon's usage slot as part of the same
+      // transaction as the booking itself — if the insert below fails for
+      // any reason (or another error is thrown), the claim rolls back with
+      // it, so a coupon's usedCount only ever increments for bookings that
+      // actually succeeded. Optimistic-concurrency style: increment only
+      // succeeds if usedCount hasn't moved since this same transaction just
+      // read it, so two concurrent bookings racing a coupon's last
+      // remaining use can't both win.
+      if (body.couponCode) {
+        const coupon = await tx.coupon.findUnique({ where: { code: body.couponCode } });
+        const stillValid = coupon && coupon.active && (!coupon.expiresAt || coupon.expiresAt.getTime() >= Date.now())
+          && (coupon.maxUses === null || coupon.usedCount < coupon.maxUses);
+        if (!stillValid) throw new CouponConflictError();
+        const claim = await tx.coupon.updateMany({
+          where: { id: coupon!.id, usedCount: coupon!.usedCount },
+          data: { usedCount: { increment: 1 } },
+        });
+        if (claim.count === 0) throw new CouponConflictError();
+      }
+
       return tx.booking.create({
         data: {
           unitId: body.unitId,
@@ -99,12 +127,17 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
           paymentType: body.paymentType ?? "full",
           intendedDpAmount: body.intendedDpAmount ?? null,
           notes: body.notes || null,
+          couponCode: body.couponCode || null,
+          couponDiscountAmount: body.couponDiscountAmount ?? null,
         },
       });
     });
   } catch (e) {
     if (e instanceof BookingConflictError) {
       return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
+    }
+    if (e instanceof CouponConflictError) {
+      return { ok: false, error: "That coupon just became unavailable. Please remove it and try again." };
     }
     throw e;
   }
