@@ -10,9 +10,9 @@ import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; shortName: string };
-type UserRow = { id: string; name: string; username: string; role: string; active: boolean; mustChangePassword: boolean; avatarUrl: string | null; avatarColor: string; ownedUnits: { unit: Unit }[] };
+type UserRow = { id: string; name: string; username: string; role: string; active: boolean; mustChangePassword: boolean; avatarUrl: string | null; avatarColor: string; showOnGuestGuide: boolean; ownedUnits: { unit: Unit }[] };
 
-const EMPTY = { name: "", username: "", password: "", role: "BOOKER", ownedUnitIds: [] as string[] };
+const EMPTY = { name: "", username: "", password: "", role: "BOOKER", ownedUnitIds: [] as string[], showOnGuestGuide: false };
 const PAGE_SIZE = 10;
 
 export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; onUsersChange: (users: UserRow[]) => void; units: Unit[] }) {
@@ -38,7 +38,7 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
   }
 
   async function save(form: typeof EMPTY, id?: string) {
-    const body: any = { name: form.name, username: form.username, role: form.role, ownedUnitIds: form.ownedUnitIds };
+    const body: any = { name: form.name, username: form.username, role: form.role, ownedUnitIds: form.ownedUnitIds, showOnGuestGuide: form.showOnGuestGuide };
     if (form.password) body.password = form.password;
     const res = await fetch(id ? `/api/users/${id}` : "/api/users", {
       method: id ? "PATCH" : "POST",
@@ -90,6 +90,9 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
                 <span className="text-[14px] font-bold">{u.name}</span>
                 {u.mustChangePassword && (
                   <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10.5px] font-bold text-amber-600">Must change password</span>
+                )}
+                {u.showOnGuestGuide && (
+                  <span className="rounded-full bg-teal/10 px-2 py-0.5 text-[10.5px] font-bold text-teal">👋 On guest guidebook</span>
                 )}
               </div>
               <div className="text-[12.5px] text-[var(--gray)]">@{u.username}</div>
@@ -155,7 +158,7 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
 function UserModal({ user, units, onClose, onSave }: { user?: UserRow; units: Unit[]; onClose: () => void; onSave: (v: typeof EMPTY, id?: string) => void }) {
   const [form, setForm] = useState(
     user
-      ? { name: user.name, username: user.username, password: "", role: user.role, ownedUnitIds: user.ownedUnits.map((o) => o.unit.id) }
+      ? { name: user.name, username: user.username, password: "", role: user.role, ownedUnitIds: user.ownedUnits.map((o) => o.unit.id), showOnGuestGuide: user.showOnGuestGuide }
       : EMPTY
   );
   const [saving, setSaving] = useState(false);
@@ -210,6 +213,13 @@ function UserModal({ user, units, onClose, onSave }: { user?: UserRow; units: Un
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="field-input mt-1.5">
             {Object.entries(ROLE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
+        </div>
+        <div className="rounded-xl border border-[var(--line)] p-3">
+          <label className="flex items-center gap-2.5 text-[13.5px] font-semibold">
+            <input type="checkbox" checked={form.showOnGuestGuide} onChange={(e) => setForm({ ...form, showOnGuestGuide: e.target.checked })} className="h-4 w-4 accent-rausch" />
+            Show on the guest Digital Guidebook&rsquo;s &ldquo;Meet our team&rdquo; card
+          </label>
+          <p className="mt-1 pl-6 text-[11.5px] text-[var(--gray)]">Uses this account&rsquo;s profile photo (set on their Profile page) and name. Off by default — nothing shows to guests until you turn this on.</p>
         </div>
         {form.role === "CO_OWNER" && (
           <div>

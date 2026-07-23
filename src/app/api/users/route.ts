@@ -16,7 +16,7 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
     select: {
       id: true, name: true, username: true, email: true, role: true, avatarColor: true, avatarUrl: true,
-      active: true, mustChangePassword: true, createdAt: true,
+      active: true, mustChangePassword: true, createdAt: true, showOnGuestGuide: true,
       ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
     },
   });
@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
         passwordHash,
         role: body.role,
         mustChangePassword: true,
+        showOnGuestGuide: body.showOnGuestGuide ?? false,
         ownedUnits: body.ownedUnitIds?.length
           ? { create: body.ownedUnitIds.map((unitId) => ({ unitId })) }
           : undefined,

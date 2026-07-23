@@ -26,7 +26,7 @@ export default async function AdminPage() {
       orderBy: { createdAt: "asc" },
       select: {
         id: true, name: true, username: true, email: true, role: true, avatarColor: true, avatarUrl: true,
-        active: true, mustChangePassword: true, createdAt: true,
+        active: true, mustChangePassword: true, createdAt: true, showOnGuestGuide: true,
         ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
       },
     }),

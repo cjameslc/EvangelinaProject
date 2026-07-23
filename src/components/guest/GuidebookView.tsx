@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fmtDate, fmtTimeStr } from "@/lib/format";
+import { fmtDate, fmtTimeStr, initials } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { SMART_RECOMMENDATIONS, CONCIERGE_SAMPLE_QUESTIONS, BUILDING_INFO, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
 import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, wifiQrPayload } from "@/lib/guideUtils";
@@ -33,6 +33,7 @@ type Guidebook = {
   hostName: string | null;
   hostPhotoUrl: string | null;
   hostBio: string | null;
+  team: { name: string; avatarUrl: string | null; avatarColor: string; role: string }[];
 };
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation instead of
@@ -308,6 +309,34 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
               <div className="text-[14.5px] font-extrabold">{guidebook.hostName}</div>
               {guidebook.hostBio && <p className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--gray)]">{guidebook.hostBio}</p>}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meet our team */}
+      {guidebook.team.length > 0 && (
+        <div className="card mt-3 p-5">
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">🤝 Meet our team</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {guidebook.team.map((m) => (
+              <div key={m.name} className="flex flex-col items-center gap-1.5 text-center">
+                {m.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.avatarUrl} alt={m.name} className="h-14 w-14 rounded-full object-cover" />
+                ) : (
+                  <span
+                    className="grid h-14 w-14 place-items-center rounded-full text-[13px] font-bold text-white"
+                    style={{ background: m.avatarColor }}
+                  >
+                    {initials(m.name)}
+                  </span>
+                )}
+                <div>
+                  <div className="text-[12.5px] font-extrabold leading-tight">{m.name}</div>
+                  <div className="text-[10.5px] font-semibold text-[var(--gray)]">{m.role}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

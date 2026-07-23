@@ -26,6 +26,11 @@ model User {
   role               String     @default("BOOKER")
   avatarColor        String   @default("#FF385C")
   avatarUrl          String?  // profile picture, data-URL — kept out of the NextAuth session/JWT (would blow the cookie size limit), fetched fresh from the DB wherever it's shown
+  // Guest Experience module — opt-in only: a staff member appears on the
+  // Digital Guidebook's "Meet our team" card ONLY once Admin explicitly
+  // flips this on for them (privacy-conscious default — most staff records
+  // exist for internal ops, not public display).
+  showOnGuestGuide   Boolean  @default(false)
   active             Boolean  @default(true)
   mustChangePassword Boolean  @default(false)
   createdAt          DateTime @default(now())

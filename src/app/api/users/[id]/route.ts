@@ -15,6 +15,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     ...(body.username && { username: body.username.toLowerCase().trim() }),
     ...(body.role && { role: body.role }),
     ...(body.active !== undefined && { active: body.active }),
+    ...(body.showOnGuestGuide !== undefined && { showOnGuestGuide: body.showOnGuestGuide }),
   };
   if (body.password) {
     data.passwordHash = await bcrypt.hash(body.password, 10);

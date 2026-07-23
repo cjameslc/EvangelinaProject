@@ -177,6 +177,7 @@ export const userSchema = z.object({
   role: z.enum(["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"]),
   ownedUnitIds: z.array(z.string()).optional(),
   active: z.boolean().optional(),
+  showOnGuestGuide: z.boolean().optional(),
 });
 
 export const billUpdateSchema = z.object({
