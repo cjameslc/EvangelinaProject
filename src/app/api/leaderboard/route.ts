@@ -16,6 +16,17 @@ const dayOf = (d: Date) =>
 // Eligible employees are Bookers plus Housekeeping staff (several people do
 // both jobs at this business, so their booking activity is real booker
 // activity and belongs in the same ranked pool, not a separate board).
+//
+// Deliberately does NOT select avatarUrl here — that's a base64-encoded
+// photo per employee, and with several real staff photos the combined
+// cached payload blew past Next's 2MB per-entry data-cache limit. The
+// write then silently failed every single time (logged as an
+// unhandledRejection), so this "cached" query was actually recomputing
+// from scratch on every request — 20+ second responses, and the /earnings
+// page timing out for a Booker. avatarUrl is fetched fresh, uncached,
+// outside this function instead (see GET below) — same "always fetched
+// fresh from the DB wherever it's shown" pattern already used for
+// avatarUrl everywhere else in the app, so nothing actually goes stale.
 const getRankedLeaderboard = unstable_cache(
   async () => {
     const now = new Date();
@@ -27,7 +38,7 @@ const getRankedLeaderboard = unstable_cache(
       prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
       prisma.employee.findMany({
         where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true },
-        select: { id: true, name: true, userId: true, user: { select: { avatarUrl: true, avatarColor: true } } },
+        select: { id: true, name: true, userId: true, user: { select: { avatarColor: true } } },
       }),
     ]);
     const bookerIds = bookers.map((b) => b.id);
@@ -59,7 +70,7 @@ const getRankedLeaderboard = unstable_cache(
         return {
           employeeId: b.id,
           name: b.name,
-          avatarUrl: b.user?.avatarUrl ?? null,
+          avatarUrl: null as string | null, // filled in after the cache, see GET below
           avatarColor: b.user?.avatarColor ?? "#FF385C",
           completedThisMonth,
           commissionThisMonth,
@@ -83,7 +94,18 @@ export async function GET() {
   // live so a newly-crossed tier is persisted the moment it happens.
   await syncEliteBookerAwards();
 
-  const ranked = await getRankedLeaderboard();
+  const cached = await getRankedLeaderboard();
+
+  // Fresh, uncached, and cheap (just one TEXT column per employee) — kept
+  // out of the cached ranking above specifically so a real photo never
+  // blows past the data cache's per-entry size limit (see comment above
+  // getRankedLeaderboard).
+  const photoRows = await prisma.employee.findMany({
+    where: { id: { in: cached.map((r) => r.employeeId) } },
+    select: { id: true, user: { select: { avatarUrl: true } } },
+  });
+  const photoById = new Map(photoRows.map((r) => [r.id, r.user?.avatarUrl ?? null]));
+  const ranked = cached.map((r) => ({ ...r, avatarUrl: photoById.get(r.employeeId) ?? null }));
 
   const isAdminViewer = user.role === "OWNER_ADMIN" || user.role === "CO_OWNER";
   if (isAdminViewer) {
