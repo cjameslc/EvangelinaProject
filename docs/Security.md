@@ -1,0 +1,105 @@
+# Security
+
+> Part of the [Evangelina's Staycation documentation](README.md). This reflects a real audit of the current codebase (all 76 API routes individually reviewed), not a generic checklist.
+
+- [Authentication & authorization](#authentication--authorization)
+- [IDOR protection](#idor-protection)
+- [WiFi/door-code reveal gate](#wifidoor-code-reveal-gate)
+- [AI Concierge grounding](#ai-concierge-grounding)
+- [No enumeration on guest auth endpoints](#no-enumeration-on-guest-auth-endpoints)
+- [Input validation & injection](#input-validation--injection)
+- [File upload validation](#file-upload-validation)
+- [Rate limiting](#rate-limiting)
+- [Security headers](#security-headers)
+- [Secrets handling](#secrets-handling)
+- [Known gaps](#known-gaps)
+- [Google API key scope](#google-api-key-scope)
+
+## Authentication & authorization
+
+Two independent systems — see [Architecture.md](Architecture.md#two-separate-auth-systems). Every API route was individually checked for an auth call; the handful with none are all deliberate, by-design public endpoints (NextAuth's own handler, guest login/registration which must be reachable pre-session, the iCal export/cron which authenticate via a URL token or shared secret instead of a session, the Messenger webhook which authenticates via Meta's own verify-token handshake, and the Places photo proxy which is intentionally public since it only serves non-sensitive images). Full per-route breakdown in [API.md](API.md).
+
+Staff routes additionally check **row-level scope**, not just role — `isUnitInScope(user, unitId)` on every unit-touching write, and `canEditSpecificBooking()` restricting a Booker to bookings they themselves logged.
+
+## IDOR protection
+
+Every guest-facing query is scoped by `guestId`, not by the resource id alone:
+- `getGuestBookingForGuide(guestId, bookingId)` — `where: { id: bookingId, guestId }`
+- `cancelGuestBooking`, `createGuestRequest`, `verifyGuestPaymentProof` — same pattern
+- The WiFi/door-code reveal (below) additionally re-validates the booking's own confirmation number, not just guest ownership
+
+Spot-checked across the full route set — no route found that trusts a client-supplied id without an ownership filter.
+
+## WiFi/door-code reveal gate
+
+Added specifically because a signed-in guest session alone was judged insufficient for a physical access code (5 units, 5 different codes):
+- The server **never includes** `wifiPassword`/`doorCode` in any page payload sent to the client, even for the guest's own active booking — only a `hasWifi`/`hasDoorCode` boolean.
+- Revealing the real value requires a separate `POST` (`/api/guest/wifi`, `/api/guest/door-code`) with the guest re-entering their booking **confirmation number**, checked server-side against the actual booking.
+- Also enforces [confirmation-number validity](Business-Rules.md#booking-id-confirmation-number-validity) — an expired or cancelled booking's code doesn't work here either.
+- Rate-limited per guest.
+- **The AI Concierge is bound by the same rule** (fixed during the writing of this documentation set, see [Changelog.md](Changelog.md)) — it only knows whether a code exists, never the value, and is instructed to direct the guest to these same gated pages.
+
+## AI Concierge grounding
+
+The Gemini system prompt (`assistantService.ts`) explicitly forbids inventing prices, dates, availability, amenities, house rules, or neighborhood places not present in the real, freshly-fetched context object — see [Integrations.md](Integrations.md#google-gemini). This is a content-accuracy control, not a strict security boundary, but it's what prevents the assistant from fabricating a confident-sounding wrong answer about pricing or availability.
+
+## No enumeration on guest auth endpoints
+
+- `POST /api/guest/auth/request-link` returns the identical `{ok:true}` response whether the email exists, doesn't exist, or the email send itself failed.
+- `POST /api/guest/auth/verify-confirmation` returns the identical generic error whether the confirmation number doesn't exist, belongs to a different email, or has expired.
+
+## Input validation & injection
+
+- **SQL/NoSQL injection**: not applicable in practice — every database access goes through Prisma's ORM query builder (parameterized under the hood). Grepped the full codebase for `$queryRaw`/`$executeRaw`/`$queryRawUnsafe`/`$executeRawUnsafe`: zero matches in application code (only used, safely, in one-off maintenance scripts outside the app itself).
+- **Request validation**: every mutating API route validates its body with a **Zod** schema (`src/lib/validation.ts`) before touching the database; unrecognized fields are stripped by Zod's default behavior (this is also what caused a real, previously-fixed bug — see [Changelog.md](Changelog.md) — where several Settings fields were silently dropped because they were missing from the schema, not maliciously, just an oversight).
+- **XSS**: zero uses of `dangerouslySetInnerHTML` anywhere in the codebase (grepped). React's default JSX escaping is relied on throughout; user-supplied text is never rendered as raw HTML.
+- **Path traversal**: the photo-proxy route validates `photo_reference` against a strict `/^[A-Za-z0-9_-]{20,4096}$/` pattern before using it in an outbound request.
+
+## File upload validation
+
+Guest payment-proof upload (`/api/guest/bookings/[id]/payment-proof`) is the one user-facing file upload:
+- Real **magic-byte** signature check (JPEG/PNG/GIF/WEBP headers) — a client-supplied `Content-Type` label alone is never trusted.
+- 8MB size cap.
+- Rate-limited (10 per 10 minutes per guest) — each upload also triggers a real, billed Gemini Vision call.
+- Stored in Vercel Blob under an unpredictable, extension-sanitized key — never on a locally-executable path.
+- Ownership is checked (`guestId` + `bookingId` match) inside `verifyGuestPaymentProof`, though the Blob upload itself happens just before that check — a signed-in guest could cause a wasted (rate-limited) upload attempt against an arbitrary `bookingId` before the 404; low-severity resource-waste note, not a data-exposure issue.
+
+## Rate limiting
+
+`src/lib/rateLimit.ts` — in-memory, best-effort, per server instance (not a hard guarantee across Vercel's multiple serverless instances, but meaningfully raises the bar for a single source). Applied to every public/guest-facing write and auth-adjacent endpoint: guest magic-link request, confirmation-number login, coupon check, payment-proof upload, guest request submission, WiFi/door-code reveal, iCal export, booking-ID reactivate/regenerate. **Not** applied to `POST /api/guest/bookings` (booking creation itself) — flagged as a real, currently-open gap below.
+
+## Security headers
+
+`next.config.mjs` sets, on every response:
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | `default-src 'self'`, explicit allowances for Google Maps JS API script/connect/img, Vercel Blob images, `'unsafe-inline'` + `'unsafe-eval'` for script (see note below), `object-src 'none'`, `frame-ancestors 'self'`, `base-uri 'self'`, `form-action 'self'` |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
+| `X-Frame-Options` | `SAMEORIGIN` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), interest-cohort=()` |
+
+`script-src` needs both `'unsafe-inline'` (Next.js's own inline hydration/RSC scripts — a full nonce-based strict CSP would require generating a per-request nonce in middleware, a larger dedicated change not made here) and `'unsafe-eval'` (confirmed by live-testing the Maps page — the Google Maps JS API itself evaluates dynamically generated code internally; this is a documented characteristic of that library, not something this app's own code does).
+
+`images.remotePatterns` in `next.config.mjs` was found wildcarded to `hostname: "**"` — meaning the built-in `/_next/image` optimizer route was reachable as an open SSRF/DoS proxy for arbitrary URLs, even though the app has zero `next/image` component usage. **Fixed**: restricted to the one real host in use (`*.public.blob.vercel-storage.com`).
+
+## Secrets handling
+
+- All secrets read from `process.env`, never hardcoded — confirmed by grepping for the `AIza...` (Google API key) literal pattern across `src/`: zero matches.
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is the one intentionally client-exposed key (Google's own documented pattern for the Maps JS API — see [Integrations.md](Integrations.md#google-maps-javascript-api)); `GOOGLE_PLACES_API_KEY` (server-only, different key in principle, currently the **same literal value** as the Maps key — see below) never reaches client code.
+- No `localStorage`/`sessionStorage` usage stores a session token, password, or API key — the only `localStorage` use in the app is a client-side favorites list (place names, not sensitive) and theme/PWA-install preferences.
+
+## Known gaps
+
+Disclosed, not fixed as part of this pass — listed here so they're tracked, not silently left undocumented:
+
+1. **Messenger webhook signature verification** — the `POST` handler doesn't verify Meta's `X-Hub-Signature-256` header before processing a payload. Low severity today (the handler only logs; no reply is sent, nothing is written to the database from webhook content), but should be added before that handler does anything more than log.
+2. **No rate limit on `POST /api/guest/bookings`** (booking creation itself) — every other public write endpoint is rate-limited; this one, the highest-value public write, currently isn't.
+3. **`GOOGLE_PLACES_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` share the same literal value** in the current environment (confirmed via `.env.local`) — see below.
+4. **Next.js 14.2.35** has several published advisories fixed only in v15/v16 (see [Performance.md](Performance.md#dependency-audit)) — none apply to this app's actual configuration (no Server Actions, no i18n, no `next/image` usage), but a major-version upgrade to fully resolve them was deliberately not performed as part of this pass (out of scope — real regression risk, needs its own dedicated effort).
+
+## Google API key scope
+
+`GOOGLE_PLACES_API_KEY` (server-only) and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (client-exposed) are currently set to the **same key value**. Recommended, and not something this codebase can do on its own: in Google Cloud Console, either split these into two separate keys (one HTTP-referrer-restricted for the browser-facing Maps JS API, one IP/server-restricted for the Places API calls that never leave the server) or, at minimum, restrict the shared key's allowed APIs to only what's actually used.
