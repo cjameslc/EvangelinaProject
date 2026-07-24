@@ -269,10 +269,11 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const byBooker = useMemo(() => {
     const map = new Map<string, Booking[]>();
     insightBookings.forEach((b) => {
-      // Airbnb-imported bookings never have a human booker — that's not the
-      // same "nobody logged this" gap as a manually-entered booking missing
-      // one, so give it its own label instead of lumping both under Unassigned.
-      const n = b.booker?.name ?? (b.platform === "Airbnb" ? "Airbnb booking" : "Unassigned");
+      // Airbnb-imported and guest self-service ("Direct") bookings never
+      // have a human booker — neither is the same "nobody logged this" gap
+      // as a manually-entered booking missing one, so each gets its own
+      // label instead of lumping all three under Unassigned.
+      const n = b.booker?.name ?? (b.platform === "Airbnb" ? "Airbnb booking" : b.platform === "Direct" ? "Direct Booking" : "Unassigned");
       if (!map.has(n)) map.set(n, []);
       map.get(n)!.push(b);
     });

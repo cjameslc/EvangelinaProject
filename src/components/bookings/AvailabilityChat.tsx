@@ -205,19 +205,19 @@ function ResultBubble({
   return (
     <div className="space-y-2.5">
       <div className="font-bold text-rausch">
-        ❌ {unitIdRequested ? "Not available" : sameDayOtherOptions.length > 0 ? "Not every unit is free" : "Nothing free"} on {fmtDate(data.date, { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}.
+        ❌ {unitIdRequested ? "That unit isn't available" : sameDayOtherOptions.length > 0 ? "That combination isn't available, but other units are free" : "Nothing free"} on {fmtDate(data.date, { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}.
       </div>
 
       {sameDayOtherOptions.length > 0 && (
         <div>
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Free that same day</div>
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">✅ Available that same day</div>
           <div className="space-y-1.5">
             {sameDayOtherOptions.map((r) => (
-              <div key={`${r.unitId}-${r.stayType}`} className="flex items-center justify-between gap-2 rounded-lg bg-[var(--bg-2)] px-2.5 py-1.5">
+              <div key={`${r.unitId}-${r.stayType}`} className="flex items-center justify-between gap-2 rounded-lg bg-green/10 px-2.5 py-1.5">
                 <span className="text-[12.5px] font-semibold">{r.unit} · {STAY_TYPES[r.stayType as keyof typeof STAY_TYPES]?.label}</span>
                 <button
                   onClick={() => onPrefillBooking({ unitId: r.unitId, date: r.date, stayType: r.stayType })}
-                  className="flex-none rounded-lg bg-rausch px-2.5 py-1 text-[11.5px] font-bold text-white hover:brightness-95"
+                  className="flex-none rounded-lg bg-green px-2.5 py-1 text-[11.5px] font-bold text-white hover:brightness-95"
                 >
                   Log this booking
                 </button>
