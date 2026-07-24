@@ -7,6 +7,7 @@
 - [WiFi/door-code reveal gate](#wifidoor-code-reveal-gate)
 - [AI Concierge grounding](#ai-concierge-grounding)
 - [No enumeration on guest auth endpoints](#no-enumeration-on-guest-auth-endpoints)
+- [Booking-ID-only sign-in (guest hub quick-unlock)](#booking-id-only-sign-in-guest-hub-quick-unlock)
 - [Input validation & injection](#input-validation--injection)
 - [File upload validation](#file-upload-validation)
 - [Rate limiting](#rate-limiting)
@@ -46,7 +47,15 @@ The Gemini system prompt (`assistantService.ts`) explicitly forbids inventing pr
 ## No enumeration on guest auth endpoints
 
 - `POST /api/guest/auth/request-link` returns the identical `{ok:true}` response whether the email exists, doesn't exist, or the email send itself failed.
-- `POST /api/guest/auth/verify-confirmation` returns the identical generic error whether the confirmation number doesn't exist, belongs to a different email, or has expired.
+- `POST /api/guest/auth/verify-confirmation` returns the identical generic error whether the confirmation number doesn't exist, belongs to a different email (when one was supplied), or has expired.
+
+## Booking-ID-only sign-in (guest hub quick-unlock)
+
+`POST /api/guest/auth/verify-confirmation` accepts `email` as **optional** — the standalone `/guest-login` "Booking confirmation" tab still sends both and gets the original two-factor check (code must match, and if an email was sent it must match the booking's guest); the guest-hub quick-unlock card (`BookingUnlockCard.tsx`) sends **only** the confirmation number, by explicit request. This is a deliberate trade-off, not an oversight:
+
+- **What's given up**: the second matching field (email) that previously meant a correct guess of a confirmation number alone wasn't sufficient.
+- **What still protects it**: the code's own entropy (~729M combinations, EVA- + 6 chars from a 30-char alphabet) and rate limiting — now two layers instead of one: the existing per-IP limit (15/hour) plus a new **global** limit (120/hour, `guest-conf-login-global` in `rateLimit.ts`) shared across all requests regardless of source IP, since per-IP limiting alone is easy to route around with enough source addresses and this is now the only gate in front of a real door lock.
+- **Why it's a reasonable trade for this business**: a handful of real bookings exist at any time (see [Performance.md](Performance.md#scale-reality-check)), so the practical odds of a random guess landing on a real, currently-valid code are effectively nil even before rate limiting is considered.
 
 ## Input validation & injection
 

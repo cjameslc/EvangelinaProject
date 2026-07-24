@@ -29,21 +29,22 @@ This was a deliberate choice, not a historical accident — using NextAuth's own
 
 ## Sign-in methods
 
-Two independent paths, both landing on `/guest-login`:
+Three paths, all landing on `/my-bookings`:
 
 ### 1. Email magic link
 
-1. Guest enters their email → `POST /api/guest/auth/request-link`.
+1. Guest enters their email (`/guest-login`) → `POST /api/guest/auth/request-link`.
 2. A `GuestLoginToken` row is created (15-minute TTL, single-use) and emailed via Resend.
 3. Guest clicks the link → `GET /api/guest/auth/verify?token=...` → token is marked used, a session is minted, guest is redirected to `/my-bookings`.
 4. Rate-limited both by requesting IP and by target email, and the response is **identical regardless of outcome** (valid email, unknown email, send failure) — this endpoint must never be usable to enumerate which emails have an account.
 
-### 2. Email + booking confirmation number
+### 2. Booking confirmation number
 
-1. Guest enters email + their booking's confirmation number (`EVA-XXXXXX`) → `POST /api/guest/auth/verify-confirmation`.
-2. Looked up by the confirmation number's real DB uniqueness; the email must match the booking's guest, and the code must currently be **valid** (see [Business-Rules.md](Business-Rules.md#booking-id-confirmation-number-validity) — an expired code fails here too, same as it does for the WiFi/door-code reveal).
-3. On any mismatch (wrong code, wrong email, expired, cancelled booking), the **same generic error** is returned regardless of which part was wrong — no enumeration signal.
-4. Rate-limited by IP.
+`POST /api/guest/auth/verify-confirmation` — `email` is **optional**:
+- `/guest-login`'s "Booking confirmation" tab sends both email and confirmation number; both must match (a wrong email on an otherwise-correct code still fails).
+- The guest hub's inline quick-unlock card (`BookingUnlockCard.tsx`, on `/`) sends **only** the confirmation number — by explicit design, not an oversight. See [Security.md](Security.md#booking-id-only-sign-in-guest-hub-quick-unlock) for the full reasoning and the compensating rate-limit change that came with it.
+
+Either way: the code must currently be **valid** (see [Business-Rules.md](Business-Rules.md#booking-id-confirmation-number-validity) — an expired code fails here too, same as it does for the WiFi/door-code reveal), and on any mismatch (wrong code, wrong email when one was sent, expired, cancelled booking) the **same generic error** is returned regardless of which part was wrong — no enumeration signal. Rate-limited by IP, plus a global cap shared across all requests regardless of source IP.
 
 ### 3. Automatic sign-in at booking time
 

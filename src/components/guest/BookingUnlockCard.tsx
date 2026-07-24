@@ -5,18 +5,18 @@ import { useRouter } from "next/navigation";
 
 /**
  * A quick-access way to reach WiFi/door-code/booking details right from the
- * guest hub, instead of requiring a trip to /guest-login first. Same real
- * mechanism as that page's "Booking confirmation" tab — email + confirmation
- * number, POSTed to the same rate-limited /api/guest/auth/verify-confirmation
- * endpoint — deliberately not a booking-ID-only shortcut: a confirmation
- * number alone was never meant to be sufficient on its own (see
- * Security.md's no-enumeration/reveal-gate discipline), so this still asks
- * for both, just inline instead of on a separate page.
+ * guest hub, instead of requiring a trip to /guest-login first — booking
+ * ID only, by design (the standalone /guest-login "Booking confirmation"
+ * tab still asks for email too; this is the deliberately lighter-weight
+ * version). Posts to the same /api/guest/auth/verify-confirmation
+ * endpoint, which now accepts the code alone — its real protection is the
+ * code's own entropy (~729M combinations) plus the endpoint's rate
+ * limiting, not a second matching field. See that route's own comment for
+ * the full reasoning.
  */
 export function BookingUnlockCard() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState("");
   const [confirmationNumber, setConfirmationNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -30,7 +30,7 @@ export function BookingUnlockCard() {
       const res = await fetch("/api/guest/auth/verify-confirmation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, confirmationNumber }),
+        body: JSON.stringify({ confirmationNumber }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
@@ -60,17 +60,13 @@ export function BookingUnlockCard() {
   return (
     <form onSubmit={onSubmit} className="card mx-auto w-full max-w-[420px] space-y-3 p-5 text-left">
       <div className="flex items-center justify-between">
-        <p className="text-[13.5px] font-extrabold">Enter your booking details</p>
+        <p className="text-[13.5px] font-extrabold">Enter your booking ID</p>
         <button type="button" onClick={() => setOpen(false)} className="text-[12px] font-bold text-[var(--gray)] hover:text-[var(--ink)]">Cancel</button>
       </div>
       <div className="space-y-1.5">
-        <label htmlFor="hub-unlock-email" className="field-label">Email</label>
-        <input id="hub-unlock-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" />
-      </div>
-      <div className="space-y-1.5">
-        <label htmlFor="hub-unlock-conf" className="field-label">Booking ID</label>
         <input
           id="hub-unlock-conf"
+          autoFocus
           required
           value={confirmationNumber}
           onChange={(e) => setConfirmationNumber(e.target.value)}

@@ -24,7 +24,7 @@
 | `/api/auth/[...nextauth]` | GET, POST | Public | NextAuth's own handler — staff login/session/logout |
 | `/api/guest/auth/request-link` | POST | Public (rate-limited by IP + email) | Sends a guest a magic sign-in link |
 | `/api/guest/auth/verify` | GET | Public (token in URL) | Consumes the magic-link token, mints a guest session |
-| `/api/guest/auth/verify-confirmation` | POST | Public (rate-limited) | Signs a guest in with email + booking confirmation number — see [Booking.md](Booking.md#confirmation-number-validity) for the expiry rules enforced here |
+| `/api/guest/auth/verify-confirmation` | POST | Public (rate-limited, IP + global) | Signs a guest in with a booking confirmation number (email optional — see [Security.md](Security.md#booking-id-only-sign-in-guest-hub-quick-unlock)) — see [Booking.md](Booking.md#confirmation-number-validity) for the expiry rules enforced here |
 | `/api/guest/auth/signout` | POST | Public | Clears the guest session cookie |
 
 ## Bookings (staff)
