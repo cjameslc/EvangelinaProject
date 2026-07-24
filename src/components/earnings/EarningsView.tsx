@@ -319,6 +319,7 @@ export function EarningsView({
           {employeePicker}
         </div>
         <OwnerSummarySection
+          role={role}
           teamEmployees={teamEmployees}
           onEmployeesChanged={refreshTeamEmployees}
           pendingRequests={pendingRequests}
@@ -844,8 +845,13 @@ const PAYROLL_STATUS_BADGE: Record<string, string> = { PENDING: "bg-amber/15 tex
 // queue right underneath, so both halves of "review and approve" live
 // together.
 function OwnerSummarySection({
-  teamEmployees, onEmployeesChanged, pendingRequests, onRequestsChanged, payrollPayments, onPayrollChanged,
+  role, teamEmployees, onEmployeesChanged, pendingRequests, onRequestsChanged, payrollPayments, onPayrollChanged,
 }: {
+  /** Only OWNER_ADMIN may actually mark a payroll payment given/pending
+   * (POST /api/payroll-payments) — a Co-owner can view this whole section
+   * but the toggle button is hidden for them rather than shown and then
+   * failing with a 403 on click. */
+  role: string;
   teamEmployees: FullEmployee[];
   onEmployeesChanged: () => void;
   pendingRequests: PendingRequestRow[];
@@ -853,6 +859,7 @@ function OwnerSummarySection({
   payrollPayments: PayrollPaymentRow[];
   onPayrollChanged: () => void;
 }) {
+  const canMarkPayroll = role === "OWNER_ADMIN";
   const toast = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; role: string; salaryType: SalaryType; salaryRate: string }>({ name: "", role: "BOOKER", salaryType: "MONTHLY", salaryRate: "" });
@@ -943,6 +950,7 @@ function OwnerSummarySection({
                     <div className="text-[11px] text-[var(--gray)]">{label}</div>
                   </div>
                   <span className={cn("flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide", PAYROLL_STATUS_BADGE[status])}>{status}</span>
+                  {canMarkPayroll && (
                   <button
                     onClick={() => togglePayroll(emp, status === "GIVEN" ? "PENDING" : "GIVEN")}
                     disabled={busyPaymentId === emp.id}
@@ -950,6 +958,7 @@ function OwnerSummarySection({
                   >
                     {status === "GIVEN" ? "Mark pending" : "Mark given"}
                   </button>
+                  )}
                   <button onClick={() => (isEditing ? setEditingId(null) : startEdit(emp))} className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-[var(--line-2)] text-[var(--gray)] hover:border-rausch hover:text-rausch" aria-label="Edit">
                     <EditIcon className="h-4 w-4" />
                   </button>
