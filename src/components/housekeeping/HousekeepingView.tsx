@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
-import { HousekeepingChallengeCard } from "./HousekeepingChallengeCard";
 import { LaundryPanel } from "./laundry/LaundryPanel";
 
 // Business runs in Manila (UTC+8), but this component renders both on the
@@ -280,8 +279,6 @@ export function HousekeepingView({
         </div>
       )}
 
-      {role === "HOUSEKEEPING" && <HousekeepingChallengeCard />}
-
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Cleaned this week" value={cleanedThisWeek} sub="last 7 days" />
         <StatCard label="Cleaned today" value={cleanedToday} />
@@ -418,7 +415,7 @@ export function HousekeepingView({
       </Accordion>
 
       <Accordion title="🧺 Laundry Management" sub="orders, services, payments & reports" defaultOpen={false}>
-        <LaundryPanel role={role} units={units} employees={employees} />
+        <LaundryPanel role={role} units={units} />
       </Accordion>
     </div>
   );

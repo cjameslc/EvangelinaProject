@@ -12,7 +12,6 @@ import { LaundryReports } from "./LaundryReports";
 import type { LaundryOrder, LaundryOrderDetail as LaundryOrderDetailType, LaundryServiceRow, LaundryDashboardData, LaundryReportsData } from "./types";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
-type Employee = { id: string; name: string; role: string };
 
 const TABS = ["Dashboard", "Orders", "Services", "Reports"] as const;
 type Tab = (typeof TABS)[number];
@@ -25,7 +24,7 @@ type Tab = (typeof TABS)[number];
  * staff won't touch every visit — same "fetch on demand" pattern already
  * used by Admin's PlaceInsightsPanel.
  */
-export function LaundryPanel({ role, units, employees }: { role: string; units: Unit[]; employees: Employee[] }) {
+export function LaundryPanel({ role, units }: { role: string; units: Unit[] }) {
   const [tab, setTab] = useState<Tab>("Dashboard");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -115,7 +114,6 @@ export function LaundryPanel({ role, units, employees }: { role: string; units: 
         order={editingOrder}
         services={services}
         units={units}
-        employees={employees.filter((e) => e.role === "HOUSEKEEPING" || e.role === "BOOKER")}
       />
 
       <LaundryOrderDetail
