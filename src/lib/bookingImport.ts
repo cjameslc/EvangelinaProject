@@ -32,6 +32,9 @@ const HEADER_ALIASES: Record<string, string> = {
   "paid": "paid", "ispaid": "paid", "status": "paid",
   "bookername": "bookerId", "booker": "bookerId",
   "cleanername": "cleanerId", "cleaner": "cleanerId", "housekeeper": "cleanerId",
+  "dpreceivername": "dpReceivedById", "dpreceiver": "dpReceivedById", "dpreceivedby": "dpReceivedById",
+  "fpreceivername": "receivedById", "fpreceiver": "receivedById", "fpreceivedby": "receivedById", "receivedby": "receivedById",
+  "dpamount": "dpAmount", "downpayment": "dpAmount", "dpfee": "dpAmount",
 };
 
 function normalizeHeader(h: string): string {
@@ -49,7 +52,13 @@ function normalizeName(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
-    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+    // Capitalizes the first *letter*, not just the first character — a
+    // word like "(Natch" would otherwise have its real first letter
+    // force-lowercased by charAt(0)/slice(1), since "(" gets treated as
+    // the "first character" instead. Parenthetical aliases (guests are
+    // sometimes logged as "Real Name (Alias)") are common enough in this
+    // data to make this worth handling correctly rather than mangling.
+    .map((w) => w.replace(/^(\W*)(\w)(.*)$/, (_m, pre, first, rest) => pre + first.toUpperCase() + rest.toLowerCase()))
     .join(" ");
 }
 
@@ -75,6 +84,18 @@ function isOwnerAirbnbBooker(rawBookerName: string): boolean {
  * unambiguously means him. Never invents a new employee from a partial
  * match; every other name still requires an exact match against the real
  * employee table (transformRow logs a skip reason when nothing matches). */
+/** Some historical rows list a non-owner booker (e.g. Riemar) but show the
+ * owner as the one who actually received the money — this business banks
+ * Airbnb payouts by bank transfer directly to the owner, so a real payment
+ * physically received by him is itself evidence the stay came through
+ * Airbnb, regardless of what the row's own booker/platform column says.
+ * Only fires when a real (non-zero) amount was involved — a $0 placeholder
+ * receiver value carries no signal. */
+function isOwnerPaymentReceiver(rawReceiverName: string, amount: number): boolean {
+  if (!(amount > 0)) return false;
+  return isOwnerAirbnbBooker(rawReceiverName);
+}
+
 function matchEmployeeByName(rawName: string, employeesByName: Map<string, string>): string | null {
   const trimmed = rawName.trim();
   if (!trimmed) return null;
@@ -190,16 +211,24 @@ async function transformRow(
   const contactNumber = (raw.contactNumber ?? "").trim();
   if (contactNumber.length < 7) return { ok: false, reason: `Invalid or missing contact number "${contactNumber || "(blank)"}"` };
 
-  // The owner-as-Airbnb-booker override takes precedence over whatever the
-  // Platform column actually says — see isOwnerAirbnbBooker's own comment.
-  const ownerAirbnbOverride = isOwnerAirbnbBooker(raw.bookerId ?? "");
-  const platformKey = normalizeHeader(raw.platform ?? "");
-  const platform = ownerAirbnbOverride ? "Airbnb" : PLATFORM_ALIASES[platformKey];
-  if (!platform) return { ok: false, reason: `Unrecognized platform "${raw.platform || "(blank)"}" — use Airbnb, TikTok, Facebook, WalkIn, Direct, or Other` };
-
   const amountRaw = (raw.amount ?? "").replace(/[₱,\s]/g, "");
   const amount = amountRaw ? Math.round(Number(amountRaw)) : NaN;
   if (!Number.isFinite(amount) || amount < 0) return { ok: false, reason: `Invalid amount "${raw.amount || "(blank)"}"` };
+
+  const dpAmountRaw = (raw.dpAmount ?? "").replace(/[₱,\s]/g, "");
+  const dpAmount = dpAmountRaw ? Math.round(Number(dpAmountRaw)) : 0;
+
+  // The owner-as-Airbnb override fires either from the booker/Source column
+  // (isOwnerAirbnbBooker) or from actually being the one who physically
+  // received a real payment (isOwnerPaymentReceiver) — either is independent
+  // evidence the stay came through Airbnb. Takes precedence over whatever
+  // the row's own Platform column says.
+  const ownerReceivedDp = isOwnerPaymentReceiver(raw.dpReceivedById ?? "", dpAmount);
+  const ownerReceivedFp = isOwnerPaymentReceiver(raw.receivedById ?? "", amount);
+  const ownerAirbnbOverride = isOwnerAirbnbBooker(raw.bookerId ?? "") || ownerReceivedDp || ownerReceivedFp;
+  const platformKey = normalizeHeader(raw.platform ?? "");
+  const platform = ownerAirbnbOverride ? "Airbnb" : PLATFORM_ALIASES[platformKey];
+  if (!platform) return { ok: false, reason: `Unrecognized platform "${raw.platform || "(blank)"}" — use Airbnb, TikTok, Facebook, WalkIn, Direct, or Other` };
 
   const paidRaw = normalizeHeader(raw.paid ?? "");
   const paid = ["yes", "true", "paid", "1"].includes(paidRaw);
@@ -207,8 +236,15 @@ async function transformRow(
   const pax = raw.pax ? parseInt(raw.pax, 10) : null;
   const checkInTime = parseTime(raw.checkInTime);
   const checkOutTime = parseTime(raw.checkOutTime);
-  const bookerId = ownerAirbnbOverride ? null : (raw.bookerId ? matchEmployeeByName(raw.bookerId, employeesByName) : null);
+  // isOwnerAirbnbBooker on the booker/Source column alone (not the broader
+  // ownerAirbnbOverride, which can also fire from a receiver match) is what
+  // zeroes out booker credit — a Riemar-sourced booking that merely happened
+  // to have its payment received by the owner still credits Riemar.
+  const bookerNamedOwner = isOwnerAirbnbBooker(raw.bookerId ?? "");
+  const bookerId = bookerNamedOwner ? null : (raw.bookerId ? matchEmployeeByName(raw.bookerId, employeesByName) : null);
   const cleanerId = raw.cleanerId ? matchEmployeeByName(raw.cleanerId, employeesByName) : null;
+  const dpReceivedById = dpAmount > 0 && raw.dpReceivedById ? matchEmployeeByName(raw.dpReceivedById, employeesByName) : null;
+  const receivedById = amount > 0 && raw.receivedById ? matchEmployeeByName(raw.receivedById, employeesByName) : (raw.receivedById ? null : bookerId);
 
   const parsed = bookingSchema.safeParse({
     unitId: unit.id,
@@ -224,13 +260,13 @@ async function transformRow(
     cleanerId,
     platform,
     platformOther: platform === "Other" ? (raw.platformOther || null) : null,
-    dpAmount: null,
-    dpReceivedById: null,
-    dpMethod: null,
+    dpAmount: dpAmount > 0 ? dpAmount : null,
+    dpReceivedById,
+    dpMethod: ownerReceivedDp ? "BankTransfer" : null,
     dpProofUrl: null,
     amount,
-    receivedById: bookerId,
-    method: null,
+    receivedById,
+    method: ownerReceivedFp ? "BankTransfer" : null,
     proofUrl: null,
     paid,
   });
