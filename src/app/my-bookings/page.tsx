@@ -24,7 +24,7 @@ function paymentLabel(b: { paid: boolean; paymentType: string; dpAmount: number 
 const STATUS_LABEL: Record<string, string> = { upcoming: "Upcoming", active: "Active", completed: "Completed", cancelled: "Cancelled" };
 const STATUS_COLOR: Record<string, string> = { upcoming: "text-rausch bg-rausch/10", active: "text-teal bg-teal/10", completed: "text-[var(--gray)] bg-[var(--bg-2)]", cancelled: "text-amber bg-amber/10" };
 
-export default async function MyBookingsPage() {
+export default async function MyBookingsPage({ searchParams }: { searchParams?: { welcome?: string } }) {
   const guest = await getCurrentGuest();
   if (!guest) {
     return (
@@ -41,10 +41,17 @@ export default async function MyBookingsPage() {
 
   return (
     <div className="mx-auto max-w-[700px] px-4 py-9 sm:px-6">
+      {searchParams?.welcome === "1" && (
+        <div className="mb-5 rounded-2xl bg-gradient-to-br from-rausch to-gold px-5 py-4 text-white shadow-card">
+          <p className="text-[15.5px] font-extrabold">Welcome{guest.name ? `, ${guest.name}` : ""}! 🎉</p>
+          <p className="mt-0.5 text-[13.5px] font-semibold text-white/90">Salamat for booking with us!</p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[24px] font-extrabold tracking-tight">My bookings</h1>
-          <p className="mt-1 text-[13.5px] text-[var(--gray)]">Signed in as {guest.email}</p>
+          <p className="mt-1 text-[13.5px] text-[var(--gray)]">{guest.name ? `Welcome back, ${guest.name}` : `Signed in as ${guest.email}`}</p>
         </div>
         <Link href="/account" className="btn btn-sm">My account</Link>
       </div>

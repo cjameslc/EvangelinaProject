@@ -36,7 +36,7 @@ export default function GuestLoginPage() {
         setConfError(j?.error ?? "Something went wrong — try again.");
         return;
       }
-      router.push("/my-bookings");
+      router.push("/my-bookings?welcome=1");
       router.refresh();
     } catch {
       setConfError("Something went wrong — try again.");

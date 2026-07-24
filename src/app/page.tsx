@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { getCurrentGuest } from "@/lib/guestSession";
 import { canSeeDashboard } from "@/lib/rbac";
 import { getViewMode } from "@/lib/viewMode";
 import { getGuidebookSettings } from "@/lib/guidebookService";
@@ -26,7 +27,7 @@ export default async function Home() {
   // /book and BookFlowView) — this page links out to booking, it never
   // renders booking content itself. (middleware.ts's authorized callback
   // special-cases "/" to make this reachable unauthenticated.)
-  const g = await getGuidebookSettings();
+  const [g, guest] = await Promise.all([getGuidebookSettings(), getCurrentGuest()]);
 
   // Real walk/drive time from the property (Urban Deca Towers Cubao) to
   // the nearest real place in each "Explore the neighborhood" category —
@@ -51,5 +52,5 @@ export default async function Home() {
     if (nearest) nearbySummaries[slug] = nearest;
   }
 
-  return <GuideHubView hostName={g.hostName} nearbySummaries={nearbySummaries} />;
+  return <GuideHubView hostName={g.hostName} nearbySummaries={nearbySummaries} showBookingUnlock={!guest} />;
 }

@@ -1,6 +1,7 @@
 import { GUIDE_SECTIONS, type NearbySlug } from "@/lib/guideNav";
 import { TileCoverArt } from "@/components/guest/TileCoverArt";
 import { TransitionLink } from "@/components/guest/TransitionLink";
+import { BookingUnlockCard } from "@/components/guest/BookingUnlockCard";
 
 export type NearbySummary = { distanceMeters: number; walkMinutes: number | null; driveMinutes: number | null };
 
@@ -28,6 +29,7 @@ function nearbyBadge(s: NearbySummary): string | null {
 export function GuideHubView({
   hostName,
   nearbySummaries = {},
+  showBookingUnlock = false,
 }: {
   hostName: string | null;
   /** Keyed by NearbySlug — real walk/drive time to the nearest place in
@@ -35,6 +37,10 @@ export function GuideHubView({
    * Cubao. Only categories with refreshed Google Places data get a badge;
    * everything else falls back to its plain subtitle. */
   nearbySummaries?: Partial<Record<NearbySlug, NearbySummary>>;
+  /** Only shown to a visitor with no active guest session — a guest who's
+   * already signed in has no need to "unlock" anything, their own bookings
+   * are already one tap away via My bookings. */
+  showBookingUnlock?: boolean;
 }) {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14 lg:max-w-[1320px]">
@@ -47,6 +53,11 @@ export function GuideHubView({
           Everything you need for your stay in one place{hostName ? ` — hosted by ${hostName}` : ""}. Browse below, or{" "}
           <TransitionLink href="/book" className="font-bold text-rausch hover:underline">book a unit</TransitionLink>.
         </p>
+        {showBookingUnlock && (
+          <div className="mt-5">
+            <BookingUnlockCard />
+          </div>
+        )}
       </div>
 
       <div className="space-y-6 sm:space-y-9">
