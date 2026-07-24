@@ -15,6 +15,7 @@ import { RoomCard } from "./RoomCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
 import { HousekeepingChallengeCard } from "./HousekeepingChallengeCard";
+import { LaundryPanel } from "./laundry/LaundryPanel";
 
 // Business runs in Manila (UTC+8), but this component renders both on the
 // server (Vercel functions run in UTC) and the client (browser's local
@@ -414,6 +415,10 @@ export function HousekeepingView({
 
       <Accordion title="💳 Bills tracker" sub="association dues, utilities & subscriptions">
         <BillsPanel units={units} bills={bills} canEdit={false} canTogglePaid={canEdit} onChanged={refreshBills} />
+      </Accordion>
+
+      <Accordion title="🧺 Laundry Management" sub="orders, services, payments & reports" defaultOpen={false}>
+        <LaundryPanel role={role} units={units} employees={employees} />
       </Accordion>
     </div>
   );

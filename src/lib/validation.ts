@@ -337,3 +337,66 @@ export const auditFindingUpdateSchema = z.object({
   followUpNeeded: z.boolean().optional(),
   photoUrl: z.string().nullable().optional(),
 });
+
+// ── Laundry Management (part of Housekeeping) ──────────────────────────
+
+export const LAUNDRY_STATUSES = ["Received", "Washing", "Drying", "Ironing", "Folding", "Ready for Pickup", "Delivered", "Cancelled"] as const;
+export const LAUNDRY_PAYMENT_METHODS = ["Cash", "GCash", "BankTransfer", "Card", "OtherWallet"] as const;
+
+export const laundryItemSchema = z.object({
+  itemName: z.string().min(1, "Enter an item name."),
+  category: z.string().min(1, "Enter a category."),
+  quantity: z.number().int().min(1),
+  weight: z.number().min(0).nullable().optional(),
+  color: z.string().nullable().optional(),
+  condition: z.string().nullable().optional(),
+  specialInstructions: z.string().nullable().optional(),
+});
+
+export const laundryOrderSchema = z.object({
+  customerName: z.string().min(1, "Enter the customer's name."),
+  roomNumber: z.string().nullable().optional(),
+  unitId: z.string().nullable().optional(),
+  contactNumber: z.string().min(7, "Enter a valid contact number."),
+  dateReceived: z.string().min(1).refine(isValidDateString, "Invalid date received."),
+  dueDate: z.string().min(1).refine(isValidDateString, "Invalid due date."),
+  serviceId: z.string().min(1, "Select a service."),
+  assignedStaffId: z.string().nullable().optional(),
+  items: z.array(laundryItemSchema).min(1, "Add at least one item."),
+  discountAmount: z.number().int().min(0).optional(),
+  additionalCharges: z.number().int().min(0).optional(),
+  taxAmount: z.number().int().min(0).optional(),
+  // Staff can override the auto-computed total (see laundryPricing.ts) for
+  // a negotiated/rounded price — same convention as Booking.amount.
+  totalAmountOverride: z.number().int().min(0).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const laundryStatusUpdateSchema = z.object({
+  status: z.enum(LAUNDRY_STATUSES),
+  notes: z.string().nullable().optional(),
+});
+
+export const laundryPaymentSchema = z.object({
+  amount: z.number().int().min(1, "Enter a payment amount."),
+  method: z.enum(LAUNDRY_PAYMENT_METHODS),
+  notes: z.string().nullable().optional(),
+});
+
+// Plain ZodObject (not wrapped in .refine) so PATCH /services/[id] can call
+// .partial() on it — same reasoning as bookingSchema above. The "at least
+// one price set" rule only makes sense on full create, so it's a separate
+// .refine()-wrapped schema (laundryServiceSchema) rather than living here.
+export const laundryServiceBaseSchema = z.object({
+  name: z.string().min(1, "Enter a service name."),
+  description: z.string().nullable().optional(),
+  pricePerKg: z.number().int().min(0).nullable().optional(),
+  pricePerItem: z.number().int().min(0).nullable().optional(),
+  estimatedTurnaroundHours: z.number().int().min(1).optional(),
+  active: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export const laundryServiceSchema = laundryServiceBaseSchema.refine((v) => (v.pricePerKg ?? 0) > 0 || (v.pricePerItem ?? 0) > 0, {
+  message: "Set a price per kilogram or per item (or both).",
+  path: ["pricePerKg"],
+});

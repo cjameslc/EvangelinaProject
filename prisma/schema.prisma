@@ -45,6 +45,9 @@ model User {
   reviewedExpenseRequests ExpenseRequest[]
   markedPayrollPayments PayrollPayment[]
   dismissedAttentionItems DismissedAttentionItem[]
+  laundryOrdersCreated LaundryOrder[]
+  laundryStatusChanges LaundryStatusHistory[]
+  laundryPaymentsReceived LaundryPayment[]
 
   @@map("users")
 }
@@ -107,6 +110,7 @@ model Unit {
   icalSyncLogs  IcalSyncLog[]
   expenseRequests ExpenseRequest[]
   guestRequests GuestRequest[]
+  laundryOrders LaundryOrder[]
   feedbackResponses FeedbackResponse[]
 
   @@map("units")
@@ -171,6 +175,7 @@ model Employee {
   expenseRequests     ExpenseRequest[]
   payrollPayments     PayrollPayment[]
   achievements        EmployeeAchievement[]
+  laundryOrdersAssigned LaundryOrder[]
 
   @@index([active])
   @@map("employees")
@@ -1051,4 +1056,148 @@ model AssistantEscalation {
   createdAt  DateTime  @default(now())
 
   @@map("assistant_escalations")
+}
+
+// ── Laundry Management (part of the Housekeeping module — no separate nav) ──
+// A configurable, priced laundry service — Admin/Owner-managed, same
+// active-flag/null-falls-back-to-hidden convention as everything else
+// Admin configures in this app. pricePerKg and pricePerItem are each
+// optional but at least one must be set (enforced in validation, not the
+// DB) — an order priced by weight uses pricePerKg x totalWeight, one priced
+// per piece (e.g. a single suit sent for dry cleaning) uses pricePerItem x
+// totalQuantity.
+model LaundryService {
+  id                    String   @id @default(cuid())
+  name                  String
+  description           String?
+  pricePerKg            Int?     // whole pesos per kilogram
+  pricePerItem          Int?     // whole pesos per piece
+  estimatedTurnaroundHours Int   @default(24)
+  active                Boolean  @default(true)
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  orders LaundryOrder[]
+
+  @@map("laundry_services")
+}
+
+// A laundry ticket — deliberately independent of Booking/Guest (a laundry
+// customer is very often a walk-in or a guest whose stay isn't tracked as
+// a Booking at all), so roomNumber/customerName/contactNumber are their
+// own plain fields here rather than a required FK to Unit/Guest. unitId is
+// an optional soft link for when the order genuinely is for a current
+// in-house guest, purely to make "which unit" filterable/reportable — nothing
+// else in the app depends on it being set.
+model LaundryOrder {
+  id            String    @id @default(cuid())
+  orderNumber   String    @unique // "LDY-000123", sequential — see laundryOrderNumber.ts
+
+  customerName  String
+  roomNumber    String?
+  unitId        String?
+  unit          Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  contactNumber String
+
+  dateReceived  DateTime  @default(now())
+  dueDate       DateTime
+
+  serviceId     String
+  service       LaundryService @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  assignedStaffId String?
+  assignedStaff Employee? @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+
+  // Totals — auto-computed from items + the chosen service's rate when
+  // items change (see laundryPricing.ts), but stored (not purely derived)
+  // so staff can override for a negotiated/rounded price, same convention
+  // as Booking.amount being an editable field seeded from a computed quote.
+  totalWeight   Float     @default(0) // kilograms
+  totalQuantity Int       @default(0)
+  subtotal      Int       @default(0) // service rate x weight/quantity, before adjustments
+  discountAmount Int      @default(0)
+  additionalCharges Int   @default(0)
+  taxAmount     Int       @default(0)
+  totalAmount   Int       @default(0) // subtotal - discount + additionalCharges + taxAmount
+
+  // paymentStatus (Unpaid/Partial/Paid) is deliberately NOT a stored column
+  // — always derived from totalAmount vs. the sum of this order's
+  // LaundryPayment rows (see laundryPricing.ts's paymentStatusFor), so it
+  // can never drift out of sync the way a separately-maintained flag could.
+  payments      LaundryPayment[]
+
+  status        String    @default("Received") // Received | Washing | Drying | Ironing | Folding | Ready for Pickup | Delivered | Cancelled
+  statusHistory LaundryStatusHistory[]
+
+  notes         String?
+  cancelledAt   DateTime?
+  cancellationReason String?
+
+  items         LaundryItem[]
+
+  createdById   String?
+  createdBy     User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@index([dateReceived])
+  @@index([dueDate])
+  @@index([unitId])
+  @@index([assignedStaffId])
+  @@map("laundry_orders")
+}
+
+model LaundryItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       LaundryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  itemName    String
+  category    String // e.g. "Shirt", "Bedding", "Towel" — free text, not a fixed enum (a laundry business's item list varies too much to hardcode)
+  quantity    Int      @default(1)
+  weight      Float?   // kilograms, optional (small/mixed loads are often priced by weight of the whole order, not itemized)
+  color       String?
+  condition   String? // e.g. "Good", "Stained", "Delicate" — free text
+  specialInstructions String?
+
+  @@index([orderId])
+  @@map("laundry_items")
+}
+
+// Full status-change trail — every transition, who made it, and an
+// optional note. The order's own `status` field always mirrors the most
+// recent row here (kept redundant on the order for cheap filtering/
+// indexing — see LaundryOrder.status — but this table is the source of
+// truth for "when" and "who").
+model LaundryStatusHistory {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     LaundryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  changedById String?
+  changedBy User?    @relation(fields: [changedById], references: [id], onDelete: SetNull)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("laundry_status_history")
+}
+
+// One row per payment transaction against an order — supports partial
+// payments accumulating toward totalAmount (see LaundryOrder's comment on
+// why paymentStatus is derived from these rows, not a separate flag).
+model LaundryPayment {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         LaundryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount        Int
+  method        String // Cash | GCash | BankTransfer | Card | OtherWallet
+  receivedById  String?
+  receivedBy    User?    @relation(fields: [receivedById], references: [id], onDelete: SetNull)
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([orderId])
+  @@map("laundry_payments")
 }
