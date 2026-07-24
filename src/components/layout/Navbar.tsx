@@ -165,8 +165,9 @@ export function Navbar({ viewMode }: { viewMode: ViewMode }) {
             </Link>
           )}
           {!session && (
-            <Link href="/login" className="hidden text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)] sm:inline">
-              Employee login
+            <Link href="/login" className="whitespace-nowrap text-[12.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)]">
+              <span className="sm:hidden">Log in</span>
+              <span className="hidden sm:inline">Employee login</span>
             </Link>
           )}
 
