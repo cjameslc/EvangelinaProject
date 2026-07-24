@@ -6,10 +6,14 @@ import { getGuidebookSettings } from "@/lib/guidebookService";
 
 /**
  * Everything the assistant is allowed to know, gathered fresh from the real
- * database. Door code/WiFi password are the one sensitive exception — only
- * ever attached per-booking, to the specific unit(s) the signed-in guest
- * actually has an active (non-cancelled) reservation for, never broadcast
- * as general area info the way the rest of the guidebook is.
+ * database. The door code and WiFi password themselves are NEVER included
+ * here — only a boolean hasWifi/hasDoorCode per active booking — so the
+ * chat can correctly tell a guest whether their unit has one on file
+ * without being able to just state it in a reply. The actual reveal always
+ * goes through the same re-enter-your-booking-ID gate as the WiFi/Check-in
+ * Guide pages (SecureWifiCard/SecureDoorCodeCard, /api/guest/wifi,
+ * /api/guest/door-code) — a signed-in session alone was never meant to be
+ * enough on its own, and the chat shouldn't be a side door around that.
  *
  * Never hardcoded — but IS cached briefly by getCachedAssistantContext
  * below, since a chat conversation sends several messages in quick
@@ -39,6 +43,9 @@ export async function buildAssistantContext(guestId: string | null) {
         select: { id: true, wifiSsid: true, wifiPassword: true, doorCode: true, checkInInstructions: true },
       })
     : [];
+  // wifiSsid/wifiPassword/doorCode are selected above only to derive the
+  // booleans below — the raw values are deliberately never assigned onto
+  // the returned context (see the function's doc comment).
   const guideUnitById = new Map(guideUnits.map((u) => [u.id, u]));
 
   return {
@@ -52,11 +59,11 @@ export async function buildAssistantContext(guestId: string | null) {
       return {
         id: b.id, unit: b.unit.shortName, date: b.date, checkOutDate: b.checkOutDate, stayType: b.stayType,
         amount: b.amount, paid: b.paid, cancelledAt: b.cancelledAt,
-        // Only present when this specific booking is active — never leak a
-        // door code/WiFi for a cancelled or someone-else's stay.
-        wifiSsid: guide?.wifiSsid ?? null,
-        wifiPassword: guide?.wifiPassword ?? null,
-        doorCode: guide?.doorCode ?? null,
+        // Whether one exists — never the value itself. Only true when this
+        // specific booking is active (guide is only populated for active-
+        // booking unit ids above).
+        hasWifi: !!(guide?.wifiSsid && guide?.wifiPassword),
+        hasDoorCode: !!guide?.doorCode,
         checkInInstructions: guide?.checkInInstructions ?? null,
       };
     }),
