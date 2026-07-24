@@ -47,7 +47,7 @@ The Gemini system prompt (`assistantService.ts`) explicitly forbids inventing pr
 ## No enumeration on guest auth endpoints
 
 - `POST /api/guest/auth/request-link` returns the identical `{ok:true}` response whether the email exists, doesn't exist, or the email send itself failed.
-- `POST /api/guest/auth/verify-confirmation` returns the identical generic error whether the confirmation number doesn't exist, belongs to a different email (when one was supplied), or has expired.
+- `POST /api/guest/auth/verify-confirmation` returns the identical generic error whether the confirmation number doesn't exist, belongs to a different email (when one was supplied), or has expired — with one narrow, documented exception for guestless bookings, see [below](#booking-id-only-sign-in-guest-hub-quick-unlock).
 
 ## Booking-ID-only sign-in (guest hub quick-unlock)
 
@@ -56,6 +56,8 @@ The Gemini system prompt (`assistantService.ts`) explicitly forbids inventing pr
 - **What's given up**: the second matching field (email) that previously meant a correct guess of a confirmation number alone wasn't sufficient.
 - **What still protects it**: the code's own entropy (~729M combinations, EVA- + 6 chars from a 30-char alphabet) and rate limiting — now two layers instead of one: the existing per-IP limit (15/hour) plus a new **global** limit (120/hour, `guest-conf-login-global` in `rateLimit.ts`) shared across all requests regardless of source IP, since per-IP limiting alone is easy to route around with enough source addresses and this is now the only gate in front of a real door lock.
 - **Why it's a reasonable trade for this business**: a handful of real bookings exist at any time (see [Performance.md](Performance.md#scale-reality-check)), so the practical odds of a random guess landing on a real, currently-valid code are effectively nil even before rate limiting is considered.
+
+**Guestless-booking bootstrap, a related and narrower trade**: staff-logged and Airbnb-imported bookings never get a `Guest` account automatically (only guest self-service bookings do), so their first sign-in attempt gets `{needsEmail: true}` instead of the fully generic error — this is technically a distinguishable response, meaning a *guessed* code that happens to be real and guestless is identifiable as real (though still not usable without also guessing a matching email). Accepted for the same entropy/rate-limit reasons above, and because the alternative — a valid, active booking's own confirmation code permanently unable to unlock anything — was the actual bug this change fixes (see [Changelog.md](Changelog.md)).
 
 ## Input validation & injection
 
