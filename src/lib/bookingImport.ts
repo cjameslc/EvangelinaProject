@@ -38,6 +38,55 @@ function normalizeHeader(h: string): string {
   return h.toLowerCase().replace(/[^a-z0-9#]/g, "");
 }
 
+/** Trims, collapses internal whitespace runs, and Title-Cases every word —
+ * applied to guest/booker/cleaner names coming from an import file, which
+ * routinely have double spaces or ALL-CAPS entries from manual spreadsheet
+ * upkeep. Matches the same convention BookingForm's own titleCase() applies
+ * to guest names typed in through the UI, so an imported record looks
+ * identical to a manually-entered one. */
+function normalizeName(raw: string): string {
+  return raw
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+
+/** Historical spreadsheets sometimes list the owner (James Carampot) as the
+ * "booker" on what was actually an Airbnb reservation — an informal shorthand
+ * from whoever answered the guest's message, not a real staff booking. Since
+ * Airbnb bookings only ever arrive via iCal sync in this app (never a manual
+ * staff entry) and the owner must never collect a booker's commission or
+ * leaderboard credit for one, any of these name variants in the Booker Name
+ * column overrides the row: platform is forced to Airbnb and no
+ * booker/receiver is attached, regardless of what the Platform column said. */
+const OWNER_AIRBNB_BOOKER_PATTERNS = ["sir james", "james carampot", "carl james", "james", "cj"];
+function isOwnerAirbnbBooker(rawBookerName: string): boolean {
+  const n = normalizeHeader(rawBookerName); // lowercases + strips punctuation/spaces, same as header matching
+  if (!n) return false;
+  return OWNER_AIRBNB_BOOKER_PATTERNS.some((p) => n === normalizeHeader(p));
+}
+
+/** Resolves a raw Booker/Cleaner Name cell to an existing employee id.
+ * Exact match (case/space-insensitive) first; falls back to a first-name
+ * substring match only for "Riemar" specifically — this business has one
+ * Riemar (Riemar Ligad), so a bare "Riemar" or "RIEMAR" in older records
+ * unambiguously means him. Never invents a new employee from a partial
+ * match; every other name still requires an exact match against the real
+ * employee table (transformRow logs a skip reason when nothing matches). */
+function matchEmployeeByName(rawName: string, employeesByName: Map<string, string>): string | null {
+  const trimmed = rawName.trim();
+  if (!trimmed) return null;
+  const exact = employeesByName.get(trimmed.toLowerCase());
+  if (exact) return exact;
+  if (/\briemar\b/i.test(trimmed)) {
+    const riemar = [...employeesByName.entries()].find(([name]) => name.includes("riemar"));
+    if (riemar) return riemar[1];
+  }
+  return null;
+}
+
 const STAY_TYPE_ALIASES: Record<string, string> = {
   daycation: "Daycation", day: "Daycation", "day-use": "Daycation", dayuse: "Daycation",
   night: "Night", "night-stay": "Night", nightstay: "Night", overnight: "Night",
@@ -136,13 +185,16 @@ async function transformRow(
 
   const guestsRaw = (raw.guests ?? "").trim();
   if (!guestsRaw) return { ok: false, reason: "Missing guest name(s)" };
-  const guests = guestsRaw.split(/[,;]/).map((g) => g.trim()).filter(Boolean);
+  const guests = guestsRaw.split(/[,;]/).map((g) => g.trim()).filter(Boolean).map(normalizeName);
 
   const contactNumber = (raw.contactNumber ?? "").trim();
   if (contactNumber.length < 7) return { ok: false, reason: `Invalid or missing contact number "${contactNumber || "(blank)"}"` };
 
+  // The owner-as-Airbnb-booker override takes precedence over whatever the
+  // Platform column actually says — see isOwnerAirbnbBooker's own comment.
+  const ownerAirbnbOverride = isOwnerAirbnbBooker(raw.bookerId ?? "");
   const platformKey = normalizeHeader(raw.platform ?? "");
-  const platform = PLATFORM_ALIASES[platformKey];
+  const platform = ownerAirbnbOverride ? "Airbnb" : PLATFORM_ALIASES[platformKey];
   if (!platform) return { ok: false, reason: `Unrecognized platform "${raw.platform || "(blank)"}" — use Airbnb, TikTok, Facebook, WalkIn, Direct, or Other` };
 
   const amountRaw = (raw.amount ?? "").replace(/[₱,\s]/g, "");
@@ -155,8 +207,8 @@ async function transformRow(
   const pax = raw.pax ? parseInt(raw.pax, 10) : null;
   const checkInTime = parseTime(raw.checkInTime);
   const checkOutTime = parseTime(raw.checkOutTime);
-  const bookerId = raw.bookerId ? employeesByName.get(raw.bookerId.trim().toLowerCase()) ?? null : null;
-  const cleanerId = raw.cleanerId ? employeesByName.get(raw.cleanerId.trim().toLowerCase()) ?? null : null;
+  const bookerId = ownerAirbnbOverride ? null : (raw.bookerId ? matchEmployeeByName(raw.bookerId, employeesByName) : null);
+  const cleanerId = raw.cleanerId ? matchEmployeeByName(raw.cleanerId, employeesByName) : null;
 
   const parsed = bookingSchema.safeParse({
     unitId: unit.id,

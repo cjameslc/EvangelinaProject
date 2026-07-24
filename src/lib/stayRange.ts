@@ -15,7 +15,14 @@
  */
 export function calendarBlockEndDate(stayType: string, date: Date, checkOutDate: Date | null): Date | null {
   if (stayType === "Daycation" || stayType === "Flexible") return null;
-  if (checkOutDate) return checkOutDate;
+  // An explicit checkOutDate only counts if it's actually after check-in —
+  // Night/Full stays are overnight by definition, so a same-day (or
+  // earlier) checkOutDate is bad data, not a genuinely same-day stay.
+  // Trusting it as-is used to collapse occupiedRange() to a zero-length
+  // interval, which rangesOverlap()'s strict "<" comparison then treated as
+  // never overlapping anything — including an identical duplicate booking —
+  // silently defeating the double-booking guard for exactly this case.
+  if (checkOutDate && checkOutDate.getTime() > date.getTime()) return checkOutDate;
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + 1);
   return next;
