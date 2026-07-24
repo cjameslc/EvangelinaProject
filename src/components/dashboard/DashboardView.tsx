@@ -347,6 +347,11 @@ export function DashboardView({
     }
     return fmtDate(periodRange.start, { year: "numeric", timeZone: "Asia/Manila" });
   }, [rangeType, periodRange]);
+  // Same phrasing already used by the Earnings card's "You've earned ___"
+  // line — reused here for the Key metrics tooltips so both cards describe
+  // the selected period identically.
+  const periodPhrase = rangeType === "daily" ? "today" : rangeType === "weekly" ? "this week" : rangeType === "monthly" ? "this month" : rangeType === "custom" ? "in this range" : "this year";
+  const periodPhraseCap = rangeType === "daily" ? "Today" : rangeType === "weekly" ? "This week" : rangeType === "monthly" ? "This month" : rangeType === "custom" ? "This range" : "This year";
 
   const today = dayOf(new Date());
   function unitStatus(unit: Unit) {
@@ -985,6 +990,35 @@ export function DashboardView({
 
   const periodIncome = periodBookings.reduce((s, b) => s + collectedAmount(b), 0);
 
+  // Occupancy/RevPAR/ADR for the Key metrics card — driven by the same
+  // period+status filter as Earnings above (periodRange/filteredUnits),
+  // instead of a permanently-fixed "this week, every unit" snapshot. Uses
+  // periodBookings (already unit- and date-filtered) rather than
+  // earningsBookings directly, so a Status filter like "Occupied only"
+  // correctly narrows the unit count AND which bookings count toward it
+  // together. Realized/Forecast profit, Margin, and Cash Flow deliberately
+  // stay scoped to "this month" — they pull in bills/payroll/expense data
+  // the server only ever fetches for the current month, not an arbitrary
+  // selected period.
+  const filteredOccupancyData = useMemo(
+    () =>
+      computeOccupancy({
+        unitCount: filteredUnits.length,
+        periodStart: periodRange.start,
+        periodEnd: periodRange.end,
+        bookings: periodBookings,
+        maintenanceBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"),
+        cleaningBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"),
+      }),
+    [filteredUnits.length, periodRange, periodBookings, calendarBlocksOccupancy]
+  );
+  const filteredOccupancy = filteredOccupancyData.occupancyPct;
+  const filteredRevpar = computeRevPAR(periodIncome * 100, filteredOccupancyData.availableNights);
+  const filteredAdr = useMemo(
+    () => computeADR(periodBookings, periodRange.start, periodRange.end),
+    [periodBookings, periodRange]
+  );
+
   // Previous period (same length, immediately prior) for the trend
   // indicator — reuses periodRangeFor for daily/weekly/monthly/yearly;
   // "custom" has no natural "previous" cadence, so it's approximated as the
@@ -1334,9 +1368,9 @@ export function DashboardView({
             label="Cash flow" value={peso(cashFlow)} sub="collected − paid − accrued payroll" warn={cashFlowRaw < 0} tone="caution"
             info="Everything collected this month minus paid bills, expenses, and payroll accrued so far. Floors at ₱0."
           />
-          <StatCard label="Occupancy" value={`${occupancy}%`} sub={`across ${units.length} units`} info="Booked nights this week ÷ total available nights." />
-          <StatCard label="RevPAR" value={peso(revpar)} sub="revenue per available room" info="This week's income ÷ available room-nights." infoAlign="right" />
-          <StatCard label="Nightly rate (ADR)" value={peso(adr)} sub="revenue ÷ occupied nights" info="This week's booked revenue ÷ actual nights stayed." infoAlign="right" />
+          <StatCard label="Occupancy" value={`${filteredOccupancy}%`} sub={`across ${filteredUnits.length} unit${filteredUnits.length !== 1 ? "s" : ""}`} info={`Booked nights ${periodPhrase} ÷ total available nights.`} />
+          <StatCard label="RevPAR" value={peso(filteredRevpar)} sub="revenue per available room" info={`${periodPhraseCap}'s income ÷ available room-nights.`} infoAlign="right" />
+          <StatCard label="Nightly rate (ADR)" value={peso(filteredAdr)} sub="revenue ÷ occupied nights" info={`${periodPhraseCap}'s booked revenue ÷ actual nights stayed.`} infoAlign="right" />
         </div>
         {(aiInsight || keyMetricsInsights.length > 0) && (
           <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
