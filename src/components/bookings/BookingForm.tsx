@@ -276,6 +276,15 @@ export function BookingForm({
     setGuestInput("");
   }
 
+  // Order fields appear on screen — used to pick which invalid field to
+  // scroll to first when several are wrong at once.
+  const FIELD_ORDER = ["date", "checkOutDate", "unitId", "stayType", "guests", "contactNumber", "bookerId", "platform", "totalAmount", "receivedById", "method"] as const;
+  const FIELD_LABEL: Record<string, string> = {
+    date: "Dates", checkOutDate: "Dates", unitId: "Unit", stayType: "Stay type", guests: "Guest name(s)",
+    contactNumber: "Contact number", bookerId: "Booker", platform: "Platform", totalAmount: "Total Amount",
+    receivedById: "Received by", method: "Full Payment method",
+  };
+
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!v.date) e.date = "Pick a date.";
@@ -301,7 +310,22 @@ export function BookingForm({
     if (v.paid && !v.receivedById) e.receivedById = "Choose who received the money.";
     if (v.paid && !v.method) e.method = "Choose how the full payment was made.";
     setErrors(e);
+    if (Object.keys(e).length > 0) scrollToFirstError(e);
     return Object.keys(e).length === 0;
+  }
+
+  // The form is long enough that the first invalid field (often Unit, near
+  // the top) can be scrolled well out of view by the time staff reach the
+  // Save button at the bottom — without this, a blocked submit looks like
+  // nothing happened at all. Jump to and focus whichever invalid field
+  // appears first on screen, per FIELD_ORDER.
+  function scrollToFirstError(e: Record<string, string>) {
+    const firstKey = FIELD_ORDER.find((k) => e[k]);
+    if (!firstKey) return;
+    const el = document.getElementById(`bf-${firstKey}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.querySelector<HTMLElement>("select, input, textarea, button")?.focus({ preventScroll: true });
   }
 
   async function submit() {
@@ -327,6 +351,15 @@ export function BookingForm({
         <div className="sticky top-0 z-30 -mx-1 -mt-1 mb-1 flex items-center gap-2.5 rounded-2xl bg-[var(--ink)] px-4 py-3 text-[13.5px] font-bold text-[var(--bg)] shadow-card">
           <span className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-[var(--bg)]/30 border-t-[var(--bg)]" />
           Saving your changes — please wait, this can take a few seconds…
+        </div>
+      )}
+      {Object.keys(errors).length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-2xl border border-rausch/30 bg-rausch/5 p-3.5 text-[13px] font-semibold text-rausch">
+          <AlertIcon className="h-4 w-4 flex-none translate-y-0.5" />
+          <span>
+            Can&rsquo;t save yet — {Object.keys(errors).length === 1 ? "1 field needs" : `${Object.keys(errors).length} fields need`} your attention:{" "}
+            {Array.from(new Set(FIELD_ORDER.filter((k) => errors[k]).map((k) => FIELD_LABEL[k]))).join(", ")}.
+          </span>
         </div>
       )}
       {confirmationNumber && (
@@ -369,7 +402,7 @@ export function BookingForm({
       )}
       <fieldset disabled={saving} className="contents">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+        <div id="bf-date" className="sm:col-span-2">
           <label className="field-label">Dates <span className="text-rausch">*</span></label>
           <div className="mt-1.5">
             <DateRangePicker
@@ -386,7 +419,7 @@ export function BookingForm({
           <p className="mt-1 text-[12px] text-[var(--gray)]">Check-out is auto-suggested once you pick a stay type below (same-day for Daycation, next-day for Night/Full) — adjust it for multi-night stays. Both check-in and check-out are required.</p>
         </div>
 
-        <div>
+        <div id="bf-unitId">
           <label className="field-label">Unit <span className="text-rausch">*</span></label>
           <select
             value={v.unitId}
@@ -397,7 +430,7 @@ export function BookingForm({
               // but never clobber a value staff already typed in.
               setV((s) => ({ ...s, unitId, totalAmount: s.totalAmount == null && unit?.nightlyRate ? unit.nightlyRate : s.totalAmount }));
             }}
-            className={cn("field-input mt-1.5", conflict && "border-rausch ring-4 ring-rausch/15")}
+            className={cn("field-input mt-1.5", (conflict || errors.unitId) && "border-rausch ring-4 ring-rausch/15")}
           >
             <option value="">— Select unit —</option>
             {units.map((u) => <option key={u.id} value={u.id}>{unitLabel(u)}</option>)}
@@ -412,7 +445,7 @@ export function BookingForm({
           </div>
         )}
 
-        <div className="sm:col-span-2">
+        <div id="bf-stayType" className="sm:col-span-2">
           <label className="field-label">Stay type <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {(v.platform === "Airbnb" ? (["Full"] as const) : (["Daycation", "Night", "Full", "Flexible"] as const)).map((t) => (
@@ -471,7 +504,7 @@ export function BookingForm({
           </div>
         </div>
 
-        <div className="sm:col-span-2">
+        <div id="bf-guests" className="sm:col-span-2">
           <label className="field-label">Guest name(s) <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex min-h-[46px] flex-wrap items-center gap-1.5 rounded-field border border-[var(--line-2)] p-1.5 focus-within:border-rausch focus-within:ring-4 focus-within:ring-rausch/15">
             {v.guests.map((g, i) => (
@@ -498,7 +531,7 @@ export function BookingForm({
           <label className="field-label">No. of guests</label>
           <input type="number" min={1} value={v.pax ?? ""} onChange={(e) => set("pax", e.target.value ? +e.target.value : null)} className="field-input mt-1.5" placeholder="e.g. 2" />
         </div>
-        <div>
+        <div id="bf-contactNumber">
           <label className="field-label">Contact number <span className="text-rausch">*</span></label>
           <input value={v.contactNumber} onChange={(e) => set("contactNumber", e.target.value)} className="field-input mt-1.5" placeholder="0917 123 4567" />
           {err("contactNumber")}
@@ -514,7 +547,7 @@ export function BookingForm({
           />
         </div>
 
-        <div className="sm:col-span-2">
+        <div id="bf-bookerId" className="sm:col-span-2">
           <label className="field-label">Booker <span className="text-rausch">*</span></label>
           {lockBooker ? (
             <>
@@ -538,7 +571,7 @@ export function BookingForm({
           )}
         </div>
 
-        <div className="sm:col-span-2">
+        <div id="bf-platform" className="sm:col-span-2">
           <label className="field-label">Platform <span className="text-rausch">*</span></label>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {/* Editing an older booking already logged as Airbnb or Direct
@@ -559,7 +592,7 @@ export function BookingForm({
         )}
       </div>
 
-      <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-4">
+      <div id="bf-totalAmount" className="rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-4">
         <label className="field-label">Total Amount <span className="text-rausch">*</span></label>
         <input
           type="number"
@@ -675,7 +708,7 @@ export function BookingForm({
             <div className="field-input mt-1.5 flex items-center bg-[var(--bg-2)] text-[15px] font-extrabold">{peso(v.amount ?? 0)}</div>
             <p className="mt-1 text-[11.5px] text-[var(--gray)]">Total minus downpayment, calculated automatically.</p>
           </div>
-          <div>
+          <div id="bf-receivedById">
             <label className="field-label">Received by {v.paid && <span className="text-rausch">*</span>}</label>
             <select value={v.receivedById} onChange={(e) => set("receivedById", e.target.value)} className="field-input mt-1.5">
               <option value="">— Select —</option>
@@ -684,7 +717,7 @@ export function BookingForm({
             {err("receivedById")}
           </div>
         </div>
-        <div>
+        <div id="bf-method">
           <label className="field-label">Full Payment method {v.paid && <span className="text-rausch">*</span>}</label>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {PAYMENT_METHODS.map((m) => <Pill key={m} on={v.method === m} onClick={() => set("method", m)}>{PAYMENT_METHOD_LABEL[m]}</Pill>)}
