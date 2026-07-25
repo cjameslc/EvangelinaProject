@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { createGuestBooking } from "@/lib/bookingService";
 import { bookingSchema } from "@/lib/validation";
@@ -138,27 +139,36 @@ export async function POST(req: NextRequest) {
   // never allowed to be the thing that delays or breaks a booking either
   // way. Runs after the response is already being built below; the guest's
   // door-code reveal on /my-bookings just won't have a code yet for the
-  // first second or two after booking.
-  createGuestAccessCode({
-    bookingId: result.booking.id,
-    unitId: unitId,
-    guestId: guest.id,
-    checkIn: result.booking.date,
-    checkOut: result.booking.checkOutDate,
-  }).catch(() => {});
+  // first second or two after booking. Wrapped in waitUntil() so Vercel's
+  // Node.js runtime doesn't freeze/recycle the function before this
+  // finishes — a fire-and-forget promise with no waitUntil is only
+  // "best-effort" by accident (it happens to finish before the runtime
+  // tears down), not by guarantee, and this call's whole reason to exist is
+  // its retry/fallback logic, which needs the time to actually run.
+  waitUntil(
+    createGuestAccessCode({
+      bookingId: result.booking.id,
+      unitId: unitId,
+      guestId: guest.id,
+      checkIn: result.booking.date,
+      checkOut: result.booking.checkOutDate,
+    }).catch(() => {})
+  );
 
   // Best-effort — never block the booking response on email delivery.
-  sendBookingConfirmationEmail(email, {
-    guestName: name.trim(),
-    unitName: unit.shortName,
-    confirmationNumber: result.booking.confirmationNumber ?? "",
-    date: result.booking.date.toISOString(),
-    stayType: result.booking.stayType,
-    total: quote.total,
-    paymentType: result.booking.paymentType,
-    dpAmount: quote.dpAmount,
-    balanceDue: quote.balanceDue,
-  }).catch(() => {});
+  waitUntil(
+    sendBookingConfirmationEmail(email, {
+      guestName: name.trim(),
+      unitName: unit.shortName,
+      confirmationNumber: result.booking.confirmationNumber ?? "",
+      date: result.booking.date.toISOString(),
+      stayType: result.booking.stayType,
+      total: quote.total,
+      paymentType: result.booking.paymentType,
+      dpAmount: quote.dpAmount,
+      balanceDue: quote.balanceDue,
+    }).catch(() => {})
+  );
 
   const res = NextResponse.json({ ok: true, booking: result.booking, quote }, { status: 201 });
   // Sign the guest in immediately — no separate email round-trip needed

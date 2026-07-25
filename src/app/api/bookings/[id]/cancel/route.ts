@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingCancelSchema } from "@/lib/validation";
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // (reserve code back to the pool, real TTLock code deleted) right away
   // rather than leaving it tied up until some future checkout that will
   // never happen. Best-effort, never blocks the response.
-  releaseAccessCodeForBooking(booking.id).catch(() => {});
+  waitUntil(releaseAccessCodeForBooking(booking.id).catch(() => {}));
 
   return NextResponse.json(booking);
 }

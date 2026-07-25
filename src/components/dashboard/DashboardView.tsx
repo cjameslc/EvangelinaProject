@@ -514,16 +514,24 @@ export function DashboardView({
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   useEffect(() => {
     setAiInsight(null);
-    let cancelled = false;
+    // A real AbortController, not just a `cancelled` flag — this is a
+    // billed Gemini call (see the comment above), and clicking through the
+    // period-nav arrows a few times in a row was previously firing a full
+    // paid round trip for every intermediate click, only to throw the
+    // response away client-side once a newer one landed. Aborting the
+    // in-flight request when this effect re-runs (or unmounts) means only
+    // the period the user actually settles on ever completes server-side.
+    const controller = new AbortController();
     fetch("/api/dashboard/insight", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(insightMetricsPayload),
+      signal: controller.signal,
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then((j) => { if (!cancelled && j?.insight) setAiInsight(j.insight); })
+      .then((j) => { if (j?.insight) setAiInsight(j.insight); })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(insightMetricsPayload)]);
 

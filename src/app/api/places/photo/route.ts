@@ -30,7 +30,13 @@ export async function GET(req: NextRequest) {
   upstream.searchParams.set("key", apiKey);
 
   try {
-    const res = await fetch(upstream, { redirect: "follow" });
+    // 8s cap — this runs on real guest page loads (unlike the admin-only
+    // refresh flow), so a hung upstream call must fail fast into the same
+    // "Photo unavailable" response the guest already sees for a real 502,
+    // rather than tying up the function for its full duration budget.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(upstream, { redirect: "follow", signal: controller.signal }).finally(() => clearTimeout(timer));
     if (!res.ok || !res.body) return new Response("Photo unavailable", { status: 502 });
     return new Response(res.body, {
       headers: {

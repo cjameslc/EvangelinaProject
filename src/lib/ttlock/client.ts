@@ -14,6 +14,30 @@ import crypto from "crypto";
 // token bugs a persisted-token cache would otherwise need to handle.
 const DOMAIN = "https://api.ttlock.com";
 
+// None of these calls had a timeout before — a hung TTLock API (as opposed
+// to a fast error) would hang the whole attempt indefinitely, which starves
+// reliability.ts's withRetry() of the ability to actually retry (it can't
+// move to attempt 2 if attempt 1 never settles) and, for the one call site
+// that's awaited into a response (booking cancel/edit), risks the request
+// hanging until the platform's own hard timeout. 8s comfortably covers a
+// slow-but-working real TTLock response (observed real calls this session
+// were all sub-2s) while still leaving room for withRetry's 3 attempts to
+// finish within a typical serverless function's execution budget.
+const REQUEST_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (controller.signal.aborted) throw new Error(`TTLock request timed out after ${REQUEST_TIMEOUT_MS}ms: ${url}`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type TtlockKey = {
   keyId: number;
   lockId: number;
@@ -45,7 +69,7 @@ async function getAccessToken(): Promise<string> {
     password: md5Password,
     grant_type: "password",
   });
-  const res = await fetch(`${DOMAIN}/oauth2/token`, {
+  const res = await fetchWithTimeout(`${DOMAIN}/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -70,7 +94,7 @@ export async function listTtlockLocks(): Promise<TtlockKey[]> {
     pageSize: "200",
     date: String(Date.now()),
   });
-  const res = await fetch(`${DOMAIN}/v3/key/list`, {
+  const res = await fetchWithTimeout(`${DOMAIN}/v3/key/list`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -107,7 +131,7 @@ export async function addTtlockPasscode(params: {
     addType: "2",
     date: String(now),
   });
-  const res = await fetch(`${DOMAIN}/v3/keyboardPwd/add`, {
+  const res = await fetchWithTimeout(`${DOMAIN}/v3/keyboardPwd/add`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -138,7 +162,7 @@ export async function addTtlockPermanentPasscode(params: {
     addType: "2",
     date: String(Date.now()),
   });
-  const res = await fetch(`${DOMAIN}/v3/keyboardPwd/add`, {
+  const res = await fetchWithTimeout(`${DOMAIN}/v3/keyboardPwd/add`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -159,7 +183,7 @@ export async function deleteTtlockPasscode(lockId: number, keyboardPwdId: number
     deleteType: "2",
     date: String(Date.now()),
   });
-  const res = await fetch(`${DOMAIN}/v3/keyboardPwd/delete`, {
+  const res = await fetchWithTimeout(`${DOMAIN}/v3/keyboardPwd/delete`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),

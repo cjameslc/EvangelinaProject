@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
@@ -111,7 +112,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // actions) — release the door-access code back to the pool (reserve) or
   // off the lock (real TTLock code). Best-effort, never blocks the response.
   if (!existing.checkedOutAt && booking.checkedOutAt) {
-    releaseAccessCodeForBooking(booking.id).catch(() => {});
+    waitUntil(releaseAccessCodeForBooking(booking.id).catch(() => {}));
   }
 
   return NextResponse.json(booking);

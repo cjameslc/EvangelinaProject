@@ -10,6 +10,27 @@ const FIND_PLACE_URL = "https://maps.googleapis.com/maps/api/place/findplacefrom
 const PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json";
 const DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json";
 
+// None of the calls below had a timeout before — refreshCategoryInsights
+// (placeInsightService.ts) awaits lookupPlace() sequentially for every place
+// name in a category, so a single hung request (as opposed to a fast error,
+// which the try/catch below already handles) would stall the entire
+// Admin-triggered refresh indefinitely instead of just failing that one
+// place and moving on.
+const REQUEST_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string | URL): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (e) {
+    if (controller.signal.aborted) throw new Error(`Google Places request timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function isPlacesApiConfigured(): boolean {
   return !!process.env.GOOGLE_PLACES_API_KEY;
 }
@@ -47,7 +68,7 @@ async function findPlaceId(query: string, apiKey: string): Promise<{ placeId: st
   url.searchParams.set("language", "en"); // deterministic weekday_text parsing downstream
   url.searchParams.set("key", apiKey);
 
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   const data = await res.json();
   if (data.status === "ZERO_RESULTS") return { placeId: null, error: "No matching place found" };
   if (data.status !== "OK" || !data.candidates?.length) {
@@ -66,7 +87,7 @@ async function getPlaceDetails(placeId: string, apiKey: string): Promise<{ resul
   url.searchParams.set("language", "en");
   url.searchParams.set("key", apiKey);
 
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   const data = await res.json();
   if (data.status !== "OK") {
     return { result: null, error: `Place details failed: ${data.status}${data.error_message ? ` — ${data.error_message}` : ""}` };
@@ -88,7 +109,7 @@ async function getWalkDriveMinutes(
     url.searchParams.set("mode", mode);
     url.searchParams.set("key", apiKey);
     try {
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url);
       const data = await res.json();
       const element = data?.rows?.[0]?.elements?.[0];
       if (data.status !== "OK" || element?.status !== "OK") return null;

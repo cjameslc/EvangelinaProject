@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import { rateLimit } from "@/lib/rateLimit";
 import type { Role } from "@/lib/prisma-enums";
 
 export const authOptions: NextAuthOptions = {
@@ -19,8 +20,18 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
 
+        // Staff login had no rate limit at all — every other credential-
+        // checking endpoint in this app (guest booking-ID login, wifi/door-
+        // code reveal) already has one. Keyed on the attempted username
+        // (not IP — NextAuth's authorize() doesn't reliably expose one),
+        // which directly stops repeated password-guessing against a single
+        // account regardless of where the requests come from.
+        const normalizedUsername = credentials.username.toLowerCase().trim();
+        const limited = rateLimit(`staff-login:${normalizedUsername}`, 10, 15 * 60 * 1000);
+        if (!limited.ok) return null;
+
         const user = await prisma.user.findUnique({
-          where: { username: credentials.username.toLowerCase().trim() },
+          where: { username: normalizedUsername },
           include: { ownedUnits: { select: { unitId: true } } },
         });
         if (!user || !user.active) return null;

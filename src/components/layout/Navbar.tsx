@@ -54,10 +54,18 @@ export function Navbar({ viewMode }: { viewMode: ViewMode }) {
 
   // Fetched whenever staff nav isn't showing — covers both a true
   // anonymous guest and a staff member in Travel Mode. Harmless (returns
-  // 0) for someone with no guest cookie either way.
+  // 0) for someone with no guest cookie either way. Aborted on every route
+  // change (Navbar is mounted globally, so this effect re-runs on every
+  // client-side navigation) — without this, a slower earlier response could
+  // resolve after a newer one and briefly flash a stale unread count.
   useEffect(() => {
     if (isStaffNav) return;
-    fetch("/api/guest/notifications/unread-count").then((r) => r.json()).then((j) => setGuestUnread(j.count ?? 0)).catch(() => {});
+    const controller = new AbortController();
+    fetch("/api/guest/notifications/unread-count", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((j) => setGuestUnread(j.count ?? 0))
+      .catch(() => {});
+    return () => controller.abort();
   }, [isStaffNav, pathname]);
 
   const role = session?.user?.role;
