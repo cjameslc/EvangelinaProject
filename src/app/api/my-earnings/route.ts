@@ -146,10 +146,17 @@ export async function GET(req: NextRequest) {
   const weekExpensesNormalized = expenses
     .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= weekStart && d < weekEnd; })
     .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
+  // Only APPROVED requests count toward real earnings — a still-pending or
+  // rejected request isn't money owed yet, same as a WeeklyExpense or
+  // booking commission never counts before it's actually earned/approved.
+  const weekExpenseRequestsNormalized = myExpenseRequests
+    .filter((r) => r.status === "APPROVED" && (() => { const d = new Date(dayOf(new Date(r.date))); return d >= weekStart && d < weekEnd; })())
+    .map((r) => ({ employeeId: employee!.id, note: r.note, amount: r.amount }));
   const thisWeek = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisWeek,
     weekBookings: weekBookingsNormalized,
     weekExpenses: weekExpensesNormalized,
+    weekExpenseRequests: weekExpenseRequestsNormalized,
     rates,
   });
   const salaryThisWeek = weeklySalaryFor(employee.monthlySalary);
@@ -164,11 +171,15 @@ export async function GET(req: NextRequest) {
   const monthExpensesNormalized = expenses
     .filter((e) => e.date.toISOString().slice(0, 7) === thisMonthIso)
     .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
+  const monthExpenseRequestsNormalized = myExpenseRequests
+    .filter((r) => r.status === "APPROVED" && r.date.toISOString().slice(0, 7) === thisMonthIso)
+    .map((r) => ({ employeeId: employee!.id, note: r.note, amount: r.amount }));
   const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
   const thisMonthActivity = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisMonth,
     weekBookings: monthBookingsNormalized,
     weekExpenses: monthExpensesNormalized,
+    weekExpenseRequests: monthExpenseRequestsNormalized,
     rates,
     periodWeeks: 30 / 7,
   });
@@ -304,7 +315,10 @@ export async function GET(req: NextRequest) {
     const wExpenses = expenses
       .filter((e) => { const d = new Date(dayOf(new Date(e.date))); return d >= wStart && d < wEnd; })
       .map((e) => ({ note: e.note, amount: e.amount, targetEmployeeId: employee!.id }));
-    const wActivity = computeTeamBreakdown(employee, { cleaningDays: wCleaningDays, weekBookings: wBookings, weekExpenses: wExpenses, rates });
+    const wExpenseRequests = myExpenseRequests
+      .filter((r) => r.status === "APPROVED" && (() => { const d = new Date(dayOf(new Date(r.date))); return d >= wStart && d < wEnd; })())
+      .map((r) => ({ employeeId: employee!.id, note: r.note, amount: r.amount }));
+    const wActivity = computeTeamBreakdown(employee, { cleaningDays: wCleaningDays, weekBookings: wBookings, weekExpenses: wExpenses, weekExpenseRequests: wExpenseRequests, rates });
     const wAwards = myAwards.filter((a) => { const d = new Date(a.completedAt); return d >= wStart && d < wEnd; });
     const wSalary = weeklySalaryFor(employee.monthlySalary);
     payrollHistory.push({

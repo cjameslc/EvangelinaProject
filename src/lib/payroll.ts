@@ -15,6 +15,12 @@ export type TeamLineItem = { label: string; detail: string; amount: number; dedu
 
 type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean; cancelledAt?: string | null; dpAmount?: number | null; refundedAt?: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
+/** An Admin-approved ExpenseRequest — money this employee is owed back for
+ * a business expense they paid out of pocket (TikTok ads, a unit repair),
+ * not a deduction. employeeId here is the requester, distinct from
+ * WeeklyExpense's targetEmployeeId (someone else logging a charge against
+ * them). */
+type NormalizedExpenseRequest = { employeeId: string; note: string; amount: number };
 
 /** Roles the "Your team" payroll list includes at all. */
 export function isPayrollRole(role: string) {
@@ -23,9 +29,9 @@ export function isPayrollRole(role: string) {
 
 export function computeTeamBreakdown(
   emp: { id: string; role: string },
-  params: { cleaningDays: number; weekBookings: NormalizedBooking[]; weekExpenses: NormalizedExpense[]; rates: PayrollRates; periodWeeks?: number }
+  params: { cleaningDays: number; weekBookings: NormalizedBooking[]; weekExpenses: NormalizedExpense[]; weekExpenseRequests?: NormalizedExpenseRequest[]; rates: PayrollRates; periodWeeks?: number }
 ): { total: number; items: TeamLineItem[]; subtitle: string } {
-  const { cleaningDays, weekBookings, weekExpenses, rates } = params;
+  const { cleaningDays, weekBookings, weekExpenses, weekExpenseRequests = [], rates } = params;
   // How many weeks the caller's booking/expense window actually spans —
   // 1 for the default "this week" case. Only the Auditor's flat weekly rate
   // needs this: every other line here (day-rate × cleaning days, commission
@@ -98,6 +104,14 @@ export function computeTeamBreakdown(
   // is paid in full and checked out, with no manual top-up step needed.
   const empExpenses = weekExpenses.filter((e) => e.targetEmployeeId === emp.id);
   empExpenses.filter((e) => e.note !== "Salary").forEach((e) => items.push({ label: e.note, detail: "deducted this week", amount: e.amount, deduction: true }));
+
+  // Approved expense requests — money owed BACK to this employee for a
+  // business cost they covered themselves (a TikTok ad boost, a unit
+  // repair), not a deduction, so it adds to the total rather than
+  // subtracting like the WeeklyExpense charges above.
+  weekExpenseRequests
+    .filter((r) => r.employeeId === emp.id)
+    .forEach((r) => items.push({ label: r.note, detail: "approved expense reimbursement", amount: r.amount }));
 
   const total = items.reduce((s, i) => s + (i.deduction ? -i.amount : i.amount), 0);
   return { total, items, subtitle };
