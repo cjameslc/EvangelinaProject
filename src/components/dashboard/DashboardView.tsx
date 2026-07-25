@@ -72,6 +72,8 @@ export function DashboardView({
   expenseRequestsMonth,
   cleaningLogsRecent,
   calendarBlocksOccupancy,
+  reserveAccessCodes,
+  ttlockStatus,
   pendingGuestRequests,
   weekRangeStart,
   weekRangeEnd,
@@ -94,6 +96,8 @@ export function DashboardView({
   expenseRequestsMonth: { id: string; category: string; amount: number; status: string; date: string; employee: { name: string } | null }[];
   cleaningLogsRecent: { id: string; unitId: string; startedAt: string; endedAt: string | null; employee: { name: string } | null }[];
   calendarBlocksOccupancy: OccupancyBlock[];
+  reserveAccessCodes: { unitId: string; status: string }[];
+  ttlockStatus: { lastSuccessAt: string | null; lastFailureAt: string | null; lastFailureMessage: string | null } | null;
   pendingGuestRequests: { id: string; type: string; message: string | null; createdAt: string; unit: { shortName: string } | null; guest: { name: string | null; email: string } | null }[];
   weekRangeStart: string;
   weekRangeEnd: string;
@@ -634,6 +638,24 @@ export function DashboardView({
   // resolves it through the separately-fetched `units` array instead.
   const unitShortName = (unitId: string) => units.find((u) => u.id === unitId)?.shortName ?? "Unit";
 
+  // Reserve access-code pool health, per unit — feeds both the "Emergency
+  // Access Codes" widget below and the exhaustion attention item. A unit
+  // with reserve codes provisioned but zero AVAILABLE means the very next
+  // TTLock outage during a booking would leave a guest with no code at all.
+  const reserveCodeStats = useMemo(() => {
+    const byUnit = new Map<string, { total: number; available: number }>();
+    for (const c of reserveAccessCodes) {
+      const s = byUnit.get(c.unitId) ?? { total: 0, available: 0 };
+      s.total++;
+      if (c.status === "AVAILABLE") s.available++;
+      byUnit.set(c.unitId, s);
+    }
+    const total = reserveAccessCodes.length;
+    const available = reserveAccessCodes.filter((c) => c.status === "AVAILABLE").length;
+    const exhaustedUnits = units.filter((u) => (byUnit.get(u.id)?.total ?? 0) > 0 && (byUnit.get(u.id)?.available ?? 0) === 0);
+    return { byUnit, total, available, inUse: total - available, exhaustedUnits };
+  }, [reserveAccessCodes, units]);
+
   const attentionItems = useMemo(() => {
     const items: { id: string; dot: string; title: string; desc: string; tag: string; href?: string }[] = [];
 
@@ -649,6 +671,17 @@ export function DashboardView({
         href: "/auditor",
       });
     });
+
+    if (reserveCodeStats.exhaustedUnits.length > 0) {
+      const desc = reserveCodeStats.exhaustedUnits.map((u) => u.shortName).join(", ");
+      items.push({
+        id: "attn-reserve-codes-exhausted",
+        dot: "bg-rausch",
+        title: `No emergency access codes left for ${reserveCodeStats.exhaustedUnits.length === 1 ? "1 unit" : `${reserveCodeStats.exhaustedUnits.length} units`}`,
+        desc: `${desc} — a TTLock outage during a booking right now would leave that guest without a door code. Release codes from finished stays or provision more.`,
+        tag: "Locks",
+      });
+    }
 
     // Guest requests from the Digital Guidebook (housekeeping, late
     // checkout, extend stay, a reported issue) — time-sensitive, since a
@@ -790,7 +823,7 @@ export function DashboardView({
       .filter((item) => !dismissedKeys.has(item.key))
       .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, pendingGuestRequests, dismissedKeys]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, pendingGuestRequests, reserveCodeStats, dismissedKeys]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
@@ -1440,6 +1473,36 @@ export function DashboardView({
           </div>
         )}
       </Accordion>
+
+      {reserveCodeStats.total > 0 && (
+        <Accordion
+          title="Emergency access codes"
+          sub={ttlockStatus?.lastFailureAt && (!ttlockStatus.lastSuccessAt || new Date(ttlockStatus.lastFailureAt) > new Date(ttlockStatus.lastSuccessAt)) ? "TTLock issue detected" : "TTLock connected"}
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total reserve codes" value={String(reserveCodeStats.total)} sub="across all units" />
+            <StatCard label="Available" value={String(reserveCodeStats.available)} sub="ready for the next outage" />
+            <StatCard
+              label="In use"
+              value={String(reserveCodeStats.inUse)}
+              sub="assigned to a booking"
+              warn={reserveCodeStats.exhaustedUnits.length > 0}
+              tone={reserveCodeStats.exhaustedUnits.length > 0 ? "danger" : undefined}
+            />
+            <StatCard
+              label="TTLock connection"
+              value={ttlockStatus?.lastFailureAt && (!ttlockStatus.lastSuccessAt || new Date(ttlockStatus.lastFailureAt) > new Date(ttlockStatus.lastSuccessAt)) ? "Failing" : "OK"}
+              sub={ttlockStatus?.lastFailureAt ? `Last failure ${fmtDate(ttlockStatus.lastFailureAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })}` : "No failures recorded"}
+              warn={!!ttlockStatus?.lastFailureAt && (!ttlockStatus.lastSuccessAt || new Date(ttlockStatus.lastFailureAt) > new Date(ttlockStatus.lastSuccessAt))}
+            />
+          </div>
+          {reserveCodeStats.exhaustedUnits.length > 0 && (
+            <p className="mt-3 rounded-lg bg-rausch/10 px-3 py-2 text-[12.5px] font-semibold text-rausch">
+              ⚠️ {reserveCodeStats.exhaustedUnits.map((u) => u.shortName).join(", ")} {reserveCodeStats.exhaustedUnits.length === 1 ? "has" : "have"} zero available emergency codes left.
+            </p>
+          )}
+        </Accordion>
+      )}
 
       <Accordion title="Your listings" sub={`${units.length} listings`}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

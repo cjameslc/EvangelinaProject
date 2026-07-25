@@ -105,13 +105,18 @@ const getDashboardData = unstable_cache(
         where: { ...where, type: { in: ["Maintenance", "Cleaning"] }, date: { lt: nextMonthStart }, OR: [{ endDate: null }, { endDate: { gt: weekAgo } }] },
         select: { unitId: true, type: true, date: true, endDate: true },
       }),
+      // Emergency access-code reserve pool + TTLock connection health — feeds
+      // the "Emergency Access Codes" widget and its "no reserve codes left"
+      // attention item. Small dataset (at most 10 rows/unit) either way.
+      prismaPool[14 % prismaPool.length].reserveAccessCode.findMany({ where, select: { unitId: true, status: true } }),
+      prismaPool[15 % prismaPool.length].ttlockStatus.findUnique({ where: { id: 1 } }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
       weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent,
-      calendarBlocksOccupancy,
+      calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus,
       // The exact window boundaries used to fetch bookingsWeek/bookingsMonth/
       // calendarBlocksOccupancy above — the client must reuse these (not
       // recompute its own "now") so occupancy/RevPAR/ADR are always
@@ -173,6 +178,8 @@ export default async function DashboardPage() {
   let expenseRequestsMonth: any[] = [];
   let cleaningLogsRecent: any[] = [];
   let calendarBlocksOccupancy: any[] = [];
+  let reserveAccessCodes: any[] = [];
+  let ttlockStatus: any = null;
   let weekRangeStart = new Date(Date.now() - 7 * 86400000);
   let weekRangeEnd = new Date();
   let monthRangeStart = monthStart;
@@ -180,7 +187,7 @@ export default async function DashboardPage() {
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -220,6 +227,8 @@ export default async function DashboardPage() {
       expenseRequestsMonth={JSON.parse(JSON.stringify(expenseRequestsMonth))}
       cleaningLogsRecent={JSON.parse(JSON.stringify(cleaningLogsRecent))}
       calendarBlocksOccupancy={JSON.parse(JSON.stringify(calendarBlocksOccupancy))}
+      reserveAccessCodes={JSON.parse(JSON.stringify(reserveAccessCodes))}
+      ttlockStatus={JSON.parse(JSON.stringify(ttlockStatus))}
       pendingGuestRequests={JSON.parse(JSON.stringify(pendingGuestRequests))}
       weekRangeStart={new Date(weekRangeStart).toISOString()}
       weekRangeEnd={new Date(weekRangeEnd).toISOString()}

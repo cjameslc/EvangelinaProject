@@ -11,6 +11,7 @@ import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { createGuestAccessCode } from "@/lib/ttlock/reliability";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full", "Flexible"];
@@ -131,6 +132,20 @@ export async function POST(req: NextRequest) {
   const result = await createGuestBooking(guest.id, parsed.data);
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+
+  // Best-effort, never awaited into the response — createGuestAccessCode()
+  // itself never throws (see src/lib/ttlock/reliability.ts), but this is
+  // never allowed to be the thing that delays or breaks a booking either
+  // way. Runs after the response is already being built below; the guest's
+  // door-code reveal on /my-bookings just won't have a code yet for the
+  // first second or two after booking.
+  createGuestAccessCode({
+    bookingId: result.booking.id,
+    unitId: unitId,
+    guestId: guest.id,
+    checkIn: result.booking.date,
+    checkOut: result.booking.checkOutDate,
+  }).catch(() => {});
 
   // Best-effort — never block the booking response on email delivery.
   sendBookingConfirmationEmail(email, {

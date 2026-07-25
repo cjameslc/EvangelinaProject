@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/bookingEngine/notificationService";
 import { analyzePaymentScreenshot } from "@/lib/ai/paymentVerification";
+import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
 import { manilaTodayISO } from "@/lib/manilaTime";
 
 const publicBookingSelect = {
@@ -93,6 +94,7 @@ export async function cancelGuestBooking(guestId: string, bookingId: string): Pr
 
   await prisma.booking.update({ where: { id: bookingId }, data: { cancelledAt: new Date() } });
   await notify({ type: "booking.cancelled", bookingId });
+  releaseAccessCodeForBooking(bookingId).catch(() => {});
   return { ok: true };
 }
 

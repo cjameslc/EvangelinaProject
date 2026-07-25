@@ -117,6 +117,37 @@ export async function addTtlockPasscode(params: {
   return json;
 }
 
+/** Permanent, non-expiring passcode (keyboardPwdType=2) — used only for the
+ * one-time emergency-reserve-code provisioning, never for a real guest
+ * booking (those get a period passcode via addTtlockPasscode, scoped to
+ * the actual stay dates). */
+export async function addTtlockPermanentPasscode(params: {
+  lockId: number;
+  passcode: string;
+  name: string;
+}): Promise<{ keyboardPwdId: number }> {
+  const accessToken = await getAccessToken();
+  const clientId = requireEnv("TTLOCK_CLIENT_ID");
+  const body = new URLSearchParams({
+    clientId,
+    accessToken,
+    lockId: String(params.lockId),
+    keyboardPwd: params.passcode,
+    keyboardPwdName: params.name,
+    keyboardPwdType: "2",
+    addType: "2",
+    date: String(Date.now()),
+  });
+  const res = await fetch(`${DOMAIN}/v3/keyboardPwd/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const json = await res.json();
+  if (!json.keyboardPwdId) throw new Error(`TTLock permanent passcode add failed: ${json.errmsg || JSON.stringify(json)}`);
+  return json;
+}
+
 export async function deleteTtlockPasscode(lockId: number, keyboardPwdId: number): Promise<void> {
   const accessToken = await getAccessToken();
   const clientId = requireEnv("TTLOCK_CLIENT_ID");

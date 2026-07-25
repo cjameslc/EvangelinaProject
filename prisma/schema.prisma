@@ -126,6 +126,7 @@ model Unit {
   guestRequests GuestRequest[]
   laundryOrders LaundryOrder[]
   feedbackResponses FeedbackResponse[]
+  reserveAccessCodes ReserveAccessCode[]
 
   @@map("units")
 }
@@ -480,10 +481,23 @@ model Booking {
   couponCode                String?
   couponDiscountAmount      Int?
 
+  // Guest self-check-in access code — assigned best-effort right after a
+  // guest-portal booking is created (never blocks the booking itself; see
+  // src/lib/ttlock/reliability.ts). "ttlock" = a real dynamic passcode
+  // created live on the lock; "reserve" = one of the 10 pre-provisioned
+  // permanent emergency codes per unit, used when the TTLock API call
+  // failed after retries. accessCodeKeyboardPwdId is only set for the
+  // "ttlock" case, so it can be deleted from the lock on release.
+  accessCode                String?
+  accessCodeSource          String? // "ttlock" | "reserve"
+  accessCodeKeyboardPwdId   Int?
+  accessCodeAssignedAt      DateTime?
+
   calendarBlock   CalendarBlock?  @relation("BookingCalendarBlock")
   cleaningBlock   CalendarBlock?  @relation("BookingCleaningBlock")
   cleaningLogs    CleaningLog[]
   guestRequests   GuestRequest[]
+  reserveAccessCode ReserveAccessCode?
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -957,6 +971,73 @@ model GuestRequest {
 
   @@index([status, createdAt])
   @@map("guest_requests")
+}
+
+// Emergency access-code inventory for the TTLock fallback mechanism (see
+// src/lib/ttlock/reliability.ts) — 10 permanent, non-expiring passcodes
+// pre-provisioned on each unit's real lock via a one-time admin action
+// (never generated dynamically or by a background job). Assigned to a
+// booking only when a live TTLock passcode couldn't be created after
+// retries, so a guest never ends up without an access code just because
+// the TTLock API was down.
+model ReserveAccessCode {
+  id             String    @id @default(cuid())
+  code           String
+  unitId         String
+  unit           Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  // TTLock's own keyboardPwdId for this permanent code — needed if a code
+  // is ever retired/rotated on the lock itself.
+  keyboardPwdId  Int?
+  // AVAILABLE -> RESERVED (assigned to a booking, guest hasn't arrived yet)
+  // -> ACTIVE (guest checked in) -> AVAILABLE again on checkout/release.
+  // RESERVED and ACTIVE are functionally identical for reuse purposes
+  // (bookingId being set is what blocks reassignment either way) — kept as
+  // two states because "reserved for an upcoming guest" and "in active use
+  // right now" read very differently on the admin monitoring widget.
+  status         String    @default("AVAILABLE")
+  bookingId      String?   @unique
+  booking        Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  guestId        String?
+  assignedAt     DateTime?
+  releasedAt     DateTime?
+  fallbackReason String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([unitId, code])
+  @@index([unitId, status])
+  @@map("reserve_access_codes")
+}
+
+// One row logged per fallback activation — a real TTLock API failure that
+// caused a reserve code to be used instead of a live-generated passcode.
+// Kept separate from ReserveAccessCode itself so the audit trail survives
+// even after that code is released/reassigned to a later booking.
+model TtlockFallbackLog {
+  id           String   @id @default(cuid())
+  bookingId    String?
+  unitId       String?
+  guestId      String?
+  errorMessage String
+  reserveCodeId String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("ttlock_fallback_logs")
+}
+
+// Singleton (id always 1) — the Owner Dashboard's "TTLock API connection
+// status" / "Last API failure" fields read this rather than pinging TTLock
+// live on every page load. Updated by every real call in
+// src/lib/ttlock/reliability.ts's retry wrapper, success or failure.
+model TtlockStatus {
+  id                 Int       @id @default(1)
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  lastFailureMessage String?
+  updatedAt          DateTime  @updatedAt
+
+  @@map("ttlock_status")
 }
 
 // Admin-managed discount codes for the Guest Portal booking flow (Settings

@@ -6,6 +6,7 @@ import { parseOrError } from "@/lib/apiValidation";
 import { rateLimit } from "@/lib/rateLimit";
 import { canEditBookings, canEditSpecificBooking } from "@/lib/rbac";
 import { notify } from "@/lib/bookingEngine/notificationService";
+import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
 
 // Staff-side cancellation — the alternative to DELETE for a Booker, who can
 // no longer hard-delete a booking (see canDeleteBookings in rbac.ts) but can
@@ -56,6 +57,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await prisma.calendarBlock.deleteMany({ where: { bookingId: booking.id } });
 
   await notify({ type: "booking.cancelled", bookingId: booking.id });
+
+  // A cancelled guest never checks in — release any assigned access code
+  // (reserve code back to the pool, real TTLock code deleted) right away
+  // rather than leaving it tied up until some future checkout that will
+  // never happen. Best-effort, never blocks the response.
+  releaseAccessCodeForBooking(booking.id).catch(() => {});
 
   return NextResponse.json(booking);
 }

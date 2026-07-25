@@ -8,6 +8,7 @@ import { rateLimit } from "@/lib/rateLimit";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
+import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
 
 // Thrown inside the $transaction below to abort/roll back on a genuine
 // scheduling conflict — caught just outside to turn back into a 409.
@@ -96,6 +97,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     await notify({ type: "payment.received", bookingId: booking.id });
   }
   await notify({ type: "booking.updated", bookingId: booking.id });
+
+  // Guest checked out (checkedOutAt newly set, via the Booker "Today" quick
+  // actions) — release the door-access code back to the pool (reserve) or
+  // off the lock (real TTLock code). Best-effort, never blocks the response.
+  if (!existing.checkedOutAt && booking.checkedOutAt) {
+    releaseAccessCodeForBooking(booking.id).catch(() => {});
+  }
 
   return NextResponse.json(booking);
 }
