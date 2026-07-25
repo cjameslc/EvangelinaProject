@@ -6,6 +6,10 @@ import { getViewMode } from "@/lib/viewMode";
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
 import { NEARBY_SLUGS, type NearbySlug } from "@/lib/guideNav";
+import { getCategoryImagesBatch } from "@/lib/unsplash/service";
+import { pickStable } from "@/lib/unsplash/pick";
+import { NEARBY_UNSPLASH_CATEGORY } from "@/lib/unsplash/tileCategories";
+import type { UnsplashImage as UnsplashImageData } from "@/lib/unsplash/types";
 import { GuideHubView, type NearbySummary } from "@/components/guest/GuideHubView";
 
 export default async function Home() {
@@ -52,5 +56,23 @@ export default async function Home() {
     if (nearest) nearbySummaries[slug] = nearest;
   }
 
-  return <GuideHubView hostName={g.hostName} nearbySummaries={nearbySummaries} showBookingUnlock={!guest} />;
+  // Real Unsplash photos for the "Explore the neighborhood" tiles that
+  // have no real business photo (hospitals/schools/nightlife/concert —
+  // see NEARBY_UNSPLASH_CATEGORY). Pure cache read, never a live API call.
+  const unsplashCategoryKeys = Object.values(NEARBY_UNSPLASH_CATEGORY);
+  const unsplashBatch = await getCategoryImagesBatch(unsplashCategoryKeys);
+  const unsplashTileImages: Partial<Record<NearbySlug, UnsplashImageData>> = {};
+  for (const [slug, category] of Object.entries(NEARBY_UNSPLASH_CATEGORY) as [NearbySlug, string][]) {
+    const img = pickStable(unsplashBatch[category] ?? [], slug);
+    if (img) unsplashTileImages[slug] = img;
+  }
+
+  return (
+    <GuideHubView
+      hostName={g.hostName}
+      nearbySummaries={nearbySummaries}
+      showBookingUnlock={!guest}
+      unsplashTileImages={unsplashTileImages}
+    />
+  );
 }

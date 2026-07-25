@@ -1,7 +1,7 @@
 export type UnsplashCategoryDef = { key: string; query: string; count: number };
 
 // One entry = one Unsplash API call during cache-warming (see
-// unsplashSync.ts) — 32 categories total, comfortably under the Demo-tier
+// unsplashSync.ts) — 37 categories total, comfortably under the Demo-tier
 // 50/hour cap even warmed fully cold in one run. Categories are shared
 // across UI sections wherever the spec's own suggested search terms
 // overlap (e.g. "Digital Key" tile background reuses the digital-key
@@ -34,6 +34,9 @@ export const UNSPLASH_CATEGORIES: UnsplashCategoryDef[] = [
   // narrow a combination. Broadened to what actually has real inventory.
   { key: "nearby-attractions", query: "Philippines cityscape landmark", count: 4 },
   { key: "nearby-transportation", query: "train station city transport", count: 4 },
+  { key: "nearby-hospitals", query: "hospital medical clinic healthcare", count: 3 },
+  { key: "nearby-schools", query: "university campus college students", count: 3 },
+  { key: "nearby-concert", query: "concert arena stage lights", count: 3 },
 
   { key: "gallery-bedroom", query: "bedroom interior design", count: 4 },
   { key: "gallery-living-area", query: "living room apartment", count: 4 },

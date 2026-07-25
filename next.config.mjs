@@ -5,13 +5,16 @@
 
 // Every image the app actually renders is either a local /public asset, a
 // Vercel Blob upload (guest payment proofs, housekeeping photos — always
-// *.public.blob.vercel-storage.com), or a Google Place photo streamed
-// through our own /api/places/photo proxy (never fetched client-side from
-// a Google host directly). next/image itself is unused (0 <Image>
-// components in this codebase), so the specific remote hosts below only
-// matter if that ever changes — the previous hostname: "**" wildcard left
-// the built-in /_next/image optimizer reachable as an open SSRF/DoS proxy
-// for literally any URL, which is what this list replaces.
+// *.public.blob.vercel-storage.com), a Google Place photo streamed through
+// our own /api/places/photo proxy (never fetched client-side from a Google
+// host directly), or an Unsplash photo (guest-view imagery — served
+// directly from images.unsplash.com per Unsplash's API terms, which require
+// hotlinking their CDN rather than proxying/rehosting). next/image itself
+// is unused (0 <Image> components in this codebase), so the specific
+// remote hosts below only matter if that ever changes — the previous
+// hostname: "**" wildcard left the built-in /_next/image optimizer
+// reachable as an open SSRF/DoS proxy for literally any URL, which is what
+// this list replaces.
 const IMAGE_REMOTE_PATTERNS = [
   { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
 ];
@@ -32,7 +35,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://*.googleapis.com https://*.gstatic.com",
+  "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://*.googleapis.com https://*.gstatic.com https://images.unsplash.com",
   "font-src 'self' data:",
   "connect-src 'self' https://maps.googleapis.com https://*.googleapis.com",
   "frame-ancestors 'self'",

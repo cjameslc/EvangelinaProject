@@ -1,5 +1,7 @@
 import { GUIDE_SECTIONS, type NearbySlug } from "@/lib/guideNav";
+import type { UnsplashImage as UnsplashImageData } from "@/lib/unsplash/types";
 import { TileCoverArt } from "@/components/guest/TileCoverArt";
+import { UnsplashImage } from "@/components/guest/UnsplashImage";
 import { TransitionLink } from "@/components/guest/TransitionLink";
 import { BookingUnlockCard } from "@/components/guest/BookingUnlockCard";
 
@@ -30,6 +32,7 @@ export function GuideHubView({
   hostName,
   nearbySummaries = {},
   showBookingUnlock = false,
+  unsplashTileImages = {},
 }: {
   hostName: string | null;
   /** Keyed by NearbySlug — real walk/drive time to the nearest place in
@@ -41,6 +44,12 @@ export function GuideHubView({
    * already signed in has no need to "unlock" anything, their own bookings
    * are already one tap away via My bookings. */
   showBookingUnlock?: boolean;
+  /** Real Unsplash photos for the handful of "Explore the neighborhood"
+   * tiles that have no real business photo (see NEARBY_UNSPLASH_CATEGORY)
+   * — everything else keeps its real GALLERY/CATEGORY_COVER_PHOTOS image
+   * untouched. Falls back to the tile's generated art if a category's
+   * cache is empty. */
+  unsplashTileImages?: Partial<Record<NearbySlug, UnsplashImageData>>;
 }) {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-14 lg:max-w-[1320px]">
@@ -69,6 +78,7 @@ export function GuideHubView({
                 const slug = tile.href.startsWith("/guide/nearby/") ? (tile.href.split("/").pop() as NearbySlug) : null;
                 const summary = slug ? nearbySummaries[slug] : undefined;
                 const badge = summary ? nearbyBadge(summary) : null;
+                const unsplashImage = slug ? unsplashTileImages[slug] : undefined;
                 return (
                   <TransitionLink
                     key={tile.key}
@@ -81,6 +91,14 @@ export function GuideHubView({
                         src={tile.image}
                         alt=""
                         className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                    ) : unsplashImage ? (
+                      <UnsplashImage
+                        image={unsplashImage}
+                        alt=""
+                        className="absolute inset-0 h-full w-full transition-transform duration-500 group-hover:scale-110"
+                        sizes="200px"
+                        attributionClassName="text-[8px] px-1 py-0.5 bottom-1 right-1"
                       />
                     ) : tile.art ? (
                       <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-110">

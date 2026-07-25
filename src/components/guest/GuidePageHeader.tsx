@@ -1,13 +1,30 @@
 import type { TileArt } from "@/lib/guideNav";
+import type { UnsplashImage as UnsplashImageData } from "@/lib/unsplash/types";
 import { TileCoverArt } from "@/components/guest/TileCoverArt";
+import { UnsplashImage } from "@/components/guest/UnsplashImage";
 
 /** Shared cover-photo + title header for every /guide/* page — kept as one
  * component so the ~13 dedicated Guide pages don't each hand-roll the same
- * banner markup. Pass `image` for a section with a real photo, or `art`
- * for one that doesn't (nearby places, reviews, FAQs, contact, emergency)
- * — same generated gradient+motif as that section's hub tile, so the look
+ * banner markup. Pass `image` for a section with a real (business-supplied)
+ * photo, `unsplashImage` for one that only has a cached Unsplash photo, or
+ * `art` as the last-resort generated gradient+motif (e.g. a category whose
+ * cache hasn't warmed yet) — same look as that section's hub tile, so it
  * carries through from the hub to the page itself. */
-export function GuidePageHeader({ image, art, icon, title, subtitle }: { image?: string; art?: TileArt; icon: string; title: string; subtitle?: string }) {
+export function GuidePageHeader({
+  image,
+  unsplashImage,
+  art,
+  icon,
+  title,
+  subtitle,
+}: {
+  image?: string;
+  unsplashImage?: UnsplashImageData | null;
+  art?: TileArt;
+  icon: string;
+  title: string;
+  subtitle?: string;
+}) {
   return (
     <div className="card overflow-hidden">
       {image ? (
@@ -15,6 +32,8 @@ export function GuidePageHeader({ image, art, icon, title, subtitle }: { image?:
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt="" className="h-full w-full object-cover" />
         </div>
+      ) : unsplashImage ? (
+        <UnsplashImage image={unsplashImage} className="aspect-[21/9] w-full" priority />
       ) : art ? (
         <div className="relative aspect-[21/9] w-full">
           <TileCoverArt icon={icon} art={art} patternCount={16} />

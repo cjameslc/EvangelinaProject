@@ -6,6 +6,9 @@ import { NearbyCategoryList } from "@/components/guest/NearbyCategoryList";
 import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 import { NEARBY_SLUGS, type NearbySlug } from "@/lib/guideNav";
 import { googleSearchUrl } from "@/lib/guideUtils";
+import { getCategoryImages } from "@/lib/unsplash/service";
+import { pickStable } from "@/lib/unsplash/pick";
+import { NEARBY_UNSPLASH_CATEGORY } from "@/lib/unsplash/tileCategories";
 
 export default async function NearbyCategoryPage({ params }: { params: { category: string } }) {
   const slug = params.category as NearbySlug;
@@ -18,9 +21,13 @@ export default async function NearbyCategoryPage({ params }: { params: { categor
   const insights: Record<string, PlaceInsightData> = JSON.parse(JSON.stringify(Object.fromEntries(insightRows)));
   const origin = g.propertyLat != null && g.propertyLng != null ? { lat: g.propertyLat, lng: g.propertyLng } : null;
 
+  const unsplashCategory = NEARBY_UNSPLASH_CATEGORY[slug];
+  const unsplashImages = unsplashCategory ? await getCategoryImages(unsplashCategory) : [];
+  const unsplashImage = pickStable(unsplashImages, slug);
+
   return (
     <div className="mx-auto max-w-[1100px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon={meta.icon} image={meta.image} art={meta.art} title={meta.label} subtitle="Real distance, hours, and rating where available — tap a place to open directions." />
+      <GuidePageHeader icon={meta.icon} image={meta.image} unsplashImage={unsplashImage} art={meta.art} title={meta.label} subtitle="Real distance, hours, and rating where available — tap a place to open directions." />
 
       {slug === "concert" && (
         <a

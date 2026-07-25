@@ -2,13 +2,16 @@ import { getGuidebookSettings } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { HouseRulesSection, InsideTheBuildingSection } from "@/components/guest/GuidebookSections";
 import { peso } from "@/lib/format";
+import { getCategoryImages } from "@/lib/unsplash/service";
+import { pickStable } from "@/lib/unsplash/pick";
 
 export default async function HouseManualPage() {
-  const g = await getGuidebookSettings();
+  const [g, houseRulesImages] = await Promise.all([getGuidebookSettings(), getCategoryImages("house-rules")]);
+  const headerImage = pickStable(houseRulesImages, "house-manual");
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      <GuidePageHeader icon="📖" title="House Manual" subtitle="Rates, parking, house rules, and building facilities — everything about staying here." />
+      <GuidePageHeader icon="📖" unsplashImage={headerImage} title="House Manual" subtitle="Rates, parking, house rules, and building facilities — everything about staying here." />
 
       {/* Rates */}
       <div id="rates" className="card mt-3 p-5">
