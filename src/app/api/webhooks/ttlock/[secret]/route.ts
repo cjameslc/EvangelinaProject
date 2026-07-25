@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 // TTLock Open Platform "Lock Records Notify" callback — set this route's full
 // URL (including the secret segment) as the Callback URL on the application's
@@ -46,6 +47,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sec
 
   // eslint-disable-next-line no-console
   console.log("[ttlock.callback]", JSON.stringify({ notifyType, lockId, lockMac, admin, records }));
+
+  // Real-time battery feed for the Smart Battery Health widget — every
+  // unlock record TTLock pushes carries the lock's electricQuantity at that
+  // moment, free, no extra API call needed. Best-effort: a parse hiccup or
+  // unmapped lockId here must never turn into a failed-delivery response
+  // (TTLock would just retry the same payload forever), so this always
+  // still returns "success" regardless of what happens below.
+  if (Array.isArray(records)) {
+    for (const record of records) {
+      const recordLockId = Number((record as Record<string, unknown>)?.lockId ?? lockId);
+      const electricQuantity = Number((record as Record<string, unknown>)?.electricQuantity);
+      if (!Number.isFinite(recordLockId) || !Number.isFinite(electricQuantity)) continue;
+      await prisma.unit
+        .updateMany({
+          where: { ttlockLockId: recordLockId },
+          data: { ttlockBatteryPct: electricQuantity, ttlockBatterySyncedAt: new Date(), ttlockHasGateway: true, ttlockSyncError: null },
+        })
+        .catch(() => {});
+    }
+  }
 
   // Always "success" — TTLock only cares that delivery succeeded, not what
   // (if anything) was done with it. Any other response makes it retry.

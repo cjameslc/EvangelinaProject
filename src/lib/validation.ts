@@ -275,6 +275,8 @@ export const settingsSchema = z.object({
   parkingCarRate: z.number().int().nonnegative().optional(),
   parkingMotorcycleRate: z.number().int().nonnegative().optional(),
   celebrationPackagePrice: z.number().int().nonnegative().optional(),
+  batteryLowThresholdPct: z.number().int().min(0).max(100).optional(),
+  batteryCriticalThresholdPct: z.number().int().min(0).max(100).optional(),
   // Property coordinates — the origin PlaceInsight distances are measured
   // from (see src/lib/places/). Latitude/longitude have real-world bounds,
   // unlike a generic float.

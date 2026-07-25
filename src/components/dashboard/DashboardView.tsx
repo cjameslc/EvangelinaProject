@@ -17,7 +17,11 @@ import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as com
 import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 
-type Unit = { id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string; owners?: { user: { name: string } }[]; icalLastSyncError?: string | null };
+type Unit = {
+  id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string;
+  owners?: { user: { name: string } }[]; icalLastSyncError?: string | null;
+  ttlockLockId?: number | null; ttlockBatteryPct?: number | null; ttlockHasGateway?: boolean | null; ttlockBatterySyncedAt?: string | null;
+};
 type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null; refundedAt?: string | null };
 type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
@@ -74,6 +78,8 @@ export function DashboardView({
   calendarBlocksOccupancy,
   reserveAccessCodes,
   ttlockStatus,
+  batteryLowThresholdPct,
+  batteryCriticalThresholdPct,
   pendingGuestRequests,
   weekRangeStart,
   weekRangeEnd,
@@ -98,6 +104,8 @@ export function DashboardView({
   calendarBlocksOccupancy: OccupancyBlock[];
   reserveAccessCodes: { unitId: string; status: string }[];
   ttlockStatus: { lastSuccessAt: string | null; lastFailureAt: string | null; lastFailureMessage: string | null } | null;
+  batteryLowThresholdPct: number;
+  batteryCriticalThresholdPct: number;
   pendingGuestRequests: { id: string; type: string; message: string | null; createdAt: string; unit: { shortName: string } | null; guest: { name: string | null; email: string } | null }[];
   weekRangeStart: string;
   weekRangeEnd: string;
@@ -633,6 +641,56 @@ export function DashboardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [units, bookingsWeek, hkStates]);
 
+  // Smart Battery Health — tier classification uses the live, admin-editable
+  // Settings thresholds (batteryLowThresholdPct/batteryCriticalThresholdPct),
+  // not a hardcoded default — this is the one place in the app that actually
+  // gates real alerts on them (Admin → Units' own badge intentionally stays
+  // on the schema defaults, see that file's comment).
+  function batteryTier(pct: number | null | undefined): "critical" | "low" | "healthy" | null {
+    if (pct === null || pct === undefined) return null;
+    if (pct <= batteryCriticalThresholdPct) return "critical";
+    if (pct <= batteryLowThresholdPct) return "low";
+    return "healthy";
+  }
+  const lockedUnits = useMemo(() => units.filter((u) => u.ttlockLockId != null), [units]);
+  const batteryStats = useMemo(() => {
+    let healthy = 0, low = 0, critical = 0, offline = 0, sum = 0, counted = 0;
+    let lastUpdated: string | null = null;
+    for (const u of lockedUnits) {
+      if (u.ttlockHasGateway === false) offline++;
+      const tier = batteryTier(u.ttlockBatteryPct);
+      if (tier === "critical") critical++;
+      else if (tier === "low") low++;
+      else if (tier === "healthy") healthy++;
+      if (typeof u.ttlockBatteryPct === "number") { sum += u.ttlockBatteryPct; counted++; }
+      if (u.ttlockBatterySyncedAt && (!lastUpdated || u.ttlockBatterySyncedAt > lastUpdated)) lastUpdated = u.ttlockBatterySyncedAt;
+    }
+    return { healthy, low, critical, offline, average: counted > 0 ? Math.round(sum / counted) : null, lastUpdated };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedUnits, batteryLowThresholdPct, batteryCriticalThresholdPct]);
+
+  // Cross-references battery health against the soonest future booking per
+  // unit (same nextCheckIn lookup lateCleaningUnits already does above) — a
+  // guest arriving within 48h at a unit whose lock is Low/Critical/offline
+  // is a real risk of a failed check-in, worth a high-priority call-out
+  // distinct from the general "battery is low" item.
+  const upcomingCheckinRiskUnits = useMemo(() => {
+    const now = Date.now();
+    const in48h = now + 48 * 3600 * 1000;
+    const results: { unit: Unit; nextCheckInAt: Date; tier: "critical" | "low" | "offline" }[] = [];
+    for (const unit of lockedUnits) {
+      const tier: "critical" | "low" | "offline" | null = unit.ttlockHasGateway === false ? "offline" : (batteryTier(unit.ttlockBatteryPct) === "critical" ? "critical" : batteryTier(unit.ttlockBatteryPct) === "low" ? "low" : null);
+      if (!tier) continue;
+      const nextCheckIn = bookingsWeek
+        .filter((b) => b.unitId === unit.id && new Date(b.date).getTime() > now && new Date(b.date).getTime() <= in48h)
+        .sort((a, b) => +new Date(a.date) - +new Date(b.date))[0];
+      if (!nextCheckIn) continue;
+      results.push({ unit, nextCheckInAt: new Date(nextCheckIn.date), tier });
+    }
+    return results;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedUnits, bookingsWeek, batteryLowThresholdPct, batteryCriticalThresholdPct]);
+
   // Dashboard booking reads never include the `unit` relation (see
   // dashboard/page.tsx) — every place that needs a unit name off a booking
   // resolves it through the separately-fetched `units` array instead.
@@ -671,6 +729,61 @@ export function DashboardView({
         href: "/auditor",
       });
     });
+
+    // Upcoming check-in risk outranks the general battery items below — a
+    // guest arriving within 48h at a Low/Critical/offline unit is the one
+    // scenario that actually needs same-day action, not just "worth knowing."
+    if (upcomingCheckinRiskUnits.length > 0) {
+      upcomingCheckinRiskUnits.forEach((r) => {
+        const hoursOut = Math.round((r.nextCheckInAt.getTime() - Date.now()) / 3600000);
+        const when = hoursOut <= 24 ? "within 24 hours" : "within 48 hours";
+        const batteryText = r.tier === "offline" ? "isn't reporting (offline)" : `is ${r.tier === "critical" ? "critically" : ""} low (${r.unit.ttlockBatteryPct}%)`;
+        items.push({
+          id: `attn-checkin-risk-${r.unit.id}`,
+          dot: "bg-rausch",
+          title: `Upcoming check-in risk — ${r.unit.shortName}`,
+          desc: `A guest is arriving ${when} and this unit's lock ${batteryText}. Replace the battery or check its connection before they arrive.`,
+          tag: "Locks",
+          href: "/admin?tab=Units",
+        });
+      });
+    }
+
+    if (batteryStats.critical > 0) {
+      const names = lockedUnits.filter((u) => batteryTier(u.ttlockBatteryPct) === "critical").map((u) => `${u.shortName} (${u.ttlockBatteryPct}%)`).join(", ");
+      items.push({
+        id: "attn-battery-critical",
+        dot: "bg-rausch",
+        title: `${batteryStats.critical} lock${batteryStats.critical === 1 ? "" : "s"} at critical battery`,
+        desc: `${names} — replace immediately before the next guest arrives.`,
+        tag: "Locks",
+        href: "/admin?tab=Units",
+      });
+    }
+
+    if (batteryStats.low > 0) {
+      const names = lockedUnits.filter((u) => batteryTier(u.ttlockBatteryPct) === "low").map((u) => `${u.shortName} (${u.ttlockBatteryPct}%)`).join(", ");
+      items.push({
+        id: "attn-battery-low",
+        dot: "bg-amber",
+        title: `${batteryStats.low} lock${batteryStats.low === 1 ? "" : "s"} running low on battery`,
+        desc: `${names} — schedule a replacement soon.`,
+        tag: "Locks",
+        href: "/admin?tab=Units",
+      });
+    }
+
+    if (batteryStats.offline > 0) {
+      const names = lockedUnits.filter((u) => u.ttlockHasGateway === false).map((u) => u.shortName).join(", ");
+      items.push({
+        id: "attn-battery-offline",
+        dot: "bg-amber",
+        title: `${batteryStats.offline} lock${batteryStats.offline === 1 ? "" : "s"} not reporting`,
+        desc: `${names} — check the lock's WiFi/gateway connection; battery status may be stale.`,
+        tag: "Locks",
+        href: "/admin?tab=Units",
+      });
+    }
 
     if (reserveCodeStats.exhaustedUnits.length > 0) {
       const desc = reserveCodeStats.exhaustedUnits.map((u) => u.shortName).join(", ");
@@ -823,7 +936,7 @@ export function DashboardView({
       .filter((item) => !dismissedKeys.has(item.key))
       .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, pendingGuestRequests, reserveCodeStats, dismissedKeys]);
+  }, [lateCleaningUnits, attentionFindings, overdueBillsForAttention, lowStock, bookingConflicts, pastDueBookings, unpaidAfterCheckout, failedSyncUnits, pendingExpenseRequests, quickCleans, pendingGuestRequests, reserveCodeStats, upcomingCheckinRiskUnits, batteryStats, lockedUnits, dismissedKeys]);
 
   // Monthly report figures — always the current calendar month, independent
   // of the Earnings card's Weekly/Monthly/Yearly filter, since "monthly
@@ -1474,6 +1587,21 @@ export function DashboardView({
         )}
       </Accordion>
 
+      {lockedUnits.length > 0 && (
+        <Accordion
+          title="Battery health"
+          sub={batteryStats.lastUpdated ? `Updated ${fmtDate(batteryStats.lastUpdated, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })}` : "Not synced yet"}
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <StatCard label="Healthy" value={String(batteryStats.healthy)} sub={`above ${batteryLowThresholdPct}%`} />
+            <StatCard label="Low" value={String(batteryStats.low)} sub={`${batteryCriticalThresholdPct + 1}–${batteryLowThresholdPct}%`} warn={batteryStats.low > 0} tone={batteryStats.low > 0 ? "caution" : undefined} />
+            <StatCard label="Critical" value={String(batteryStats.critical)} sub={`${batteryCriticalThresholdPct}% or below`} warn={batteryStats.critical > 0} tone={batteryStats.critical > 0 ? "danger" : undefined} />
+            <StatCard label="Offline" value={String(batteryStats.offline)} sub="not reporting" warn={batteryStats.offline > 0} tone={batteryStats.offline > 0 ? "caution" : undefined} />
+            <StatCard label="Average battery" value={batteryStats.average !== null ? `${batteryStats.average}%` : "—"} sub={`${lockedUnits.length} lock${lockedUnits.length === 1 ? "" : "s"} linked`} />
+          </div>
+        </Accordion>
+      )}
+
       {reserveCodeStats.total > 0 && (
         <Accordion
           title="Emergency access codes"
@@ -1523,8 +1651,16 @@ export function DashboardView({
                     <span className="text-[12px] font-bold text-amber">★ {u.rating.toFixed(1)}</span>
                   </div>
                   <div className="text-[11.5px] text-[var(--gray)]">{u.location}</div>
-                  <div className="flex items-center gap-1.5 text-[12px] font-semibold">
-                    <span className={cn("h-2 w-2 rounded-full", st.dot)} /> {st.label}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-semibold">
+                    <span className="flex items-center gap-1.5"><span className={cn("h-2 w-2 rounded-full", st.dot)} /> {st.label}</span>
+                    {u.ttlockLockId != null && (
+                      <span className="flex items-center gap-1 text-[11px]">
+                        🔋 {u.ttlockBatteryPct ?? "—"}%
+                        {u.ttlockHasGateway === false && <span className="font-bold text-amber">· Offline</span>}
+                        {batteryTier(u.ttlockBatteryPct) === "critical" && <span className="font-bold text-rausch">· Critical</span>}
+                        {batteryTier(u.ttlockBatteryPct) === "low" && <span className="font-bold text-amber">· Low</span>}
+                      </span>
+                    )}
                   </div>
                   <div className="pt-1">
                     <div className="text-sm font-extrabold">{peso(u.nightlyRate)} <span className="text-xs font-semibold text-[var(--gray)]">night</span></div>

@@ -14,6 +14,7 @@ type Settings = {
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
   extensionFeePerHour: number; flexibleTimeFee: number; parkingCarRate: number; parkingMotorcycleRate: number;
   celebrationPackagePrice: number; celebrationPackageItems?: string[] | null;
+  batteryLowThresholdPct: number; batteryCriticalThresholdPct: number;
   contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
   guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
   hostName?: string | null; hostPhotoUrl?: string | null; hostBio?: string | null;
@@ -52,6 +53,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       "nightlyRate", "dpFee", "housekeepingDayRate", "housekeepingNightBonus", "bookerCommission", "auditorWeeklyRate",
       "weekdayRate12h", "weekdayRate21h", "weekendRate12h", "weekendRate21h", "weekdayNightPromoPct",
       "extensionFeePerHour", "flexibleTimeFee", "parkingCarRate", "parkingMotorcycleRate", "celebrationPackagePrice",
+      "batteryLowThresholdPct", "batteryCriticalThresholdPct",
     ];
     for (const key of numericFields) {
       const v = form[key];
@@ -153,6 +155,20 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           <div>
             <label className="field-label">Flexible time fee (₱)</label>
             <input type="number" min={0} value={form.flexibleTimeFee} onChange={(e) => setForm({ ...form, flexibleTimeFee: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Battery health thresholds</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">Drives the Dashboard&rsquo;s Battery Health widget, unit badges, and &ldquo;Needs your attention&rdquo; alerts. Above Low = Healthy.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Low battery at or below (%)</label>
+            <input type="number" min={0} max={100} value={form.batteryLowThresholdPct} onChange={(e) => setForm({ ...form, batteryLowThresholdPct: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Critical battery at or below (%)</label>
+            <input type="number" min={0} max={100} value={form.batteryCriticalThresholdPct} onChange={(e) => setForm({ ...form, batteryCriticalThresholdPct: +e.target.value })} className="field-input mt-1.5" />
           </div>
         </div>
       </div>

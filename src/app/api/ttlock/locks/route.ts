@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { listTtlockLocks } from "@/lib/ttlock/client";
+import { recordTtlockOutcome } from "@/lib/ttlock/reliability";
 
 // Admin → Units "Link TTLock lock" dropdown data — the live lock list from
 // TTLock (not a cached DB copy), cross-referenced against which units
@@ -15,8 +16,11 @@ export async function GET() {
   let locks;
   try {
     locks = await listTtlockLocks();
+    await recordTtlockOutcome(true);
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "TTLock request failed" }, { status: 502 });
+    const message = e instanceof Error ? e.message : "TTLock request failed";
+    await recordTtlockOutcome(false, message);
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 
   const mappedLockIds = new Set(

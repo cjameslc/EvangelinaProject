@@ -6,6 +6,7 @@ import { prisma, prismaPool } from "@/lib/prisma";
 import { dashboardUnitWhere, dashboardUnitIdWhere } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
+import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 
 // Everything the Dashboard reads is scoped only by role+ownedUnitIds (see
@@ -144,6 +145,13 @@ export default async function DashboardPage() {
   // never be the thing standing between a new month and its bills existing.
   await ensureRecurringBillsForMonth(monthStart).catch(() => {});
 
+  // Battery-tier thresholds for the Battery Health widget/badges/attention
+  // items below — 60s-cached (getCachedBookingSettings), same window every
+  // other Settings-driven read in the app already uses. Falls back to the
+  // schema defaults (matching the demo-fixture path below) rather than
+  // throwing, so a DB hiccup here can't take down the whole dashboard.
+  const bookingSettings = await getCachedBookingSettings().catch(() => ({ batteryLowThresholdPct: 30, batteryCriticalThresholdPct: 20 }));
+
   // Uncached, every request — a dismissal should disappear from "Needs your
   // attention" immediately, not wait out the dashboard-data cache's 45s
   // window. Cheap: a handful of rows at most.
@@ -229,6 +237,8 @@ export default async function DashboardPage() {
       calendarBlocksOccupancy={JSON.parse(JSON.stringify(calendarBlocksOccupancy))}
       reserveAccessCodes={JSON.parse(JSON.stringify(reserveAccessCodes))}
       ttlockStatus={JSON.parse(JSON.stringify(ttlockStatus))}
+      batteryLowThresholdPct={bookingSettings.batteryLowThresholdPct}
+      batteryCriticalThresholdPct={bookingSettings.batteryCriticalThresholdPct}
       pendingGuestRequests={JSON.parse(JSON.stringify(pendingGuestRequests))}
       weekRangeStart={new Date(weekRangeStart).toISOString()}
       weekRangeEnd={new Date(weekRangeEnd).toISOString()}

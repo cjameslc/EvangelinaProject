@@ -8,7 +8,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function recordTtlockOutcome(ok: boolean, message?: string) {
+/** Exported so any real TTLock call anywhere in the app (not just the
+ * guest-facing retry path below) can report into the same connection-health
+ * signal the Dashboard's "Emergency access codes" widget reads — otherwise
+ * a real recovery (e.g. the next scheduled sync succeeding) never clears a
+ * stale "Failing" status left by an earlier, now-resolved failure. */
+export async function recordTtlockOutcome(ok: boolean, message?: string) {
   // Best-effort — a failure to write the status row itself must never mask
   // or interrupt the real booking/fallback flow that triggered it.
   await prisma.ttlockStatus
