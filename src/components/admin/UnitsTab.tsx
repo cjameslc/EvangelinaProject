@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
 import { peso } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { fileToDataUrl } from "@/lib/file";
+import { cn } from "@/lib/utils";
 
 type OwnerCandidate = { id: string; name: string; role: string };
 type Unit = {
@@ -13,8 +14,21 @@ type Unit = {
   rating: number; photoUrl: string | null;
   icalToken: string | null; icalImportUrl: string | null; icalLastSyncAt: string | null; icalLastSyncError: string | null;
   wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; checkInInstructions: string | null; checkOutInstructions: string | null; videoTutorialUrl: string | null;
+  ttlockLockId: number | null; ttlockLockName: string | null; ttlockHasGateway: boolean | null; ttlockBatteryPct: number | null; ttlockBatterySyncedAt: string | null; ttlockSyncError: string | null; ttlockBatteryReplacedAt: string | null;
   owners?: { user: { id: string; name: string } }[];
 };
+type TtlockLockOption = { lockId: number; lockAlias: string; lockName: string; electricQuantity: number; hasGateway: boolean; alreadyLinked: boolean };
+
+// Same default tiers as Settings.batteryLowThresholdPct/batteryCriticalThresholdPct
+// (30/20) — this admin config page doesn't thread live Settings through just for
+// an icon color; the Dashboard's Battery Health widget is where the real,
+// admin-configurable thresholds drive actual alerts.
+function batteryTier(pct: number | null): { label: string; className: string } {
+  if (pct === null) return { label: "", className: "" };
+  if (pct <= 20) return { label: "Critical", className: "bg-rausch/10 text-rausch" };
+  if (pct <= 30) return { label: "Low", className: "bg-amber/10 text-amber" };
+  return { label: "Healthy", className: "bg-green/10 text-green" };
+}
 
 const EMPTY = {
   name: "", unitNumber: "", shortName: "", location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.9, photoUrl: null as string | null, ownerUserIds: [] as string[], icalImportUrl: "",
@@ -89,6 +103,16 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
               <p className="mt-1.5 text-[11.5px] text-[var(--gray)]">
                 Owner{(u.owners?.length ?? 0) !== 1 ? "s" : ""}: {u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "none assigned — visible to admin only"}
               </p>
+              {u.ttlockLockId !== null && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className={cn("rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", batteryTier(u.ttlockBatteryPct).className)}>
+                    🔋 {u.ttlockBatteryPct ?? "—"}% {batteryTier(u.ttlockBatteryPct).label}
+                  </span>
+                  {u.ttlockHasGateway === false && (
+                    <span className="rounded-md bg-[var(--bg-2)] px-1.5 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">Offline</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -113,8 +137,70 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
   const [syncing, setSyncing] = useState(false);
   const [icalToken, setIcalToken] = useState(unit?.icalToken ?? null);
   const [regenerating, setRegenerating] = useState(false);
+  const [lockState, setLockState] = useState(unit ?? null);
+  const [availableLocks, setAvailableLocks] = useState<TtlockLockOption[] | null>(null);
+  const [loadingLocks, setLoadingLocks] = useState(false);
+  const [selectedLockId, setSelectedLockId] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [markingReplaced, setMarkingReplaced] = useState(false);
 
   const exportUrl = icalToken && typeof window !== "undefined" ? `${window.location.origin}/api/ical/${icalToken}.ics` : "";
+
+  // Fetch the live, currently-unlinked TTLock lock list only when there's
+  // actually a chance of using it (an existing unit with no lock linked yet)
+  // — avoids an unnecessary TTLock API round-trip on every modal open.
+  useEffect(() => {
+    if (!unit || lockState?.ttlockLockId) return;
+    setLoadingLocks(true);
+    fetch("/api/ttlock/locks")
+      .then((r) => r.json())
+      .then((data) => setAvailableLocks(Array.isArray(data) ? data.filter((l: TtlockLockOption) => !l.alreadyLinked) : []))
+      .catch(() => setAvailableLocks([]))
+      .finally(() => setLoadingLocks(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit?.id, lockState?.ttlockLockId]);
+
+  async function linkLock() {
+    if (!unit || !selectedLockId) return;
+    setLinking(true);
+    const res = await fetch("/api/ttlock/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unitId: unit.id, lockId: Number(selectedLockId) }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setLinking(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't link that lock", true); return; }
+    setLockState(j);
+    toast("Lock linked ✓");
+  }
+
+  async function unlinkLock() {
+    if (!unit || !confirm("Unlink this unit's lock? Battery monitoring will stop until a lock is linked again.")) return;
+    setLinking(true);
+    const res = await fetch("/api/ttlock/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unitId: unit.id, lockId: null }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setLinking(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't unlink", true); return; }
+    setLockState(j);
+    setAvailableLocks(null);
+    toast("Lock unlinked");
+  }
+
+  async function markBatteryReplaced() {
+    if (!unit) return;
+    setMarkingReplaced(true);
+    const res = await fetch(`/api/units/${unit.id}/battery-replaced`, { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    setMarkingReplaced(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't save", true); return; }
+    setLockState(j);
+    toast("Marked as replaced ✓");
+  }
 
   async function copyExportLink() {
     if (!exportUrl) return;
@@ -279,6 +365,68 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
             </div>
           )}
         </div>
+
+        {unit && (
+          <div className="rounded-2xl border border-[var(--line)] p-4">
+            <label className="field-label">Smart lock (TTLock)</label>
+            <p className="mt-0.5 text-[12px] text-[var(--gray)]">Battery level feeds the Dashboard&rsquo;s Battery Health widget and &ldquo;Needs your attention&rdquo; alerts.</p>
+
+            {lockState?.ttlockLockId ? (
+              <div className="mt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13.5px] font-bold">{lockState.ttlockLockName || "Linked lock"}</span>
+                  <span className={cn("rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", batteryTier(lockState.ttlockBatteryPct).className)}>
+                    🔋 {lockState.ttlockBatteryPct ?? "—"}% {batteryTier(lockState.ttlockBatteryPct).label}
+                  </span>
+                  {lockState.ttlockHasGateway === false && (
+                    <span className="rounded-md bg-[var(--bg-2)] px-1.5 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">Offline — not reporting via WiFi</span>
+                  )}
+                </div>
+                {lockState.ttlockBatterySyncedAt && (
+                  <p className="mt-1.5 text-[11.5px] text-[var(--gray)]">
+                    Last synced {new Date(lockState.ttlockBatterySyncedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </p>
+                )}
+                {lockState.ttlockBatteryReplacedAt && (
+                  <p className="mt-1 text-[11.5px] text-[var(--gray)]">
+                    Battery last replaced {new Date(lockState.ttlockBatteryReplacedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                )}
+                {lockState.ttlockSyncError && <p className="mt-1.5 text-[11.5px] font-semibold text-rausch">{lockState.ttlockSyncError}</p>}
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <button type="button" onClick={markBatteryReplaced} disabled={markingReplaced} className="btn-sm btn">
+                    {markingReplaced ? "Saving…" : "Mark battery replaced"}
+                  </button>
+                  <button type="button" onClick={unlinkLock} disabled={linking} className="btn-sm btn-ghost !text-rausch">
+                    {linking ? "Unlinking…" : "Unlink lock"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3">
+                {loadingLocks ? (
+                  <p className="text-[12.5px] text-[var(--gray)]">Loading locks from TTLock…</p>
+                ) : availableLocks && availableLocks.length === 0 ? (
+                  <p className="text-[12.5px] text-[var(--gray)]">No unlinked locks found on the TTLock account.</p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={selectedLockId} onChange={(e) => setSelectedLockId(e.target.value)} className="field-input !w-auto min-w-[220px]">
+                      <option value="">Select a lock…</option>
+                      {(availableLocks ?? []).map((l) => (
+                        <option key={l.lockId} value={l.lockId}>
+                          {l.lockAlias || l.lockName} ({l.electricQuantity}%{l.hasGateway ? "" : ", offline"})
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={linkLock} disabled={!selectedLockId || linking} className="btn-sm btn-primary">
+                      {linking ? "Linking…" : "Link lock"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="rounded-2xl border border-[var(--line)] p-4">
           <label className="field-label">Digital Guidebook — check-in details</label>

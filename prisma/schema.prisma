@@ -95,6 +95,20 @@ model Unit {
   checkOutInstructions String? // free text — e.g. "Leave keys on the counter, lock the door behind you"
   videoTutorialUrl     String? // optional walkthrough video (YouTube/Drive link)
 
+  // TTLock smart-lock mapping — set once via Admin → Units "Link TTLock
+  // lock" (see /api/ttlock/locks), then kept fresh by two feeds: the
+  // /api/webhooks/ttlock callback (real-time, on every unlock event) and a
+  // daily fallback sync piggybacked on the existing iCal cron. Same
+  // inline-nullable-fields convention as the iCal sync fields above, not a
+  // child table — a unit with no lock linked simply omits battery UI.
+  ttlockLockId            Int?      @unique
+  ttlockLockName          String? // TTLock's own lock name, shown in the admin mapping dropdown
+  ttlockHasGateway        Boolean? // false/null feeds the "Offline" attention-panel category
+  ttlockBatteryPct        Int?
+  ttlockBatterySyncedAt   DateTime?
+  ttlockSyncError         String?
+  ttlockBatteryReplacedAt DateTime? // set via the Units tab "Mark battery replaced" action
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -759,6 +773,11 @@ model Settings {
   // rate table above. See the Guest Experience "Rates" page.
   extensionFeePerHour    Int @default(100)
   flexibleTimeFee        Int @default(150)
+  // Smart Battery Health thresholds (Owner Dashboard) — a unit's
+  // ttlockBatteryPct at or below batteryCriticalThresholdPct is Critical,
+  // at or below batteryLowThresholdPct is Low, above it is Healthy.
+  batteryLowThresholdPct      Int @default(30)
+  batteryCriticalThresholdPct Int @default(20)
   // Guest Experience "Parking" page — paid parking, advance reservation
   // required (not a guarantee of availability).
   parkingCarRate         Int @default(400)
