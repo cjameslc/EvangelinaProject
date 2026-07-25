@@ -16,6 +16,7 @@ import { StaffSection } from "@/components/analytics/sections/StaffSection";
 import { UnitPerformanceSection } from "@/components/analytics/sections/UnitPerformanceSection";
 import { ExportMenu } from "@/components/analytics/ExportMenu";
 import { AutoRefresh } from "@/components/analytics/AutoRefresh";
+import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -63,6 +64,10 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
         <ExecutiveKpiSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
       </Suspense>
 
+      <div className="mt-4">
+        <AIInsightsPanel section="executive" filters={filters} title="AI Insights — Executive Summary" />
+      </div>
+
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`revenue-${JSON.stringify(filters)}`}>
           <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
@@ -73,6 +78,10 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
         <Suspense fallback={<SectionSkeleton />} key={`financial-${JSON.stringify(filters)}`}>
           <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
+      </div>
+
+      <div className="mt-4">
+        <AIInsightsPanel section="revenue" filters={filters} title="AI Insights — Revenue & Financial" />
       </div>
 
       <div className="mt-6">
@@ -109,6 +118,10 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
         <Suspense fallback={<SectionSkeleton />} key={`units-${JSON.stringify(filters)}`}>
           <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
+      </div>
+
+      <div className="mt-4">
+        <AIInsightsPanel section="operations" filters={filters} title="AI Insights — Operations & Team" />
       </div>
     </div>
   );

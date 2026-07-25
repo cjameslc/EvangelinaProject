@@ -70,3 +70,8 @@ export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M12 22s8
 export const MegaphoneIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M3 11v3a1 1 0 0 0 1 1h1l4 5v-6" /><path d="M9 9l9-5v16l-9-5" /><path d="M18 9a3 3 0 0 1 0 6" /></>, p);
 export const SpeakerIcon = (p: SVGProps<SVGSVGElement>) => base(<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></>, p);
 export const SpeakerMuteIcon = (p: SVGProps<SVGSVGElement>) => base(<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></>, p);
+export const SparkleIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
+    <path d="M12 2.5c.4 3.6 1.1 6 2.3 7.2S18 11.6 21.5 12c-3.6.4-6 1.1-7.2 2.3S12.4 18 12 21.5c-.4-3.6-1.1-6-2.3-7.2S6 12.4 2.5 12c3.6-.4 6-1.1 7.2-2.3S11.6 6 12 2.5Z" />
+  </svg>
+);
