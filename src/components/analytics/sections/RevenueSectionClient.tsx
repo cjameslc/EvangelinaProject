@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { peso, fmtDate } from "@/lib/format";
 import type { RevenueAnalytics } from "@/app/analytics/queries";
+import { occupiedRange, rangesOverlap } from "@/lib/stayRange";
 
 // Recharts is only fetched once this component actually mounts on the
 // client — ssr:false keeps it out of the server bundle entirely, and the
@@ -19,16 +20,17 @@ function ChartSkeleton({ height }: { height: number }) {
   return <div className="animate-pulse rounded-xl bg-[var(--bg-2)]" style={{ height }} />;
 }
 
-function bucketMatches(dateIso: string, bucket: string, granularity: "day" | "week" | "month"): boolean {
-  if (granularity === "month") return dateIso.slice(0, 7) === bucket;
-  // day/week buckets are both a YYYY-MM-DD key — for "week" that's the
-  // Sunday the week starts on, so match anything within the 7 days after it.
-  const d = new Date(dateIso);
-  const bucketDate = new Date(`${bucket}T00:00:00Z`);
-  if (granularity === "day") return d.toISOString().slice(0, 10) === bucket;
-  const end = new Date(bucketDate);
-  end.setUTCDate(end.getUTCDate() + 7);
-  return d >= bucketDate && d < end;
+// The clicked bucket's own [start, end) range in calendar terms — mirrors
+// the day/week/month key shapes revenueSeries() produces.
+function bucketDateRange(bucket: string, granularity: "day" | "week" | "month"): { start: Date; end: Date } {
+  if (granularity === "month") {
+    const [y, m] = bucket.split("-").map(Number);
+    return { start: new Date(Date.UTC(y, m - 1, 1)), end: new Date(Date.UTC(y, m, 1)) };
+  }
+  const start = new Date(`${bucket}T00:00:00Z`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + (granularity === "week" ? 7 : 1));
+  return { start, end };
 }
 
 export function RevenueSectionClient({ data }: { data: RevenueAnalytics }) {
@@ -36,7 +38,15 @@ export function RevenueSectionClient({ data }: { data: RevenueAnalytics }) {
 
   const drillBookings = useMemo(() => {
     if (!drillBucket) return [];
-    return data.bookings.filter((b) => bucketMatches(b.date, drillBucket, data.granularity));
+    // Revenue is now prorated across every night a stay occupies, so the
+    // bucket a guest checked in on isn't necessarily the only bucket their
+    // booking contributes to — show every booking whose stay actually
+    // overlaps the clicked bucket, not just ones checking in that exact day.
+    const range = bucketDateRange(drillBucket, data.granularity);
+    return data.bookings.filter((b) => {
+      const occ = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
+      return rangesOverlap(occ.start, occ.end, range.start, range.end);
+    });
   }, [drillBucket, data.bookings, data.granularity]);
 
   return (
@@ -59,8 +69,12 @@ export function RevenueSectionClient({ data }: { data: RevenueAnalytics }) {
               <div className="space-y-1.5">
                 {drillBookings.map((b) => (
                   <div key={b.id} className="flex items-center justify-between text-[12.5px]">
-                    <span>{fmtDate(b.date, { month: "short", day: "numeric", timeZone: "UTC" })} · {b.unitLabel} · {b.stayType}</span>
-                    <span className="font-bold">{peso(b.amount)} {!b.paid && <span className="text-amber">(unpaid)</span>}</span>
+                    <span>
+                      {fmtDate(b.date, { month: "short", day: "numeric", timeZone: "UTC" })}
+                      {b.checkOutDate && b.checkOutDate !== b.date && <> → {fmtDate(b.checkOutDate, { month: "short", day: "numeric", timeZone: "UTC" })}</>}
+                      {" "}· {b.unitLabel} · {b.stayType}
+                    </span>
+                    <span className="font-bold">{peso(b.amount)} (full stay) {!b.paid && <span className="text-amber">(unpaid)</span>}</span>
                   </div>
                 ))}
               </div>

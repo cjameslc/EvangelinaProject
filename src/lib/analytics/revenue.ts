@@ -1,5 +1,6 @@
 import { manilaDayKey } from "@/lib/analytics/period";
 import { PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { occupiedRange } from "@/lib/stayRange";
 
 export type RevenueBooking = {
   amount: number;
@@ -36,6 +37,8 @@ export function revenueGrowthPct(currentCentavos: number, previousCentavos: numb
 
 export type SeriesBooking = {
   date: string | Date;
+  checkOutDate: string | Date | null;
+  stayType: string;
   amount: number;
   paid: boolean;
   dpAmount: number | null;
@@ -64,21 +67,44 @@ function monthKey(d: Date): string {
  * hand (paid amount + any downpayment) — same distinction Dashboard
  * already draws between Forecast and Realized figures, just applied per
  * bucket here instead of for one period total.
+ *
+ * A multi-night stay's value is spread evenly across every night it
+ * actually occupies (via the same occupiedRange used by Occupancy/ADR),
+ * not dumped entirely onto its check-in date — otherwise a single 10-night
+ * booking reads as one enormous spike on one day instead of ~10 ordinary
+ * days, which used to make the trend chart (and any single-day KPI read)
+ * misleading for long stays. Each stay's nights are clipped to
+ * [periodStart, periodEnd) so revenue never spills into buckets outside
+ * the range the caller actually queried bookings for.
  */
-export function revenueSeries(bookings: SeriesBooking[], granularity: "day" | "week" | "month"): RevenuePoint[] {
+export function revenueSeries(
+  bookings: SeriesBooking[],
+  granularity: "day" | "week" | "month",
+  periodStart: Date,
+  periodEnd: Date
+): RevenuePoint[] {
   const keyFor = granularity === "day" ? (d: Date) => manilaDayKey(d) : granularity === "week" ? weekKey : monthKey;
   const buckets = new Map<string, { grossCentavos: number; collectedCentavos: number }>();
   for (const b of bookings) {
     if (b.cancelledAt) continue;
-    const key = keyFor(new Date(b.date));
-    const entry = buckets.get(key) ?? { grossCentavos: 0, collectedCentavos: 0 };
-    entry.grossCentavos += b.amount * 100;
-    entry.collectedCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
-    buckets.set(key, entry);
+    const checkOutDate = b.checkOutDate ? new Date(b.checkOutDate) : null;
+    const { start, end } = occupiedRange(b.stayType, new Date(b.date), checkOutDate);
+    const totalNights = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
+    const grossPerNight = (b.amount * 100) / totalNights;
+    const collectedPerNight = (((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100) / totalNights;
+    const clipStart = start.getTime() > periodStart.getTime() ? start : periodStart;
+    const clipEnd = end.getTime() < periodEnd.getTime() ? end : periodEnd;
+    for (let t = clipStart.getTime(); t < clipEnd.getTime(); t += 86400000) {
+      const key = keyFor(new Date(t));
+      const entry = buckets.get(key) ?? { grossCentavos: 0, collectedCentavos: 0 };
+      entry.grossCentavos += grossPerNight;
+      entry.collectedCentavos += collectedPerNight;
+      buckets.set(key, entry);
+    }
   }
   return [...buckets.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([bucket, v]) => ({ bucket, ...v }));
+    .map(([bucket, v]) => ({ bucket, grossCentavos: Math.round(v.grossCentavos), collectedCentavos: Math.round(v.collectedCentavos) }));
 }
 
 export type DimensionBooking = {

@@ -172,7 +172,7 @@ function granularityForPeriod(start: Date, end: Date): "day" | "week" | "month" 
 }
 
 const revenueBookingSelect = {
-  id: true, unitId: true, date: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, platform: true, stayType: true, method: true,
+  id: true, unitId: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, platform: true, stayType: true, method: true,
 } as const;
 
 async function fetchRevenueData(
@@ -201,7 +201,7 @@ async function fetchRevenueData(
 
 const cachedFetchRevenueData = unstable_cache(fetchRevenueData, ["analytics-revenue"], { revalidate: 60 });
 
-export type DrillDownBooking = { id: string; date: string; unitLabel: string; stayType: string; amount: number; paid: boolean };
+export type DrillDownBooking = { id: string; date: string; checkOutDate: string | null; unitLabel: string; stayType: string; amount: number; paid: boolean };
 
 export type RevenueAnalytics = {
   series: RevenuePoint[];
@@ -226,7 +226,7 @@ export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: st
   const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, u.shortName]));
 
   return {
-    series: revenueSeries(bookings, granularity),
+    series: revenueSeries(bookings, granularity, current.start, current.end),
     granularity,
     byUnit: revenueByDimension(bookings, "unit", unitLabels),
     bySource: revenueByDimension(bookings, "source"),
@@ -234,7 +234,7 @@ export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: st
     byPaymentMethod: revenueByDimension(bookings, "paymentMethod"),
     bookings: bookings
       .filter((b: any) => !b.cancelledAt)
-      .map((b: any) => ({ id: b.id, date: b.date, unitLabel: unitLabels[b.unitId] ?? b.unitId, stayType: b.stayType, amount: b.amount, paid: b.paid })),
+      .map((b: any) => ({ id: b.id, date: b.date, checkOutDate: b.checkOutDate, unitLabel: unitLabels[b.unitId] ?? b.unitId, stayType: b.stayType, amount: b.amount, paid: b.paid })),
   };
 }
 
