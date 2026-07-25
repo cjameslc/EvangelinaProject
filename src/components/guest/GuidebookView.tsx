@@ -12,6 +12,8 @@ import {
 import type { TeamMember } from "@/lib/guidebookService";
 import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 import { SecureDoorCodeCard, SecureWifiCard } from "@/components/guest/SecureGuideCards";
+import { JourneyTimeline } from "@/components/guest/JourneyTimeline";
+import { guestJourneyStage } from "@/lib/bookingStatus";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
@@ -57,17 +59,19 @@ function useCopy() {
   return { copiedKey, copy };
 }
 
-function stayStatus(b: GuideBooking) {
-  const now = new Date();
-  const checkIn = new Date(b.date);
-  const checkOut = b.checkOutDate ? new Date(b.checkOutDate) : checkIn;
-  if (b.checkedOutAt) return { label: "Checked out", tone: "text-[var(--gray)]" };
-  if (now >= checkOut) return { label: "Stay completed", tone: "text-[var(--gray)]" };
-  if (now >= checkIn) return { label: "You're checked in", tone: "text-green" };
-  const days = Math.ceil((checkIn.getTime() - now.getTime()) / 86400000);
-  if (days <= 0) return { label: "Check-in is today", tone: "text-rausch" };
-  return { label: `${days} day${days === 1 ? "" : "s"} until check-in`, tone: "text-[var(--gray)]" };
-}
+// Header one-liner text/color per stage — the stepper below (JourneyTimeline)
+// is the detailed view; this is just the compact summary under the unit
+// name. Both now derive from the same guestJourneyStage() (src/lib/
+// bookingStatus.ts), replacing what used to be this file's own separate
+// stayStatus() logic.
+const STAGE_HEADER: Record<string, { label: string; tone: string }> = {
+  before_stay: { label: "Upcoming stay", tone: "text-[var(--gray)]" },
+  check_in_day: { label: "Check-in is today", tone: "text-rausch" },
+  during_stay: { label: "You're checked in", tone: "text-green" },
+  checkout_day: { label: "Checkout day", tone: "text-amber" },
+  completed: { label: "Stay completed", tone: "text-[var(--gray)]" },
+  cancelled: { label: "Cancelled", tone: "text-[var(--gray)]" },
+};
 
 const REQUEST_TYPES: { key: string; label: string; icon: string }[] = [
   { key: "housekeeping", label: "Request housekeeping", icon: "🧹" },
@@ -82,7 +86,8 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
   const [requestSent, setRequestSent] = useState<string | null>(null);
   const [requestError, setRequestError] = useState("");
 
-  const status = stayStatus(booking);
+  const stage = guestJourneyStage(booking);
+  const status = STAGE_HEADER[stage];
   const stayLabel = STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType;
   const hasWifi = !!booking.unit.hasWifi;
 
@@ -131,6 +136,8 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
           <p className={`mt-2 text-[13.5px] font-extrabold ${status.tone}`}>{status.label}</p>
         </div>
       </div>
+
+      <JourneyTimeline booking={booking} />
 
       {/* Stay timeline */}
       <div className="card mt-3 p-5">

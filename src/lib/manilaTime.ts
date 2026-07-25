@@ -21,6 +21,14 @@ export function manilaTodayISO(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
 }
 
+/** Any given date's Asia/Manila calendar day, as YYYY-MM-DD — the general
+ * form of manilaTodayISO() above, for comparing two arbitrary dates' days
+ * (e.g. "is this the same calendar day as checkout?") rather than just
+ * checking against today. */
+export function manilaDayKey(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(date);
+}
+
 /** True if a YYYY-MM-DD date string is strictly before today in Asia/Manila — plain string comparison works since both sides are zero-padded ISO dates. */
 export function isPastManilaDate(dateStr: string): boolean {
   return dateStr < manilaTodayISO();

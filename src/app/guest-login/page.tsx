@@ -8,8 +8,9 @@ export default function GuestLoginPage() {
   const router = useRouter();
   const [method, setMethod] = useState<"confirmation" | "link">("confirmation");
 
-  // Booking confirmation number login
-  const [confEmail, setConfEmail] = useState("");
+  // Booking confirmation number login — ID only, no email (see
+  // verify-confirmation/route.ts: a guestless booking's account is
+  // bootstrapped automatically server-side, no input needed).
   const [confirmationNumber, setConfirmationNumber] = useState("");
   const [confLoading, setConfLoading] = useState(false);
   const [confError, setConfError] = useState("");
@@ -29,7 +30,7 @@ export default function GuestLoginPage() {
       const res = await fetch("/api/guest/auth/verify-confirmation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: confEmail, confirmationNumber }),
+        body: JSON.stringify({ confirmationNumber }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
@@ -86,10 +87,6 @@ export default function GuestLoginPage() {
 
         {method === "confirmation" ? (
           <form onSubmit={onSubmitConfirmation} className="card space-y-4 p-6">
-            <div className="space-y-1.5">
-              <label htmlFor="guest-login-conf-email" className="field-label">Email</label>
-              <input id="guest-login-conf-email" type="email" required value={confEmail} onChange={(e) => setConfEmail(e.target.value)} className="field-input" placeholder="you@example.com" />
-            </div>
             <div className="space-y-1.5">
               <label htmlFor="guest-login-conf-number" className="field-label">Confirmation number</label>
               <input

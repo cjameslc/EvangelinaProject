@@ -7,16 +7,14 @@ import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 
 /**
  * Second guest sign-in path alongside the existing email magic link (see
- * request-link/route.ts) — confirmation number alone, no email round trip
- * needed (email is accepted and, if sent, still checked — the standalone
- * /guest-login "Booking confirmation" tab still asks for both — but the
- * guest-hub quick-unlock card only asks for the code). Confirmation
- * numbers are high-entropy (EVA- + 6 chars from a 30-char alphabet, ~729M
- * combinations), so a code-only lookup relies on that entropy plus rate
- * limiting as its real protection instead of a second matching field —
- * tightened here accordingly: a global cap on top of the existing
- * per-IP one, since this is now the only gate between a guessed code and
- * a real door lock.
+ * request-link/route.ts) — confirmation number alone, no email ever
+ * required (a stated product decision: entering the booking ID is the
+ * whole flow, no added steps). Confirmation numbers are high-entropy
+ * (EVA- + 6 chars from a 30-char alphabet, ~729M combinations), so a
+ * code-only lookup relies on that entropy plus rate limiting as its real
+ * protection instead of a second matching field — a global cap on top of
+ * the existing per-IP one, since this is the only gate between a guessed
+ * code and a real door lock.
  *
  * The code itself is stay-scoped, not a permanent credential — it stops
  * working once the stay (or an OWNER_ADMIN's reactivation window) has
@@ -31,14 +29,14 @@ import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
  * permanently unusable everywhere confirmationNumber is checked (this
  * endpoint, plus the WiFi/door-code reveal, which only ever resolves a
  * booking through the *signed-in* guest's own guestId). So when a valid
- * code resolves to a guestless booking, this step requires an email,
- * find-or-creates a Guest for it, and links it to the booking — a one-time
- * account bootstrap, not a repeat step; the code alone works from then on
- * through either sign-in path. This does mean a valid-but-guestless code
- * gets a distinguishable ("needs email") response instead of the fully
- * generic 404 used everywhere else — a narrow, accepted enumeration gap
- * (confirms a *guessed* code is real, nothing more) given the same code
- * space size and rate limiting already relied on above.
+ * code resolves to a guestless booking, a Guest account is bootstrapped
+ * automatically with a placeholder (non-deliverable) email keyed to the
+ * confirmation number itself — no input needed from the guest — and
+ * linked to the booking. This does mean each previously-guestless booking
+ * gets its own separate Guest record rather than being consolidated under
+ * a real email a repeat guest might share across bookings; accepted
+ * tradeoff for zero-friction access. That guest can still link a real,
+ * permanent account later via the email magic-link path if they want one.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -82,19 +80,15 @@ export async function POST(req: NextRequest) {
   // Staff-logged and Airbnb-imported bookings get a confirmationNumber
   // just like guest self-service ones, but never had a Guest account
   // created for them (nothing in that flow collects one). Rather than
-  // leaving those guests permanently locked out of their own valid code,
-  // link one now: an email is required at this specific step (there's no
-  // account to sign into without one), then the booking is retroactively
-  // linked so this same code works instantly next time via either path.
+  // leaving those guests locked out of their own valid code, or asking
+  // them for an email they don't want to type, bootstrap one silently —
+  // the placeholder email is unique per confirmation number (never
+  // collides, never sends real mail) and the booking is retroactively
+  // linked so this exact same code keeps working instantly from here on.
   if (!booking.guest) {
-    if (!emailRaw) {
-      return NextResponse.json(
-        { error: "This booking needs your email to finish setting up your account.", needsEmail: true },
-        { status: 400 }
-      );
-    }
     const guestNames: string[] = Array.isArray(booking.guests) ? booking.guests : [];
-    const guest = await findOrCreateGuestByEmail(emailRaw, guestNames[0] ?? null);
+    const placeholderEmail = `guest-${confirmationNumber.toLowerCase()}@guest.evangelinas.local`;
+    const guest = await findOrCreateGuestByEmail(placeholderEmail, guestNames[0] ?? null);
     await prisma.booking.update({ where: { id: booking.id }, data: { guestId: guest.id } });
     const sessionToken = await mintGuestSessionToken(guest);
     const res = NextResponse.json({ ok: true });

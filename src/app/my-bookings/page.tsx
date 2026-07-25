@@ -1,15 +1,21 @@
 import Link from "next/link";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
-import { isBookingCompleted } from "@/lib/bookingStatus";
+import { guestJourneyStage } from "@/lib/bookingStatus";
 import { peso, fmtDate } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 
-function statusOf(b: { date: string; checkOutDate: string | null; cancelledAt: string | null }) {
-  if (b.cancelledAt) return "cancelled";
-  if (isBookingCompleted(b)) return "completed";
-  if (new Date(b.date) <= new Date()) return "active";
-  return "upcoming";
+// This page's grouping is coarser than the full 5-stage guest journey
+// (before_stay/check_in_day/during_stay/checkout_day/completed/cancelled,
+// see bookingStatus.ts) — check-in day through checkout day all read as one
+// "Active" bucket here, since this list view is about "which of my
+// bookings needs attention," not the detailed stepper GuidebookView shows.
+function statusOf(b: { date: string; checkOutDate: string | null; checkedInAt?: string | null; checkedOutAt?: string | null; cancelledAt: string | null }) {
+  const stage = guestJourneyStage(b);
+  if (stage === "cancelled") return "cancelled";
+  if (stage === "completed") return "completed";
+  if (stage === "before_stay") return "upcoming";
+  return "active"; // check_in_day | during_stay | checkout_day
 }
 
 // Same rule as the booking detail page: a down-payment booking is a real,
