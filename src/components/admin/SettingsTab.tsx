@@ -12,6 +12,7 @@ type Settings = {
   propertyLat?: number | null; propertyLng?: number | null;
   housekeepingDayRate: number; housekeepingNightBonus: number; bookerCommission: number; auditorWeeklyRate: number;
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
+  dailyRevenueGoal?: number | null;
   extensionFeePerHour: number; flexibleTimeFee: number; parkingCarRate: number; parkingMotorcycleRate: number;
   celebrationPackagePrice: number; celebrationPackageItems?: string[] | null;
   batteryLowThresholdPct: number; batteryCriticalThresholdPct: number;
@@ -151,6 +152,18 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           <div>
             <label className="field-label">Extension fee (₱/hour)</label>
             <input type="number" min={0} value={form.extensionFeePerHour} onChange={(e) => setForm({ ...form, extensionFeePerHour: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+          <div>
+            <label className="field-label">Daily revenue goal (₱, optional)</label>
+            <input
+              type="number"
+              min={0}
+              value={form.dailyRevenueGoal ?? ""}
+              onChange={(e) => setForm({ ...form, dailyRevenueGoal: e.target.value === "" ? null : +e.target.value })}
+              placeholder="Not set"
+              className="field-input mt-1.5"
+            />
+            <p className="mt-1 text-[11px] text-[var(--gray)]">Powers the progress bar on Bookings → Revenue Opportunities. Leave blank to hide it.</p>
           </div>
           <div>
             <label className="field-label">Flexible time fee (₱)</label>

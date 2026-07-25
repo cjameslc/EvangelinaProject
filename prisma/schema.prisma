@@ -789,6 +789,12 @@ model Settings {
   weekendRate21h         Int @default(1899)
   // 10% off weekday (Mon-Thu) Night-stay bookings only.
   weekdayNightPromoPct   Int @default(10)
+  // Bookings page "Opportunity Engine" — Admin's own target for realized
+  // revenue in a single day, shown as a progress bar. Null until an Admin
+  // sets one (no fabricated default figure); the panel simply omits the
+  // goal progress bar until then, same as this app's other optional-until-
+  // configured settings.
+  dailyRevenueGoal       Int?
   // Extending a stay past checkout, and Flexible stay's own-choice-of-time
   // option — both flat fees, same admin-editable-rate convention as the
   // rate table above. See the Guest Experience "Rates" page.

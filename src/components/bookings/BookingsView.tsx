@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
 import { AvailabilityChat } from "./AvailabilityChat";
+import { OpportunityPanel } from "./OpportunityPanel";
+import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
+import type { RateTable } from "@/lib/pricing/rates";
+import { manilaTodayISO } from "@/lib/manilaTime";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate: number; owners?: { user: { name: string } }[] };
@@ -55,7 +59,7 @@ function effectiveRange(b: Booking) {
   return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
 }
 
-export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [] }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[] }) {
+export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [], rates, dailyRevenueGoal = null }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[]; rates: RateTable; dailyRevenueGoal?: number | null }) {
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
@@ -224,6 +228,24 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     toast("Booking marked refunded");
     refresh();
   }
+
+  // Opportunity Engine — recomputes automatically off the same `bookings`
+  // state every other section on this page already reads, so creating,
+  // editing, or cancelling a booking updates it for free via the existing
+  // refresh() → setBookings() flow. Always "today" — matches every one of
+  // the spec's own examples ("today," "before the day ends"); Tomorrow/This
+  // week are deliberately out of scope for a same-day fill-the-schedule
+  // tool. Zero extra network requests: computeOpportunities is pure
+  // client-side date math (see opportunity.ts).
+  const opportunitiesDate = manilaTodayISO();
+  const opportunities = useMemo(
+    () => computeOpportunities(units, bookings, opportunitiesDate, rates, defaultDpFee),
+    [units, bookings, opportunitiesDate, rates, defaultDpFee]
+  );
+  const realizedToday = useMemo(
+    () => bookings.filter((b) => b.date.slice(0, 10) === opportunitiesDate && !b.cancelledAt).reduce((s, b) => s + (b.refundedAt ? 0 : (b.paid ? b.amount : 0) + (b.dpAmount ?? 0)), 0),
+    [bookings, opportunitiesDate]
+  );
 
   // Every metric on this page (stat cards, Booking insights) is scoped to a
   // Booker's own bookings, always — independent of whichever list tab is
@@ -560,6 +582,17 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           </button>
         )}
       </div>
+
+      {canEdit && (
+        <OpportunityPanel
+          opportunities={opportunities}
+          dayLabel="Today"
+          isToday
+          dailyRevenueGoal={dailyRevenueGoal}
+          realizedToday={realizedToday}
+          onBook={(unitId, stayType) => handlePrefillBooking({ unitId, date: opportunitiesDate, stayType })}
+        />
+      )}
 
       {isBookerView && greetingStats && (
         <div className="mb-5 rounded-2xl border border-rausch/20 bg-gradient-to-br from-rausch/10 via-transparent to-transparent p-5">

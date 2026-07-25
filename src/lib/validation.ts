@@ -270,6 +270,7 @@ export const settingsSchema = z.object({
   weekendRate12h: z.number().int().positive().optional(),
   weekendRate21h: z.number().int().positive().optional(),
   weekdayNightPromoPct: z.number().int().min(0).max(100).optional(),
+  dailyRevenueGoal: z.number().int().nonnegative().nullable().optional(),
   extensionFeePerHour: z.number().int().nonnegative().optional(),
   flexibleTimeFee: z.number().int().nonnegative().optional(),
   parkingCarRate: z.number().int().nonnegative().optional(),

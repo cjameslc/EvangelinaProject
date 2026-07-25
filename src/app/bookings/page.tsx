@@ -52,6 +52,14 @@ export default async function BookingsPage() {
       defaultDpFee={settings.dpFee}
       ownEmployeeId={ownEmployee?.id ?? null}
       hkStates={JSON.parse(JSON.stringify(hkStates))}
+      rates={{
+        weekdayRate12h: settings.weekdayRate12h,
+        weekdayRate21h: settings.weekdayRate21h,
+        weekendRate12h: settings.weekendRate12h,
+        weekendRate21h: settings.weekendRate21h,
+        weekdayNightPromoPct: settings.weekdayNightPromoPct,
+      }}
+      dailyRevenueGoal={settings.dailyRevenueGoal}
     />
   );
 }
