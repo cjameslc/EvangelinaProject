@@ -106,7 +106,7 @@ export function DashboardView({
   ttlockStatus: { lastSuccessAt: string | null; lastFailureAt: string | null; lastFailureMessage: string | null } | null;
   batteryLowThresholdPct: number;
   batteryCriticalThresholdPct: number;
-  pendingGuestRequests: { id: string; type: string; message: string | null; createdAt: string; unit: { shortName: string } | null; guest: { name: string | null; email: string } | null }[];
+  pendingGuestRequests: { id: string; type: string; message: string | null; priority: string; photoUrl: string | null; createdAt: string; unit: { shortName: string } | null; guest: { name: string | null; email: string } | null }[];
   weekRangeStart: string;
   weekRangeEnd: string;
   monthRangeStart: string;
@@ -807,15 +807,20 @@ export function DashboardView({
       issue: "⚠️ Issue reported",
       other: "Guest request",
     };
-    pendingGuestRequests.forEach((r) => {
-      items.push({
-        id: `guest-request-${r.id}`,
-        dot: r.type === "issue" ? "bg-rausch" : "bg-blue",
-        title: GUEST_REQUEST_LABEL[r.type] ?? "Guest request",
-        desc: `${r.unit?.shortName ?? "Unit"} — ${r.guest?.name ?? r.guest?.email ?? "Guest"}${r.message ? `: "${r.message}"` : ""}`,
-        tag: "Guest",
+    const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2 };
+    [...pendingGuestRequests]
+      .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2))
+      .forEach((r) => {
+        const dot = r.priority === "urgent" ? "bg-rausch" : r.priority === "high" ? "bg-amber" : r.type === "issue" ? "bg-rausch" : "bg-blue";
+        const priorityTag = r.priority === "urgent" ? "🔴 Urgent — " : r.priority === "high" ? "🟠 High priority — " : "";
+        items.push({
+          id: `guest-request-${r.id}`,
+          dot,
+          title: `${priorityTag}${GUEST_REQUEST_LABEL[r.type] ?? "Guest request"}`,
+          desc: `${r.unit?.shortName ?? "Unit"} — ${r.guest?.name ?? r.guest?.email ?? "Guest"}${r.message ? `: "${r.message}"` : ""}${r.photoUrl ? " 📷 Photo attached" : ""}`,
+          tag: "Guest",
+        });
       });
-    });
 
     if (pendingExpenseRequests.length > 0) {
       const total = pendingExpenseRequests.reduce((s, e) => s + e.amount, 0);

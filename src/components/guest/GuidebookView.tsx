@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import type { GuidebookCategory, Amenity } from "@/lib/guidebookContent";
@@ -13,12 +13,14 @@ import type { TeamMember } from "@/lib/guidebookService";
 import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 import { SecureDoorCodeCard, SecureWifiCard } from "@/components/guest/SecureGuideCards";
 import { JourneyTimeline } from "@/components/guest/JourneyTimeline";
+import { GuestWelcomeBanner } from "@/components/guest/GuestWelcomeBanner";
 import { guestJourneyStage } from "@/lib/bookingStatus";
 
 type GuideBooking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime: string | null;
   stayType: string; guests: string[]; confirmationNumber: string | null; cancelledAt: string | null;
   checkedInAt: string | null; checkedOutAt: string | null;
+  paid: boolean; paymentType: string; dpAmount: number | null;
   unit: {
     id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string;
     wifiSsid: string | null; wifiPassword: string | null; hasWifi?: boolean; doorCode: string | null; hasDoorCode?: boolean;
@@ -85,6 +87,15 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
   const [requestBusy, setRequestBusy] = useState<string | null>(null);
   const [requestSent, setRequestSent] = useState<string | null>(null);
   const [requestError, setRequestError] = useState("");
+  // "Report an issue" gets its own inline form (photo + priority) instead
+  // of the one-tap-and-done buttons the other request types use — those
+  // are simple asks (extra towels, late checkout) that don't benefit from
+  // a description or urgency picker the way "something's actually wrong"
+  // does.
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [issueMessage, setIssueMessage] = useState("");
+  const [issuePhoto, setIssuePhoto] = useState<File | null>(null);
+  const [issuePriority, setIssuePriority] = useState<"normal" | "high" | "urgent">("normal");
 
   const stage = guestJourneyStage(booking);
   const status = STAGE_HEADER[stage];
@@ -93,19 +104,14 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
 
   async function sendRequest(type: string, label: string) {
     if (requestBusy) return;
-    let message: string | null = null;
-    if (type === "issue") {
-      message = prompt("Briefly describe the issue:");
-      if (message === null) return;
-      if (!message.trim()) { setRequestError("Please describe the issue."); return; }
-    }
+    if (type === "issue") { setIssueOpen(true); return; }
     setRequestBusy(type);
     setRequestError("");
     try {
       const res = await fetch(`/api/guest/bookings/${booking.id}/request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, message }),
+        body: JSON.stringify({ type, message: null }),
       });
       if (!res.ok) { const j = await res.json().catch(() => null); setRequestError(j?.error ?? `Couldn't send "${label}".`); return; }
       setRequestSent(type);
@@ -117,10 +123,39 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
     }
   }
 
+  async function sendIssueRequest(e: FormEvent) {
+    e.preventDefault();
+    if (requestBusy) return;
+    if (!issueMessage.trim()) { setRequestError("Please describe the issue."); return; }
+    setRequestBusy("issue");
+    setRequestError("");
+    try {
+      const form = new FormData();
+      form.set("type", "issue");
+      form.set("message", issueMessage.trim());
+      form.set("priority", issuePriority);
+      if (issuePhoto) form.set("photo", issuePhoto);
+      const res = await fetch(`/api/guest/bookings/${booking.id}/request`, { method: "POST", body: form });
+      if (!res.ok) { const j = await res.json().catch(() => null); setRequestError(j?.error ?? `Couldn't send the report.`); return; }
+      setRequestSent("issue");
+      setIssueOpen(false);
+      setIssueMessage("");
+      setIssuePhoto(null);
+      setIssuePriority("normal");
+      setTimeout(() => setRequestSent((k) => (k === "issue" ? null : k)), 3000);
+    } catch {
+      setRequestError("Couldn't send the report. Please try again.");
+    } finally {
+      setRequestBusy(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
+      {stage !== "cancelled" && <GuestWelcomeBanner booking={booking} />}
+
       {/* Welcome header */}
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden mt-3">
         <div className="aspect-[21/9] w-full bg-[var(--bg-2)]">
           {booking.unit.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -242,7 +277,58 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
             </button>
           ))}
         </div>
-        {requestError && <p className="mt-2 text-[12.5px] font-semibold text-rausch">{requestError}</p>}
+        {requestError && !issueOpen && <p className="mt-2 text-[12.5px] font-semibold text-rausch">{requestError}</p>}
+
+        {issueOpen && (
+          <form onSubmit={sendIssueRequest} className="mt-3 space-y-2.5 rounded-xl border border-[var(--line)] p-3.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[12.5px] font-extrabold">Report an issue</p>
+              <button type="button" onClick={() => { setIssueOpen(false); setRequestError(""); }} className="text-[11.5px] font-bold text-[var(--gray)] hover:text-[var(--ink)]">Cancel</button>
+            </div>
+            <textarea
+              autoFocus
+              required
+              value={issueMessage}
+              onChange={(e) => setIssueMessage(e.target.value)}
+              className="field-input min-h-[70px]"
+              placeholder="What's wrong? e.g. AC isn't cooling, leaking faucet…"
+            />
+            <div>
+              <label className="field-label">How urgent?</label>
+              <div className="mt-1.5 flex gap-1.5">
+                {(["normal", "high", "urgent"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setIssuePriority(p)}
+                    className={
+                      issuePriority === p
+                        ? "flex-1 rounded-lg bg-rausch px-2 py-1.5 text-[11.5px] font-extrabold capitalize text-white"
+                        : "flex-1 rounded-lg border border-[var(--line)] px-2 py-1.5 text-[11.5px] font-bold capitalize text-[var(--gray)] hover:bg-[var(--bg-2)]"
+                    }
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="field-label">Photo (optional)</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setIssuePhoto(e.target.files?.[0] ?? null)}
+                className="field-input mt-1.5 text-[12.5px]"
+              />
+              {issuePhoto && <p className="mt-1 text-[11.5px] text-[var(--gray)]">{issuePhoto.name}</p>}
+            </div>
+            {requestError && <p className="text-[12.5px] font-semibold text-rausch">{requestError}</p>}
+            <button type="submit" disabled={requestBusy === "issue"} className="btn-primary w-full justify-center">
+              {requestBusy === "issue" ? "Sending…" : "Send report"}
+            </button>
+          </form>
+        )}
+
         {guidebook.contactPhone && (
           <div className="mt-3">
             <a href={telUrl(guidebook.contactPhone)} className="btn btn-sm">📞 Contact host</a>

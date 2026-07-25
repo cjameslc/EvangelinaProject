@@ -75,3 +75,16 @@ export function isCommissionEligible(booking: { paid: boolean; cancelledAt?: Dat
   if (booking.paid) return true;
   return !!booking.cancelledAt && (booking.dpAmount ?? 0) > 0;
 }
+
+/**
+ * Guest-facing "Booking Status" text — a down-payment booking reads as a
+ * real, secured reservation once its down payment is confirmed, even
+ * though the remaining balance is still outstanding, not the same thing
+ * as fully "Paid." Was duplicated between my-bookings/page.tsx and the
+ * guest welcome banner; consolidated here.
+ */
+export function paymentLabel(booking: { paid: boolean; paymentType: string; dpAmount: number | null }): { text: string; cls: string } {
+  if (booking.paid) return { text: "Paid", cls: "text-green" };
+  if (booking.paymentType === "down_payment" && booking.dpAmount) return { text: "Confirmed", cls: "text-teal" };
+  return { text: "Payment pending", cls: "text-amber" };
+}

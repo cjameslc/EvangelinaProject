@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { wifiQrPayload } from "@/lib/guideUtils";
 
 /** Copy-to-clipboard with a brief inline "Copied ✓" confirmation — same
@@ -22,17 +22,41 @@ export function useCopy() {
   return { copiedKey, copy };
 }
 
-/** Gates the real WiFi credentials behind re-entering the booking
- * confirmation number — same reasoning and server contract as
- * SecureDoorCodeCard (see /api/guest/wifi): the server never sends the
- * SSID/password down until this check passes. */
+/** Auto-reveals the WiFi credentials from the guest's own session — no
+ * re-typed booking ID (see /api/guest/wifi's comment: booking ID is
+ * validated once at sign-in, every guest module unlocks automatically from
+ * there). Fetches once on mount; a real 401/403 (session expired, no
+ * active stay) shows its own message rather than a form to retry typing
+ * anything. */
 export function SecureWifiCard({ bookingId }: { bookingId?: string } = {}) {
   const { copiedKey, copy } = useCopy();
-  const [confirmationNumber, setConfirmationNumber] = useState("");
   const [revealed, setRevealed] = useState<{ ssid: string; password: string; unitName: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [qr, setQr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/guest/wifi", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingId }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) { setError(data.error ?? "Couldn't load your WiFi details."); return; }
+        setRevealed(data);
+      } catch {
+        if (!cancelled) setError("Something went wrong — please try again.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId]);
 
   useEffect(() => {
     if (!revealed) return;
@@ -44,44 +68,15 @@ export function SecureWifiCard({ bookingId }: { bookingId?: string } = {}) {
     return () => { cancelled = true; };
   }, [revealed]);
 
-  async function reveal(e: FormEvent) {
-    e.preventDefault();
-    if (!confirmationNumber.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/guest/wifi", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmationNumber, bookingId }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Couldn't verify that booking ID."); return; }
-      setRevealed(data);
-    } catch {
-      setError("Something went wrong — please try again.");
-    } finally {
-      setLoading(false);
-    }
+  if (loading) {
+    return <div className="rounded-xl border border-[var(--line)] p-4 text-[12.5px] font-semibold text-[var(--gray)]">Loading your WiFi details…</div>;
   }
 
   if (!revealed) {
     return (
-      <form onSubmit={reveal} className="rounded-xl border border-[var(--line)] p-4">
-        <div className="text-[11px] font-bold text-[var(--gray)]">Enter your booking ID to view your WiFi</div>
-        <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">Sent to you when you booked — e.g. EVA-XXXXXX.</p>
-        <div className="mt-2.5 flex gap-2">
-          <input
-            value={confirmationNumber}
-            onChange={(e) => setConfirmationNumber(e.target.value)}
-            placeholder="EVA-XXXXXX"
-            className="field-input flex-1 uppercase tracking-wide"
-            autoCapitalize="characters"
-          />
-          <button type="submit" disabled={loading} className="btn-primary btn-sm flex-none">{loading ? "Checking…" : "Reveal"}</button>
-        </div>
-        {error && <p className="mt-2 text-[12px] font-bold text-rausch">{error}</p>}
-      </form>
+      <div className="rounded-xl border border-[var(--line)] p-4">
+        <p className="text-[12.5px] font-bold text-rausch">{error ?? "Couldn't load your WiFi details."}</p>
+      </div>
     );
   }
 
@@ -114,37 +109,41 @@ export function SecureWifiCard({ bookingId }: { bookingId?: string } = {}) {
   );
 }
 
-/** Gates the real door code behind re-entering the booking confirmation
- * number — the server never sends the code down until this check passes
- * (see /api/guest/door-code), so there's nothing in the page source to
- * read even before the guest types anything. Each of the 5 units has its
- * own code, so this doubles as a "confirm which stay you mean" step. */
+/** Auto-reveals the door code from the guest's own session — no re-typed
+ * booking ID (see /api/guest/door-code's comment: booking ID is validated
+ * once at sign-in, every guest module unlocks automatically from there).
+ * Fetches once on mount. */
 export function SecureDoorCodeCard({ bookingId }: { bookingId?: string } = {}) {
   const { copiedKey, copy } = useCopy();
-  const [confirmationNumber, setConfirmationNumber] = useState("");
   const [revealed, setRevealed] = useState<{ doorCode: string; unitName: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  async function reveal(e: FormEvent) {
-    e.preventDefault();
-    if (!confirmationNumber.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/guest/door-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmationNumber, bookingId }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Couldn't verify that booking ID."); return; }
-      setRevealed(data);
-    } catch {
-      setError("Something went wrong — please try again.");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/guest/door-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingId }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) { setError(data.error ?? "Couldn't load your door code."); return; }
+        setRevealed(data);
+      } catch {
+        if (!cancelled) setError("Something went wrong — please try again.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId]);
+
+  if (loading) {
+    return <div className="rounded-xl border border-[var(--line)] p-4 text-[12.5px] font-semibold text-[var(--gray)]">Loading your door code…</div>;
   }
 
   if (revealed) {
@@ -163,21 +162,9 @@ export function SecureDoorCodeCard({ bookingId }: { bookingId?: string } = {}) {
   }
 
   return (
-    <form onSubmit={reveal} className="rounded-xl border border-[var(--line)] p-4">
-      <div className="text-[11px] font-bold text-[var(--gray)]">Enter your booking ID to view your door code</div>
-      <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">Sent to you when you booked — e.g. EVA-XXXXXX.</p>
-      <div className="mt-2.5 flex gap-2">
-        <input
-          value={confirmationNumber}
-          onChange={(e) => setConfirmationNumber(e.target.value)}
-          placeholder="EVA-XXXXXX"
-          className="field-input flex-1 uppercase tracking-wide"
-          autoCapitalize="characters"
-        />
-        <button type="submit" disabled={loading} className="btn-primary btn-sm flex-none">{loading ? "Checking…" : "Reveal"}</button>
-      </div>
-      {error && <p className="mt-2 text-[12px] font-bold text-rausch">{error}</p>}
-    </form>
+    <div className="rounded-xl border border-[var(--line)] p-4">
+      <p className="text-[12.5px] font-bold text-rausch">{error ?? "Couldn't load your door code."}</p>
+    </div>
   );
 }
 

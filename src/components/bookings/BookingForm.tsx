@@ -382,6 +382,11 @@ export function BookingForm({
               )}
               {(onReactivateConfirmation || onRegenerateConfirmation) && (
                 <div className="flex gap-1.5">
+                  {bookingId && (
+                    <a href={`/admin/view-as-guest/${bookingId}`} target="_blank" rel="noopener noreferrer" className="btn-sm btn">
+                      🔍 View as Guest
+                    </a>
+                  )}
                   {onReactivateConfirmation && (
                     <button type="button" onClick={onReactivateConfirmation} className="btn-sm btn">Reactivate</button>
                   )}

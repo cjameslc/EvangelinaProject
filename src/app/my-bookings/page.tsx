@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
-import { guestJourneyStage } from "@/lib/bookingStatus";
+import { guestJourneyStage, paymentLabel } from "@/lib/bookingStatus";
 import { peso, fmtDate } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 
@@ -16,15 +16,6 @@ function statusOf(b: { date: string; checkOutDate: string | null; checkedInAt?: 
   if (stage === "completed") return "completed";
   if (stage === "before_stay") return "upcoming";
   return "active"; // check_in_day | during_stay | checkout_day
-}
-
-// Same rule as the booking detail page: a down-payment booking is a real,
-// secured reservation once its down payment is confirmed, even though the
-// remaining balance is still outstanding — not the same thing as "Paid."
-function paymentLabel(b: { paid: boolean; paymentType: string; dpAmount: number | null }) {
-  if (b.paid) return { text: "Paid", cls: "text-green" };
-  if (b.paymentType === "down_payment" && b.dpAmount) return { text: "Confirmed", cls: "text-teal" };
-  return { text: "Payment pending", cls: "text-amber" };
 }
 
 const STATUS_LABEL: Record<string, string> = { upcoming: "Upcoming", active: "Active", completed: "Completed", cancelled: "Cancelled" };

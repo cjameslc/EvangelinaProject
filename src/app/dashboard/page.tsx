@@ -168,7 +168,7 @@ export default async function DashboardPage() {
       where: { status: "pending" },
       orderBy: { createdAt: "desc" },
       take: 20,
-      select: { id: true, type: true, message: true, createdAt: true, unit: { select: { shortName: true } }, guest: { select: { name: true, email: true } } },
+      select: { id: true, type: true, message: true, priority: true, photoUrl: true, createdAt: true, unit: { select: { shortName: true } }, guest: { select: { name: true, email: true } } },
     })
     .catch(() => []);
 

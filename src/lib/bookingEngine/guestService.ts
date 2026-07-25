@@ -36,7 +36,12 @@ export async function getGuestBookings(guestId: string) {
 // the sensitive per-unit guide fields (WiFi/door code/check-in instructions
 // — deliberately NOT part of publicBookingSelect, since that one also backs
 // the booking LIST page, which has no business surfacing a door code).
-const guideBookingSelect = {
+// Exported for /admin/view-as-guest/[bookingId] — a staff-only QA preview
+// that fetches a chosen booking directly (unscoped by guestId, since
+// staff isn't "logged in as" any guest), but needs the exact same field
+// shape so GuestBookingHub/GuidebookView/BookingDetailClient render
+// identically to the real guest experience.
+export const guideBookingSelect = {
   ...publicBookingSelect,
   unit: {
     select: {
@@ -169,19 +174,24 @@ const GUEST_REQUEST_TYPES = ["housekeeping", "late_checkout", "extend_stay", "is
 /** Guest → staff request from the Digital Guidebook — see GuestRequest in
  * schema.prisma. A cancelled booking can't raise a request (nothing to
  * housekeep/extend/check out late on a stay that isn't happening). */
+const GUEST_REQUEST_PRIORITIES = ["normal", "high", "urgent"] as const;
+
 export async function createGuestRequest(
   guestId: string,
   bookingId: string,
   type: string,
-  message: string | null
+  message: string | null,
+  photoUrl: string | null = null,
+  priority: string = "normal"
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!(GUEST_REQUEST_TYPES as readonly string[]).includes(type)) return { ok: false, error: "Invalid request type." };
+  const safePriority = (GUEST_REQUEST_PRIORITIES as readonly string[]).includes(priority) ? priority : "normal";
   const booking = await prisma.booking.findFirst({ where: { id: bookingId, guestId }, select: { id: true, unitId: true, cancelledAt: true } });
   if (!booking) return { ok: false, error: "Booking not found." };
   if (booking.cancelledAt) return { ok: false, error: "This booking is cancelled." };
 
   await prisma.guestRequest.create({
-    data: { guestId, bookingId, unitId: booking.unitId, type, message: message?.trim() || null },
+    data: { guestId, bookingId, unitId: booking.unitId, type, message: message?.trim() || null, photoUrl, priority: safePriority },
   });
   return { ok: true };
 }

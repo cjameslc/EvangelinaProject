@@ -965,6 +965,12 @@ model GuestRequest {
   unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
   type       String    // "housekeeping" | "late_checkout" | "extend_stay" | "issue" | "other"
   message    String?
+  // Optional photo — a broken fixture, damage, a mess to show rather than
+  // describe. Vercel Blob URL, same convention as Booking.proofUrl.
+  photoUrl   String?
+  // Guest-selected urgency, defaults to normal — lets the dashboard/staff
+  // triage a flooding bathroom ahead of a request for extra towels.
+  priority   String    @default("normal") // "normal" | "high" | "urgent"
   status     String    @default("pending") // "pending" | "acknowledged" | "resolved"
   createdAt  DateTime  @default(now())
   resolvedAt DateTime?
