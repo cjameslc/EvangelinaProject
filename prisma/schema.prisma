@@ -892,6 +892,36 @@ model PlaceInsight {
   @@map("place_insights")
 }
 
+// Server-side cache for the Guest View's Unsplash imagery — same
+// "never call the live API on a guest page view" discipline as
+// PlaceInsight above, just more strict about it: Unsplash's Demo-tier key
+// this app uses is capped at 50 requests/hour, which real guest traffic
+// would exhaust in minutes if any page load triggered a live search. Every
+// guest-facing image read comes from this table; only the cache-warming
+// job (piggybacked on the existing daily cron, see src/lib/unsplashSync.ts)
+// or an explicit admin refresh ever calls Unsplash directly.
+//
+// One row per "slot" (our own category key, e.g. "hero", "amenity-coffee",
+// "gallery-bedroom", "nearby-restaurants") holding several images at once
+// (JSON-encoded array — a slot needs rotation/masonry variety, not a
+// single image), fetched in one Unsplash /photos/random?count=N call per
+// slot rather than N separate single-photo calls.
+model UnsplashImageCache {
+  id         String   @id @default(cuid())
+  category   String   @unique // our own slot key — see src/lib/unsplash/categories.ts
+  query      String   // the actual Unsplash search query used, kept for debugging/re-fetch
+  // JSON-encoded UnsplashImage[] (id, regular/full/small/thumb urls,
+  // photographer name + profile url, downloadLocation) — parsed/stringified
+  // by UnsplashService itself (src/lib/unsplash/service.ts), not the
+  // shared Prisma JSON-field extension, since this is this model's only
+  // consumer.
+  images     String
+  fetchError String? // set (existing images left as-is) when a refresh fails — stale-but-real beats a broken slot
+  fetchedAt  DateTime @default(now())
+
+  @@map("unsplash_image_cache")
+}
+
 // Append-only trail for the Auditor page.
 model AuditLog {
   id         String   @id @default(cuid())

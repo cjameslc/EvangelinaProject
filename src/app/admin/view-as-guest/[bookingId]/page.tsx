@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { guideBookingSelect } from "@/lib/bookingEngine/guestService";
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
+import { getCategoryImages } from "@/lib/unsplash/service";
+import { pickStable } from "@/lib/unsplash/pick";
 import { GuestBookingHub } from "@/components/guest/GuestBookingHub";
 
 /**
@@ -24,14 +26,16 @@ export default async function ViewAsGuestPage({ params }: { params: { bookingId:
   if (!user) redirect("/login");
   if (user.role !== "OWNER_ADMIN") redirect("/");
 
-  const [booking, guidebook] = await Promise.all([
+  const [booking, guidebook, heroImages] = await Promise.all([
     prisma.booking.findUnique({ where: { id: params.bookingId }, select: guideBookingSelect }),
     getGuidebookSettings(),
+    getCategoryImages("hero"),
   ]);
   if (!booking) notFound();
 
   const insightRows = await getPlaceInsightsByNames(guidebook.categories.flatMap((c) => c.items));
   const placeInsights = Object.fromEntries(insightRows);
+  const heroImage = pickStable(heroImages, booking.id);
 
   const sanitizedBooking = {
     ...booking,
@@ -53,7 +57,7 @@ export default async function ViewAsGuestPage({ params }: { params: { bookingId:
       </div>
       <GuestBookingHub
         booking={JSON.parse(JSON.stringify(sanitizedBooking))}
-        guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)) }}
+        guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)), heroImage }}
       />
     </div>
   );

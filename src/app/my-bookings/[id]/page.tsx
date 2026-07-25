@@ -4,6 +4,8 @@ import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookingForGuide } from "@/lib/bookingEngine/guestService";
 import { getGuidebookSettings } from "@/lib/guidebookService";
 import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
+import { getCategoryImages } from "@/lib/unsplash/service";
+import { pickStable } from "@/lib/unsplash/pick";
 import { GuestBookingHub } from "@/components/guest/GuestBookingHub";
 
 export default async function BookingDetailPage({ params }: { params: { id: string } }) {
@@ -17,14 +19,16 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
     );
   }
 
-  const [booking, guidebook] = await Promise.all([
+  const [booking, guidebook, heroImages] = await Promise.all([
     getGuestBookingForGuide(guest.id, params.id),
     getGuidebookSettings(),
+    getCategoryImages("hero"),
   ]);
   if (!booking) notFound();
 
   const insightRows = await getPlaceInsightsByNames(guidebook.categories.flatMap((c) => c.items));
   const placeInsights = Object.fromEntries(insightRows);
+  const heroImage = pickStable(heroImages, booking.id);
 
   // Neither the door code nor the WiFi password reach the client here —
   // only whether each exists — so re-entering the booking ID (see
@@ -45,7 +49,7 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
   return (
     <GuestBookingHub
       booking={JSON.parse(JSON.stringify(sanitizedBooking))}
-      guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)) }}
+      guidebook={{ ...guidebook, placeInsights: JSON.parse(JSON.stringify(placeInsights)), heroImage }}
     />
   );
 }

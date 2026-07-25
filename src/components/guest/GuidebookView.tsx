@@ -14,6 +14,7 @@ import type { PlaceInsightData } from "@/components/guest/PlaceInsightRow";
 import { SecureDoorCodeCard, SecureWifiCard } from "@/components/guest/SecureGuideCards";
 import { JourneyTimeline } from "@/components/guest/JourneyTimeline";
 import { GuestWelcomeBanner } from "@/components/guest/GuestWelcomeBanner";
+import type { UnsplashImage } from "@/lib/unsplash/types";
 import { guestJourneyStage } from "@/lib/bookingStatus";
 
 type GuideBooking = {
@@ -39,6 +40,10 @@ type Guidebook = {
   hostBio: string | null;
   team: TeamMember[];
   placeInsights?: Record<string, PlaceInsightData>;
+  /** From the "hero" Unsplash cache category — server-fetched by the page,
+   * never a live call from here. Null/undefined falls back to the brand
+   * gradient (GuestWelcomeBanner handles that itself). */
+  heroImage?: UnsplashImage | null;
   propertyLat?: number | null;
   propertyLng?: number | null;
 };
@@ -152,7 +157,7 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">
-      {stage !== "cancelled" && <GuestWelcomeBanner booking={booking} />}
+      {stage !== "cancelled" && <GuestWelcomeBanner booking={booking} heroImage={guidebook.heroImage} />}
 
       {/* Welcome header */}
       <div className="card overflow-hidden mt-3">
