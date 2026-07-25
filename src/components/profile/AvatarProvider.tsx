@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 
 // The profile photo (and display name) shouldn't be trusted from NextAuth's
@@ -39,7 +39,12 @@ export function AvatarProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status]);
 
-  return <Ctx.Provider value={{ avatarUrl, setAvatarUrl, name, setName }}>{children}</Ctx.Provider>;
+  // Mounted once in the root layout, above every page — an unmemoized
+  // object here would give every useAvatar() consumer (Navbar included) a
+  // new identity on any unrelated re-render of this provider.
+  const value = useMemo(() => ({ avatarUrl, setAvatarUrl, name, setName }), [avatarUrl, name]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useAvatar() {

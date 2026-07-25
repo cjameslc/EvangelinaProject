@@ -42,21 +42,21 @@ export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
   const year = month.getUTCFullYear();
   const month0 = month.getUTCMonth();
 
-  for (const t of templates) {
-    if (haveBill.has(t.id)) continue;
-    await prisma.bill.create({
-      data: {
-        unitId: t.unitId,
-        key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
-        label: t.description,
-        month,
-        dueDay: resolveDueDay(t, year, month0),
-        amountDue: Math.round(t.amountCentavos / 100),
-        amountDueCentavos: t.amountCentavos,
-        accountNumber: t.accountNumber,
-        paid: false,
-        templateId: t.id,
-      },
-    });
-  }
+  const missing = templates.filter((t) => !haveBill.has(t.id));
+  if (missing.length === 0) return;
+
+  await prisma.bill.createMany({
+    data: missing.map((t) => ({
+      unitId: t.unitId,
+      key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
+      label: t.description,
+      month,
+      dueDay: resolveDueDay(t, year, month0),
+      amountDue: Math.round(t.amountCentavos / 100),
+      amountDueCentavos: t.amountCentavos,
+      accountNumber: t.accountNumber,
+      paid: false,
+      templateId: t.id,
+    })),
+  });
 }

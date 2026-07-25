@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 type ThemeCtx = { theme: "light" | "dark"; toggle: () => void };
 const Ctx = createContext<ThemeCtx>({ theme: "light", toggle: () => {} });
@@ -15,16 +15,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", initial === "dark");
   }, []);
 
-  function toggle() {
+  const toggle = useCallback(() => {
     setTheme((prev) => {
       const next = prev === "dark" ? "light" : "dark";
       document.documentElement.classList.toggle("dark", next === "dark");
       localStorage.setItem("ev_theme", next);
       return next;
     });
-  }
+  }, []);
 
-  return <Ctx.Provider value={{ theme, toggle }}>{children}</Ctx.Provider>;
+  // ThemeProvider wraps the entire app (Providers -> every page) — without
+  // this, every re-render here would hand every useTheme() consumer a new
+  // object identity and force them all to re-render too, even when theme
+  // itself hasn't changed.
+  const value = useMemo(() => ({ theme, toggle }), [theme, toggle]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useTheme() {

@@ -60,6 +60,13 @@ export async function syncEliteBookerAwards() {
   }
   for (const list of byEmployeeMonth.values()) list.sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
 
+  // Every winner across every month/tier targets a distinct employeeId+
+  // month+tier key, so these upserts have no ordering dependency on each
+  // other — collected here and fired together instead of one sequential
+  // round-trip at a time (this is called live on every leaderboard/
+  // my-earnings request, see the "must never be skipped by cache" comment
+  // at the call sites, so cutting the write latency here is the safe lever).
+  const upserts: ReturnType<typeof prisma.eliteBookerAward.upsert>[] = [];
   const monthKeys = new Set([...byEmployeeMonth.keys()].map((k) => k.split("::")[1]));
   for (const monthKey of monthKeys) {
     const [y, m] = monthKey.split("-").map(Number);
@@ -75,12 +82,15 @@ export async function syncEliteBookerAwards() {
       const winners = crossings.slice(0, t.slots);
       for (let i = 0; i < winners.length; i++) {
         const w = winners[i];
-        await prisma.eliteBookerAward.upsert({
-          where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
-          update: {},
-          create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },
-        });
+        upserts.push(
+          prisma.eliteBookerAward.upsert({
+            where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
+            update: {},
+            create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },
+          })
+        );
       }
     }
   }
+  await Promise.all(upserts);
 }

@@ -25,7 +25,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
-  const existing = await prisma.booking.findUnique({ where: { id: params.id } });
+  // select-only — this booking's proofUrl/dpProofUrl (base64 receipt/DP
+  // images) are never read in this handler, same over-fetching fix already
+  // applied to the list-page queries elsewhere in this app.
+  const existing = await prisma.booking.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true, unitId: true, bookerId: true, date: true, checkOutDate: true, platform: true, stayType: true,
+      checkInTime: true, checkOutTime: true, paid: true, checkedOutAt: true,
+    },
+  });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   // canEditBookings() lets a Co-owner call this at all, but says nothing
   // about which unit's bookings they may touch — that's this check. A

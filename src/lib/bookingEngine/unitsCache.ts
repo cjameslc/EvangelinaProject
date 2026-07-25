@@ -32,3 +32,16 @@ export const getCachedActiveUnits = unstable_cache(
   ["active-units-public"],
   { revalidate: 60 }
 );
+
+/**
+ * The root layout's footer ("Cubao, Quezon City · 5 units") reads this on
+ * literally every page in the app, guest and staff alike — same overcounted-
+ * DB-round-trip shape as getCachedActiveUnits above, just a `count()`
+ * instead of a full row fetch. Changes only when Admin adds/deactivates a
+ * unit, so a 60s window is imperceptible and saves a query per request.
+ */
+export const getCachedActiveUnitCount = unstable_cache(
+  async (): Promise<number> => prisma.unit.count({ where: { active: true } }),
+  ["active-unit-count"],
+  { revalidate: 60 }
+);

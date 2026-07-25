@@ -8,7 +8,7 @@ import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
 import { manilaDayStart } from "@/lib/format";
-import { prisma } from "@/lib/prisma";
+import { getCachedActiveUnitCount } from "@/lib/bookingEngine/unitsCache";
 import { getViewMode } from "@/lib/viewMode";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-manrope" });
@@ -30,8 +30,9 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Admin -> Units is the single source of truth — never hardcode the count,
-  // it must track whatever's actually configured there.
-  const unitCount = await prisma.unit.count({ where: { active: true } }).catch(() => 0);
+  // it must track whatever's actually configured there. Cached (see
+  // getCachedActiveUnitCount) since this renders on every single page.
+  const unitCount = await getCachedActiveUnitCount().catch(() => 0);
   const viewMode = getViewMode();
 
   return (

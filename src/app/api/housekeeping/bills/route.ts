@@ -28,21 +28,27 @@ export async function GET(req: NextRequest) {
   const recurringLastMonth = await prisma.bill.findMany({
     where: { unitId: { in: units.map((u) => u.id) }, key: "custom", recurring: true, month: prevMonth },
   });
-  for (const prev of recurringLastMonth) {
-    const alreadyExists = await prisma.bill.findFirst({
-      where: { unitId: prev.unitId, key: "custom", label: prev.label, month },
+  if (recurringLastMonth.length > 0) {
+    // Same "batch the existence check, then batch the writes" shape as
+    // ensureRecurringBillsForMonth — one findMany + one createMany instead
+    // of a findFirst+create pair per carried-forward bill.
+    const thisMonthCustom = await prisma.bill.findMany({
+      where: { unitId: { in: recurringLastMonth.map((b) => b.unitId).filter((id): id is string => id != null) }, key: "custom", month },
+      select: { unitId: true, label: true },
     });
-    if (!alreadyExists) {
-      await prisma.bill.create({
-        data: {
+    const existingKeys = new Set(thisMonthCustom.map((b) => `${b.unitId}::${b.label}`));
+    const missing = recurringLastMonth.filter((prev) => !existingKeys.has(`${prev.unitId}::${prev.label}`));
+    if (missing.length > 0) {
+      await prisma.bill.createMany({
+        data: missing.map((prev) => ({
           unitId: prev.unitId,
-          key: "custom",
+          key: "custom" as const,
           label: prev.label,
           month,
           amountDue: prev.amountDue,
           dueDay: prev.dueDay,
           recurring: true,
-        },
+        })),
       });
     }
   }
