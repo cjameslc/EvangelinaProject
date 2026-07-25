@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getAvatarIdSet, avatarUrlFor } from "@/lib/chat/avatars";
 
 export type ChatRole = "OWNER_ADMIN" | "CO_OWNER" | "BOOKER" | "HOUSEKEEPING" | "AUDITOR" | string;
 
@@ -94,22 +95,25 @@ export async function ensureDefaultConversations(): Promise<void> {
 
 // avatarUrl is a raw base64 data-URL in this app (the same "tens to
 // hundreds of KB per photo" field that's caused real page-bloat incidents
-// elsewhere — Unit.photoUrl, Booking.proofUrl). Deliberately excluded from
-// every bulk/list-shaped chat query below (conversation member lists,
+// elsewhere — Unit.photoUrl, Booking.proofUrl). Never selected directly in
+// any bulk/list-shaped chat query below (conversation member lists,
 // presence, every message's sender) — confirmed the hard way: including it
 // for a 14-member Team Chat blew one page response out to 12.9MB and a 4s+
-// load. Chat avatars are initials-only (ChatAvatar's existing fallback),
-// not a feature loss so much as the same tradeoff this app already made
-// everywhere else that shows more than one or two avatars at once.
+// load. Real avatars still show — see avatars.ts/avatarUrlFor: every user
+// object below gets `avatarUrl` set to a lazily-loaded /api/chat/avatar
+// URL (or null) instead of the actual bytes.
 const MEMBER_SELECT = {
   members: { include: { user: { select: { id: true, name: true, role: true, avatarColor: true } } } },
 };
 
 export async function listConversationsForUser(userId: string) {
-  const memberships = await prisma.chatConversationMember.findMany({
-    where: { userId },
-    include: { conversation: { include: MEMBER_SELECT } },
-  });
+  const [memberships, avatarIds] = await Promise.all([
+    prisma.chatConversationMember.findMany({
+      where: { userId },
+      include: { conversation: { include: MEMBER_SELECT } },
+    }),
+    getAvatarIdSet(),
+  ]);
 
   const results = await Promise.all(
     memberships.map(async (m) => {
@@ -129,14 +133,15 @@ export async function listConversationsForUser(userId: string) {
           },
         }),
       ]);
-      const otherMembers = conv.members.filter((mm) => mm.userId !== userId).map((mm) => mm.user);
+      const members = conv.members.map((mm) => ({ ...mm.user, avatarUrl: avatarUrlFor(mm.user.id, avatarIds) }));
+      const otherMembers = members.filter((u) => u.id !== userId);
       const displayName = conv.type === "DM" ? (otherMembers[0]?.name ?? "Direct message") : conv.name;
       return {
         id: conv.id,
         type: conv.type,
         name: displayName,
         memberCount: conv.members.length,
-        members: conv.members.map((mm) => mm.user),
+        members,
         favorited: m.favorited,
         lastMessage: lastMessage
           ? { id: lastMessage.id, body: lastMessage.body, createdAt: lastMessage.createdAt.toISOString(), senderId: lastMessage.senderId, senderName: lastMessage.sender.name }
@@ -189,17 +194,21 @@ export async function getOrCreateDM(userId: string, otherUserId: string): Promis
 
 export async function listMessages(conversationId: string, opts: { before?: string; limit?: number } = {}) {
   const limit = Math.min(opts.limit ?? 40, 100);
-  const rows = await prisma.chatMessage.findMany({
-    where: { conversationId, ...(opts.before ? { createdAt: { lt: new Date(opts.before) } } : {}) },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: {
-      sender: { select: { id: true, name: true, role: true, avatarColor: true } },
-      reactions: { include: { user: { select: { id: true, name: true } } } },
-      replyTo: { select: { id: true, body: true, deletedAt: true, sender: { select: { name: true } } } },
-    },
-  });
-  return rows.reverse();
+  const [rows, avatarIds] = await Promise.all([
+    prisma.chatMessage.findMany({
+      where: { conversationId, ...(opts.before ? { createdAt: { lt: new Date(opts.before) } } : {}) },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: {
+        sender: { select: { id: true, name: true, role: true, avatarColor: true } },
+        reactions: { include: { user: { select: { id: true, name: true } } } },
+        replyTo: { select: { id: true, body: true, deletedAt: true, sender: { select: { name: true } } } },
+      },
+    }),
+    getAvatarIdSet(),
+  ]);
+  const withAvatars = rows.map((r) => ({ ...r, sender: { ...r.sender, avatarUrl: avatarUrlFor(r.sender.id, avatarIds) } }));
+  return withAvatars.reverse();
 }
 
 export async function sendMessage(params: { conversationId: string; senderId: string; body: string; replyToId?: string | null; imageUrl?: string | null }) {
@@ -207,28 +216,31 @@ export async function sendMessage(params: { conversationId: string; senderId: st
   if (!body && !params.imageUrl) throw new Error("Message can't be empty.");
   if (body.length > 4000) throw new Error("Message is too long.");
   const bookingRef = extractBookingRef(body);
-  const msg = await prisma.chatMessage.create({
-    data: {
-      conversationId: params.conversationId,
-      senderId: params.senderId,
-      body,
-      bookingRef,
-      replyToId: params.replyToId ?? null,
-      imageUrl: params.imageUrl ?? null,
-    },
-    include: {
-      sender: { select: { id: true, name: true, role: true, avatarColor: true } },
-      reactions: true,
-      replyTo: { select: { id: true, body: true, deletedAt: true, sender: { select: { name: true } } } },
-    },
-  });
+  const [msg, avatarIds] = await Promise.all([
+    prisma.chatMessage.create({
+      data: {
+        conversationId: params.conversationId,
+        senderId: params.senderId,
+        body,
+        bookingRef,
+        replyToId: params.replyToId ?? null,
+        imageUrl: params.imageUrl ?? null,
+      },
+      include: {
+        sender: { select: { id: true, name: true, role: true, avatarColor: true } },
+        reactions: true,
+        replyTo: { select: { id: true, body: true, deletedAt: true, sender: { select: { name: true } } } },
+      },
+    }),
+    getAvatarIdSet(),
+  ]);
   // Sending clears your own unread count for this conversation too — you
   // just read everything up to and including what you sent.
   await prisma.chatConversationMember.updateMany({
     where: { conversationId: params.conversationId, userId: params.senderId },
     data: { lastReadAt: msg.createdAt },
   });
-  return msg;
+  return { ...msg, sender: { ...msg.sender, avatarUrl: avatarUrlFor(msg.sender.id, avatarIds) } };
 }
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;

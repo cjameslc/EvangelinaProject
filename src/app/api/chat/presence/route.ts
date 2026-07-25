@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { touchPresence, effectivePresence, type PresenceStatus } from "@/lib/chat/presence";
+import { getAvatarIdSet, avatarUrlFor } from "@/lib/chat/avatars";
 
 const MANUAL_STATUSES: PresenceStatus[] = ["BUSY", "AWAY", "DND", "MEETING"];
 
@@ -13,19 +14,23 @@ export async function GET() {
   if (error) return error;
 
   await touchPresence(user.id);
-  // avatarUrl deliberately excluded — see the comment on chat/service.ts's
-  // MEMBER_SELECT (raw base64 data-URL, blows up a bulk/every-staff-member
-  // response). Presence avatars are initials-only.
-  const users = await prisma.user.findMany({
-    where: { active: true },
-    select: { id: true, name: true, role: true, avatarColor: true, presence: true },
-    orderBy: { name: "asc" },
-  });
+  // avatarUrl is never selected directly here — see the comment on
+  // chat/service.ts's MEMBER_SELECT (raw base64 data-URL, blows up a bulk/
+  // every-staff-member response). avatarUrlFor gives each user a cheap,
+  // lazily-loaded /api/chat/avatar URL instead.
+  const [users, avatarIds] = await Promise.all([
+    prisma.user.findMany({
+      where: { active: true },
+      select: { id: true, name: true, role: true, avatarColor: true, presence: true },
+      orderBy: { name: "asc" },
+    }),
+    getAvatarIdSet(),
+  ]);
   const result = users.map((u) => {
     const presence = u.presence
       ? effectivePresence(u.presence)
       : { status: "OFFLINE" as const, statusNote: null, device: null, lastActiveAt: new Date(0).toISOString(), isTyping: false };
-    return { id: u.id, name: u.name, role: u.role, avatarUrl: null as string | null, avatarColor: u.avatarColor, ...presence };
+    return { id: u.id, name: u.name, role: u.role, avatarUrl: avatarUrlFor(u.id, avatarIds), avatarColor: u.avatarColor, ...presence };
   });
   return NextResponse.json(result);
 }
