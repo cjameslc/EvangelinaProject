@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
 import { guestJourneyStage, paymentLabel } from "@/lib/bookingStatus";
 import { peso, fmtDate } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
+import { InfoIcon, ArrowRightIcon } from "@/components/ui/Icons";
 
 // This page's grouping is coarser than the full 5-stage guest journey
 // (before_stay/check_in_day/during_stay/checkout_day/completed/cancelled,
@@ -33,6 +35,14 @@ export default async function MyBookingsPage({ searchParams }: { searchParams?: 
   }
 
   const bookings = await getGuestBookings(guest.id);
+
+  // A single booking has nothing to pick between, so skip straight to its
+  // details — except right after checkout (`welcome=1`), where the guest
+  // should still see the welcome banner on this page first.
+  if (bookings.length === 1 && searchParams?.welcome !== "1") {
+    redirect(`/my-bookings/${bookings[0].id}`);
+  }
+
   const grouped: Record<string, typeof bookings> = { upcoming: [], active: [], completed: [], cancelled: [] };
   for (const b of bookings) grouped[statusOf(b as any)].push(b);
 
@@ -55,34 +65,56 @@ export default async function MyBookingsPage({ searchParams }: { searchParams?: 
 
       {bookings.length === 0 ? (
         <div className="mt-8 text-center">
-          <p className="text-[14px] text-[var(--gray)]">No bookings yet.</p>
-          <Link href="/" className="btn-primary mt-3 inline-flex">Browse listings</Link>
+          <p className="text-[15px] font-bold">No bookings yet</p>
+          <p className="mx-auto mt-1.5 max-w-[380px] text-[13.5px] text-[var(--gray)]">
+            Once you book a stay with us, it'll show up here — tap it any time for your room number, digital door
+            access, WiFi, and everything else you need for your trip.
+          </p>
+          <Link href="/" className="btn-primary mt-4 inline-flex">Browse listings</Link>
         </div>
       ) : (
-        (["upcoming", "active", "completed", "cancelled"] as const).map((group) =>
-          grouped[group].length === 0 ? null : (
-            <div key={group} className="mt-7">
-              <h2 className="mb-2.5 text-[12px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{STATUS_LABEL[group]} ({grouped[group].length})</h2>
-              <div className="space-y-3">
-                {grouped[group].map((b) => (
-                  <Link key={b.id} href={`/my-bookings/${b.id}`} className="card block p-4 transition hover:border-[var(--ink)]">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-extrabold">{b.unit.shortName}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase ${STATUS_COLOR[statusOf(b as any)]}`}>{STATUS_LABEL[statusOf(b as any)]}</span>
-                    </div>
-                    <div className="mt-1 text-[13px] text-[var(--gray)]">
-                      {fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · {STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-[13.5px]">
-                      <span className={`font-bold ${paymentLabel(b).cls}`}>{paymentLabel(b).text}</span>
-                      <span className="font-extrabold">{peso(b.amount)}</span>
-                    </div>
-                  </Link>
-                ))}
+        <>
+          <div className="mt-5 flex items-start gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
+            <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-rausch" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">
+              <span className="font-bold text-[var(--ink)]">Tap any booking below</span> to see your room number,
+              check-in/out details, digital door access, WiFi, house rules, parking, nearby places, check-in/out
+              guides, booking status, and how to reach your host.
+            </p>
+          </div>
+
+          {(["upcoming", "active", "completed", "cancelled"] as const).map((group) =>
+            grouped[group].length === 0 ? null : (
+              <div key={group} className="mt-7">
+                <h2 className="mb-2.5 text-[12px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{STATUS_LABEL[group]} ({grouped[group].length})</h2>
+                <div className="space-y-3">
+                  {grouped[group].map((b) => (
+                    <Link
+                      key={b.id}
+                      href={`/my-bookings/${b.id}`}
+                      className="card group block p-4 transition hover:border-[var(--ink)] hover:shadow-card active:scale-[0.99]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-extrabold">{b.unit.shortName}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase ${STATUS_COLOR[statusOf(b as any)]}`}>{STATUS_LABEL[statusOf(b as any)]}</span>
+                      </div>
+                      <div className="mt-1 text-[13px] text-[var(--gray)]">
+                        {fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} · {STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[13.5px]">
+                        <span className={`font-bold ${paymentLabel(b).cls}`}>{paymentLabel(b).text}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-extrabold">{peso(b.amount)}</span>
+                          <ArrowRightIcon className="h-3.5 w-3.5 text-[var(--gray)] transition group-hover:translate-x-0.5 group-hover:text-[var(--ink)]" />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
-          )
-        )
+            )
+          )}
+        </>
       )}
     </div>
   );
