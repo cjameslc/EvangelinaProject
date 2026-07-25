@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Accordion } from "@/components/ui/Accordion";
 import { Pill } from "@/components/ui/Pill";
 import { StatCard } from "@/components/ui/StatCard";
@@ -69,7 +70,12 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   // Memoizing on editing's identity keeps the same object across renders
   // for the same edit session.
   const editingInitial = useMemo(() => (editing ? fromBooking(editing) : undefined), [editing]);
-  const [search, setSearch] = useState("");
+  // Lets an external link (e.g. a chat message's booking card "Quick Open")
+  // land here with the search box already filled in, via /bookings?search=.
+  // Read once on mount only — the search box itself is still a normal
+  // uncontrolled-by-the-URL input after that, exactly as before.
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams?.get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [bookerFilter, setBookerFilter] = useState("all");

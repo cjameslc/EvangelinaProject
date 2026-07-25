@@ -60,3 +60,11 @@ export const RefreshIcon = (p: SVGProps<SVGSVGElement>) =>
 export const InfoIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="12" cy="12" r="9" /><line x1="12" y1="16" x2="12" y2="11" /><line x1="12" y1="8" x2="12.01" y2="8" /></>, p);
 export const WalletIcon = (p: SVGProps<SVGSVGElement>) =>
   base(<><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" /><path d="M18 12a2 2 0 0 0 0 4h3v-4z" /></>, p);
+export const SendIcon = (p: SVGProps<SVGSVGElement>) => base(<><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></>, p);
+export const MessageIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />, p);
+export const SmileIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="12" cy="12" r="9" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></>, p);
+export const PinIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M12 17v5" /><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z" /></>, p);
+export const ReplyIcon = (p: SVGProps<SVGSVGElement>) => base(<><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></>, p);
+export const ImageIcon = (p: SVGProps<SVGSVGElement>) => base(<><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></>, p);
+export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />, p);
+export const MegaphoneIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M3 11v3a1 1 0 0 0 1 1h1l4 5v-6" /><path d="M9 9l9-5v16l-9-5" /><path d="M18 9a3 3 0 0 1 0 6" /></>, p);

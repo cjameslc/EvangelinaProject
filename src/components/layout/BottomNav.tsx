@@ -21,8 +21,32 @@ export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
 
   useEffect(() => { setSheetOpen(false); }, [pathname]);
+
+  // Same lightweight badge fetch as Navbar (a sibling component — BottomNav
+  // is staff-only, so it duplicates rather than shares that state, same as
+  // it already independently re-renders NAV_ITEMS instead of importing
+  // Navbar's rendering).
+  useEffect(() => {
+    if (!session || viewMode === "travel") return;
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    async function tick() {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const res = await fetch("/api/chat/unread-count", { signal: controller.signal });
+        if (res.ok && !cancelled) setChatUnread((await res.json()).count ?? 0);
+      } catch {
+        // aborted or transient — next tick retries
+      }
+    }
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => { cancelled = true; clearInterval(id); controller?.abort(); };
+  }, [session, viewMode, pathname]);
 
   // Same as Navbar: an employee in Travel Mode sees no staff bottom nav,
   // matching what a real guest sees (no bottom nav at all today).
@@ -60,7 +84,14 @@ export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
                   on ? "text-rausch" : "text-[var(--gray)]"
                 )}
               >
-                <Icon className="h-[20px] w-[20px]" />
+                <span className="relative">
+                  <Icon className="h-[20px] w-[20px]" />
+                  {item.icon === "chat" && chatUnread > 0 && (
+                    <span className="absolute -right-2 -top-1 grid h-[15px] min-w-[15px] animate-pop-in place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
+                      {chatUnread > 99 ? "99+" : chatUnread}
+                    </span>
+                  )}
+                </span>
                 {item.label === "My Earnings" ? "Earnings" : item.label}
               </Link>
             );

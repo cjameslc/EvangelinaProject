@@ -21,6 +21,7 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/analytics", label: "Analytics", icon: "chart", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/bookings", label: "Bookings", icon: "file", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
+  { href: "/chat", label: "Chat", icon: "chat", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
   { href: "/calendar", label: "Calendar", icon: "calendar", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   { href: "/housekeeping", label: "Housekeeping", icon: "home", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
   { href: "/earnings", label: "My Earnings", icon: "wallet", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },

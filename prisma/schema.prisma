@@ -49,6 +49,13 @@ model User {
   laundryStatusChanges LaundryStatusHistory[]
   laundryPaymentsReceived LaundryPayment[]
 
+  chatConversationMemberships ChatConversationMember[]
+  chatMessagesSent            ChatMessage[]
+  chatReactions                ChatReaction[]
+  chatAnnouncementsCreated    ChatAnnouncement[]
+  chatAnnouncementDismissals  ChatAnnouncementDismissal[]
+  presence                    UserPresence?
+
   @@map("users")
 }
 
@@ -1336,4 +1343,126 @@ model LaundryPayment {
 
   @@index([orderId])
   @@map("laundry_payments")
+}
+
+// ── Team Communication Hub ─────────────────────────────
+// TEAM = one fixed all-staff conversation (auto-provisioned, every active
+// staff member is a member). GROUP = a fixed set of role-based rooms
+// (Bookers/Housekeeping/Admins — seeded from this app's real roles, not
+// invented departments). DM = exactly 2 members, no `name` (derived from
+// the other participant client-side).
+model ChatConversation {
+  id        String   @id @default(cuid())
+  type      String   // "TEAM" | "GROUP" | "DM"
+  name      String?
+  createdAt DateTime @default(now())
+
+  members  ChatConversationMember[]
+  messages ChatMessage[]
+
+  @@map("chat_conversations")
+}
+
+// lastReadAt is the one thing that makes unread badges/read-receipts work
+// without a per-message-per-user row: "read" means every message with
+// createdAt <= lastReadAt.
+model ChatConversationMember {
+  id             String    @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  favorited      Boolean   @default(false)
+  joinedAt       DateTime  @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("chat_conversation_members")
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  // A #EVA-XXXXXXX-shaped confirmation number found in `body` at send time
+  // — resolved server-side once, so the rich booking card never has to
+  // re-parse free text on every render and can't drift from what the
+  // sender actually typed.
+  bookingRef     String?
+  replyToId      String?
+  replyTo        ChatMessage? @relation("ChatMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        ChatMessage[] @relation("ChatMessageReplies")
+  imageUrl       String?  // Vercel Blob URL, same upload pattern as everywhere else in this app
+  editedAt       DateTime?
+  deletedAt      DateTime? // soft delete — the row (and its audit trail) is never actually removed
+  pinned         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  reactions ChatReaction[]
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@map("chat_reactions")
+}
+
+// Admin broadcasts — pinned team-wide until each recipient dismisses their
+// own copy (ChatAnnouncementDismissal), never edited/deleted from under
+// anyone.
+model ChatAnnouncement {
+  id          String   @id @default(cuid())
+  body        String
+  category    String   @default("ANNOUNCEMENT") // ANNOUNCEMENT | URGENT | MAINTENANCE | POLICY
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  dismissals ChatAnnouncementDismissal[]
+
+  @@map("chat_announcements")
+}
+
+model ChatAnnouncementDismissal {
+  id             String   @id @default(cuid())
+  announcementId String
+  announcement   ChatAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dismissedAt    DateTime @default(now())
+
+  @@unique([announcementId, userId])
+  @@map("chat_announcement_dismissals")
+}
+
+// One row per user — status is the last explicit state (manual, or "ONLINE"
+// promoted by a heartbeat ping); lastActiveAt is what actually decides
+// whether someone reads as online/away/offline at render time (see
+// presenceStatus() in src/lib/chat/presence.ts) — a stale ping always wins
+// over a stored "ONLINE" from before someone closed their laptop.
+model UserPresence {
+  userId                 String    @id
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                 String    @default("OFFLINE") // ONLINE | BUSY | AWAY | DND | MEETING | OFFLINE
+  statusNote             String?
+  device                 String?   // "desktop" | "mobile" — from the heartbeat's own client hint
+  lastActiveAt           DateTime  @default(now())
+  typingInConversationId String?
+  typingAt               DateTime?
+
+  @@map("user_presence")
 }
