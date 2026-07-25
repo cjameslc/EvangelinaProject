@@ -1380,6 +1380,7 @@ model ChatConversationMember {
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lastReadAt     DateTime?
   favorited      Boolean   @default(false)
+  muted          Boolean   @default(false)
   joinedAt       DateTime  @default(now())
 
   @@unique([conversationId, userId])

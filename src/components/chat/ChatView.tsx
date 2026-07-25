@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { RightPanel } from "./RightPanel";
 import { AnnouncementBanner, BroadcastComposer } from "./AnnouncementBanner";
-import { InfoIcon, MegaphoneIcon } from "@/components/ui/Icons";
+import { ChatToastStack, type ChatToast } from "./ChatToastStack";
+import { NotificationCenter, type NotificationEntry } from "./NotificationCenter";
+import { InfoIcon, MegaphoneIcon, SpeakerIcon, SpeakerMuteIcon } from "@/components/ui/Icons";
 import { usePolling } from "@/lib/chat/usePolling";
+import { playNotificationSound, isSoundMuted, setSoundMuted } from "@/lib/chat/sound";
 import type { ChatMessageData, ConversationSummary, PresenceUser, AnnouncementData } from "@/lib/chat/clientTypes";
 
 export function ChatView({
@@ -30,19 +33,99 @@ export function ChatView({
   const [editing, setEditing] = useState<ChatMessageData | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
+  const [unreadSnapshot, setUnreadSnapshot] = useState(0);
+  const [seenByUsers, setSeenByUsers] = useState<{ id: string; name: string }[]>([]);
+  const [toasts, setToasts] = useState<ChatToast[]>([]);
+  const [notifLog, setNotifLog] = useState<NotificationEntry[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [soundMuted, setSoundMutedState] = useState(true);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
+  const lastReadMessageIdRef = useRef<string | null>(null);
+  const prevConvSnapshotRef = useRef<Map<string, string | null>>(new Map());
+  const prevPresenceRef = useRef<Map<string, string>>(new Map());
+  const toastedOnlineRef = useRef<Map<string, number>>(new Map());
+  const ONLINE_TOAST_COOLDOWN_MS = 10 * 60 * 1000;
 
-  // Conversation list — unread counts, last-message previews.
+  useEffect(() => setSoundMutedState(isSoundMuted()), []);
+
+  // Conversation list — unread counts, last-message previews. Also the one
+  // place that detects "a new message landed somewhere" for sound/toast/
+  // notification-center purposes, since it already polls every conversation
+  // (not just the open one).
   usePolling(async (signal) => {
     const res = await fetch("/api/chat/conversations", { signal });
-    if (res.ok) setConversations(await res.json());
+    if (!res.ok) return;
+    const data: ConversationSummary[] = await res.json();
+    const prevSnapshot = prevConvSnapshotRef.current;
+    const isFirstLoad = prevSnapshot.size === 0;
+
+    if (!isFirstLoad) {
+      for (const c of data) {
+        const prevLastId = prevSnapshot.get(c.id);
+        const lm = c.lastMessage;
+        if (!lm || lm.id === prevLastId || lm.senderId === currentUserId) continue;
+
+        const sender = c.members.find((m) => m.id === lm.senderId);
+        // Notification Center logs every real new message regardless of
+        // mute — muting only stops the interruption (sound/toast), it
+        // shouldn't hide that something happened when you go check later.
+        setNotifLog((prev) => [
+          {
+            id: `msg-${lm.id}`, conversationId: c.id, conversationName: c.name ?? "Conversation",
+            senderName: lm.senderName, avatarUrl: sender?.avatarUrl ?? null, avatarColor: sender?.avatarColor ?? "#FF385C",
+            preview: lm.body, createdAt: lm.createdAt,
+          },
+          ...prev,
+        ].slice(0, 30));
+
+        const isOpenAndFocused = c.id === activeId && document.visibilityState === "visible" && document.hasFocus();
+        if (!isOpenAndFocused && !c.muted) {
+          playNotificationSound();
+          setToasts((prev) => [
+            ...prev,
+            {
+              id: `toast-msg-${lm.id}`, kind: "message", conversationId: c.id,
+              senderName: lm.senderName, avatarUrl: sender?.avatarUrl ?? null, avatarColor: sender?.avatarColor ?? "#FF385C",
+              preview: lm.body, createdAt: lm.createdAt,
+            },
+          ]);
+        }
+      }
+    }
+    for (const c of data) prevSnapshot.set(c.id, c.lastMessage?.id ?? null);
+    setConversations(data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, 8000, []);
 
-  // Team presence.
+  // Team presence — also watches for OFFLINE → online transitions among
+  // people the current user actually talks to (DM partners or favorited
+  // conversations), so a whole-staff roster coming online in the morning
+  // doesn't fire a toast storm for everyone.
   usePolling(async (signal) => {
     const res = await fetch("/api/chat/presence", { signal });
-    if (res.ok) setPresence(await res.json());
+    if (!res.ok) return;
+    const data: PresenceUser[] = await res.json();
+    const prevMap = prevPresenceRef.current;
+    const isFirstLoad = prevMap.size === 0;
+
+    if (!isFirstLoad) {
+      const relevantIds = new Set(conversations.filter((c) => c.type === "DM" || c.favorited).flatMap((c) => c.members.map((m) => m.id)));
+      for (const p of data) {
+        if (p.id === currentUserId || !relevantIds.has(p.id)) continue;
+        const prevStatus = prevMap.get(p.id);
+        if (prevStatus === "OFFLINE" && p.status !== "OFFLINE") {
+          const lastToast = toastedOnlineRef.current.get(p.id) ?? 0;
+          if (Date.now() - lastToast > ONLINE_TOAST_COOLDOWN_MS) {
+            toastedOnlineRef.current.set(p.id, Date.now());
+            setToasts((prev) => [...prev, { id: `toast-presence-${p.id}-${Date.now()}`, kind: "presence", userId: p.id, name: p.name, avatarUrl: p.avatarUrl, avatarColor: p.avatarColor }]);
+          }
+        }
+      }
+    }
+    for (const p of data) prevMap.set(p.id, p.status);
+    setPresence(data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, 8000, []);
 
   // Active announcements banner.
@@ -64,15 +147,20 @@ export function ChatView({
   }, [activeId]);
   usePolling(loadLatest, 4000, [activeId]);
 
-  // Reset per-conversation UI state and mark read whenever the selection
-  // changes (not on every poll tick).
+  // Reset per-conversation UI state whenever the selection changes. Marking
+  // read no longer happens unconditionally here — see handleSeenLatest,
+  // fired only once the newest message is actually visible + tab focused.
   useEffect(() => {
     if (!activeId) return;
     setReplyTo(null);
     setEditing(null);
     setMessages([]);
-    fetch(`/api/chat/conversations/${activeId}/read`, { method: "POST" }).catch(() => {});
+    setSeenByUsers([]);
+    lastReadMessageIdRef.current = null;
+    const conv = conversations.find((c) => c.id === activeId);
+    setUnreadSnapshot(conv?.unreadCount ?? 0);
     fetch(`/api/chat/conversations/${activeId}/pinned`).then((r) => (r.ok ? r.json() : [])).then(setPinned).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
   // Typing indicator for the open conversation.
@@ -81,6 +169,24 @@ export function ChatView({
     const res = await fetch(`/api/chat/conversations/${activeId}/typing`, { signal });
     if (res.ok) setTypingUsers(await res.json());
   }, 3000, [activeId]);
+
+  // Read receipts for the open conversation's own most recent message.
+  const lastOwnMessageId = useMemo(
+    () => [...messages].reverse().find((m) => m.senderId === currentUserId && !m.deletedAt)?.id ?? null,
+    [messages, currentUserId]
+  );
+  usePolling(async (signal) => {
+    if (!lastOwnMessageId) { setSeenByUsers([]); return; }
+    const res = await fetch(`/api/chat/messages/${lastOwnMessageId}/seen`, { signal });
+    if (res.ok) setSeenByUsers(await res.json());
+  }, 5000, [lastOwnMessageId]);
+
+  async function handleSeenLatest(messageId: string) {
+    if (!activeId || lastReadMessageIdRef.current === messageId) return;
+    lastReadMessageIdRef.current = messageId;
+    setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, unreadCount: 0 } : c)));
+    await fetch(`/api/chat/conversations/${activeId}/read`, { method: "POST" }).catch(() => {});
+  }
 
   async function loadOlder() {
     if (!activeId || messages.length === 0) return;
@@ -201,7 +307,40 @@ export function ChatView({
     }
   }
 
+  async function handleToggleFavorite(conversationId: string) {
+    setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, favorited: !c.favorited } : c)));
+    await fetch(`/api/chat/conversations/${conversationId}/favorite`, { method: "POST" }).catch(() => {});
+  }
+
+  async function handleToggleMute() {
+    if (!activeId) return;
+    setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, muted: !c.muted } : c)));
+    await fetch(`/api/chat/conversations/${activeId}/mute`, { method: "POST" }).catch(() => {});
+  }
+
+  function handleToggleSound() {
+    const next = !soundMuted;
+    setSoundMuted(next);
+    setSoundMutedState(next);
+  }
+
+  function dismissToast(id: string) {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function jumpToConversation(conversationId: string) {
+    setActiveId(conversationId);
+    setNotifOpen(false);
+  }
+
+  async function handleMarkAllNotificationsRead() {
+    const toMark = conversations.filter((c) => c.unreadCount > 0);
+    setConversations((prev) => prev.map((c) => ({ ...c, unreadCount: 0 })));
+    await Promise.all(toMark.map((c) => fetch(`/api/chat/conversations/${c.id}/read`, { method: "POST" }).catch(() => {})));
+  }
+
   const presenceById = useMemo(() => new Map(presence.map((p) => [p.id, p])), [presence]);
+  const unreadConversationIds = useMemo(() => new Set(conversations.filter((c) => c.unreadCount > 0).map((c) => c.id)), [conversations]);
 
   return (
     <div className="flex h-[calc(100dvh-60px)] flex-col overflow-hidden sm:h-[calc(100dvh-60px)]">
@@ -214,6 +353,7 @@ export function ChatView({
             activeId={activeId}
             onSelect={setActiveId}
             onStartDm={handleStartDm}
+            onToggleFavorite={handleToggleFavorite}
             isAdmin={isAdmin}
             currentUserId={currentUserId}
           />
@@ -228,6 +368,18 @@ export function ChatView({
                 <span className="flex-none text-[11px] text-[var(--gray)]">{active.memberCount} member{active.memberCount !== 1 ? "s" : ""}</span>
               </div>
               <div className="flex flex-none items-center gap-1">
+                <button onClick={handleToggleSound} title={soundMuted ? "Unmute notification sounds" : "Mute notification sounds"} className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">
+                  {soundMuted ? <SpeakerMuteIcon className="h-4 w-4" /> : <SpeakerIcon className="h-4 w-4" />}
+                </button>
+                <NotificationCenter
+                  open={notifOpen}
+                  onToggle={() => setNotifOpen((v) => !v)}
+                  entries={notifLog}
+                  unreadConversationIds={unreadConversationIds}
+                  onMarkAllRead={handleMarkAllNotificationsRead}
+                  onClear={() => setNotifLog([])}
+                  onJump={jumpToConversation}
+                />
                 {isAdmin && (
                   <button onClick={() => setShowBroadcast(true)} title="Broadcast to team" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">
                     <MegaphoneIcon className="h-4 w-4" />
@@ -240,6 +392,7 @@ export function ChatView({
             </div>
 
             <MessageList
+              conversationId={active.id}
               messages={messages}
               currentUserId={currentUserId}
               members={active.members}
@@ -248,11 +401,15 @@ export function ChatView({
               loadingMore={loadingMore}
               onLoadMore={loadOlder}
               typingUsers={typingUsers}
+              unreadCountAtOpen={unreadSnapshot}
               onReply={setReplyTo}
               onEdit={setEditing}
               onDelete={handleDelete}
               onReact={handleReact}
               onPin={handlePin}
+              onSeenLatest={handleSeenLatest}
+              isGroup={active.type !== "DM"}
+              seenByNames={seenByUsers.map((u) => u.name)}
             />
 
             <Composer
@@ -279,11 +436,13 @@ export function ChatView({
             presenceById={presenceById}
             onClose={() => setShowInfo(false)}
             onJumpToMessage={() => {}}
+            onToggleMute={handleToggleMute}
           />
         )}
       </div>
 
       <BroadcastComposer open={showBroadcast} onClose={() => setShowBroadcast(false)} onPost={handleBroadcast} />
+      <ChatToastStack toasts={toasts} onDismiss={dismissToast} onJump={jumpToConversation} />
     </div>
   );
 }

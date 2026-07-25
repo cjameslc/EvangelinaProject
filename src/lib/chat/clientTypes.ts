@@ -15,8 +15,10 @@ export type ConversationSummary = {
   memberCount: number;
   members: ChatUser[];
   favorited: boolean;
+  muted: boolean;
   lastMessage: { id: string; body: string; createdAt: string; senderId: string; senderName: string } | null;
   unreadCount: number;
+  typingUserNames: string[];
 };
 
 export type ChatMessageReaction = { id: string; emoji: string; userId: string; user: { id: string; name: string } };

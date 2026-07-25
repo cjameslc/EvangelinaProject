@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChatAvatar } from "./ChatAvatar";
 import { PresenceDot } from "./PresenceDot";
-import { SearchIcon, PlusIcon, ShieldIcon } from "@/components/ui/Icons";
+import { SearchIcon, PlusIcon, ShieldIcon, PinIcon } from "@/components/ui/Icons";
 import { STATUS_LABEL } from "@/lib/chat/constants";
 import { cn } from "@/lib/utils";
 import type { ConversationSummary, PresenceUser } from "@/lib/chat/clientTypes";
@@ -19,13 +19,14 @@ function relativeTime(iso: string): string {
 }
 
 export function Sidebar({
-  conversations, presence, activeId, onSelect, onStartDm, isAdmin, currentUserId,
+  conversations, presence, activeId, onSelect, onStartDm, onToggleFavorite, isAdmin, currentUserId,
 }: {
   conversations: ConversationSummary[];
   presence: PresenceUser[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onStartDm: (userId: string) => void;
+  onToggleFavorite: (id: string) => void;
   isAdmin: boolean;
   currentUserId: string;
 }) {
@@ -78,36 +79,61 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto px-1.5 pb-2">
         {tab === "chats"
           ? filteredConversations.map((c) => (
-              <button
+              <div
                 key={c.id}
-                onClick={() => onSelect(c.id)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition",
+                  "group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition",
                   activeId === c.id ? "bg-rausch/10" : "hover:bg-[var(--bg-2)]"
                 )}
               >
-                {c.type === "DM" ? (
-                  <ChatAvatar name={c.name ?? "?"} avatarUrl={c.members[0]?.avatarUrl ?? null} avatarColor={c.members[0]?.avatarColor ?? "#FF385C"} size={36} />
-                ) : (
-                  <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-gradient-to-br from-rausch/20 to-gold/20 text-[15px]">
-                    {c.type === "TEAM" ? "🏡" : "👥"}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-1">
-                    <span className="truncate text-[13px] font-extrabold">{c.favorited && "⭐ "}{c.name}</span>
-                    {c.lastMessage && <span className="flex-none text-[10px] text-[var(--gray)]">{relativeTime(c.lastMessage.createdAt)}</span>}
-                  </span>
-                  <span className="flex items-center justify-between gap-1">
-                    <span className="truncate text-[11.5px] text-[var(--gray)]">
-                      {c.lastMessage ? `${c.lastMessage.senderName}: ${c.lastMessage.body}` : "No messages yet"}
-                    </span>
-                    {c.unreadCount > 0 && (
-                      <span className="flex-none animate-pop-in rounded-full bg-rausch px-1.5 py-0.5 text-[10px] font-extrabold text-white">{c.unreadCount}</span>
+                <button onClick={() => onSelect(c.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                  <span className="relative flex-none">
+                    {c.type === "DM" ? (
+                      <ChatAvatar name={c.name ?? "?"} avatarUrl={c.members[0]?.avatarUrl ?? null} avatarColor={c.members[0]?.avatarColor ?? "#FF385C"} size={36} />
+                    ) : (
+                      <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-rausch/20 to-gold/20 text-[15px]">
+                        {c.type === "TEAM" ? "🏡" : "👥"}
+                      </span>
                     )}
+                    {c.unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-[var(--card)]" />}
                   </span>
-                </span>
-              </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="truncate text-[13px] font-extrabold">{c.favorited && "⭐ "}{c.name}</span>
+                      {c.lastMessage && <span className="flex-none text-[10px] text-[var(--gray)]">{relativeTime(c.lastMessage.createdAt)}</span>}
+                    </span>
+                    <span className="flex items-center justify-between gap-1">
+                      {c.typingUserNames.length > 0 ? (
+                        <span className="flex items-center gap-1 truncate text-[11.5px] font-semibold italic text-teal">
+                          <span className="flex gap-0.5">
+                            <span className="h-1 w-1 animate-bounce rounded-full bg-teal" style={{ animationDelay: "0ms" }} />
+                            <span className="h-1 w-1 animate-bounce rounded-full bg-teal" style={{ animationDelay: "120ms" }} />
+                            <span className="h-1 w-1 animate-bounce rounded-full bg-teal" style={{ animationDelay: "240ms" }} />
+                          </span>
+                          {c.typingUserNames.join(", ")} typing…
+                        </span>
+                      ) : (
+                        <span className="truncate text-[11.5px] text-[var(--gray)]">
+                          {c.lastMessage ? `${c.lastMessage.senderName}: ${c.lastMessage.body}` : "No messages yet"}
+                        </span>
+                      )}
+                      {c.unreadCount > 0 && (
+                        <span className="flex-none animate-pop-in rounded-full bg-rausch px-1.5 py-0.5 text-[10px] font-extrabold text-white transition-all">{c.unreadCount}</span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => onToggleFavorite(c.id)}
+                  title={c.favorited ? "Unpin" : "Pin conversation"}
+                  className={cn(
+                    "grid h-7 w-7 flex-none place-items-center rounded-full opacity-0 transition group-hover:opacity-100",
+                    c.favorited ? "text-gold opacity-100" : "text-[var(--gray)] hover:bg-[var(--bg-2)]"
+                  )}
+                >
+                  <PinIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))
           : filteredPeople.map((p) => (
               <div key={p.id} className="flex items-center gap-2.5 rounded-xl px-2.5 py-2">

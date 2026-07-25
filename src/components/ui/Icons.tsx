@@ -68,3 +68,5 @@ export const ReplyIcon = (p: SVGProps<SVGSVGElement>) => base(<><polyline points
 export const ImageIcon = (p: SVGProps<SVGSVGElement>) => base(<><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></>, p);
 export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => base(<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />, p);
 export const MegaphoneIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M3 11v3a1 1 0 0 0 1 1h1l4 5v-6" /><path d="M9 9l9-5v16l-9-5" /><path d="M18 9a3 3 0 0 1 0 6" /></>, p);
+export const SpeakerIcon = (p: SVGProps<SVGSVGElement>) => base(<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></>, p);
+export const SpeakerMuteIcon = (p: SVGProps<SVGSVGElement>) => base(<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></>, p);

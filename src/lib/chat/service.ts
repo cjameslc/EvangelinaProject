@@ -115,6 +115,23 @@ export async function listConversationsForUser(userId: string) {
     getAvatarIdSet(),
   ]);
 
+  // Who's typing right now, in any conversation this user is a member of —
+  // one batched query instead of one per conversation, so the sidebar can
+  // show a live "Alice is typing…" preview without an N+1.
+  const convIds = memberships.map((m) => m.conversationId);
+  const typingRows = convIds.length
+    ? await prisma.userPresence.findMany({
+        where: { typingInConversationId: { in: convIds }, typingAt: { gt: new Date(Date.now() - 8000) }, userId: { not: userId } },
+        select: { userId: true, typingInConversationId: true },
+      })
+    : [];
+  const typingUserIdsByConv = new Map<string, string[]>();
+  for (const t of typingRows) {
+    const arr = typingUserIdsByConv.get(t.typingInConversationId!) ?? [];
+    arr.push(t.userId);
+    typingUserIdsByConv.set(t.typingInConversationId!, arr);
+  }
+
   const results = await Promise.all(
     memberships.map(async (m) => {
       const conv = m.conversation;
@@ -136,6 +153,9 @@ export async function listConversationsForUser(userId: string) {
       const members = conv.members.map((mm) => ({ ...mm.user, avatarUrl: avatarUrlFor(mm.user.id, avatarIds) }));
       const otherMembers = members.filter((u) => u.id !== userId);
       const displayName = conv.type === "DM" ? (otherMembers[0]?.name ?? "Direct message") : conv.name;
+      const typingUserNames = (typingUserIdsByConv.get(conv.id) ?? [])
+        .map((uid) => members.find((mm) => mm.id === uid)?.name)
+        .filter((n): n is string => !!n);
       return {
         id: conv.id,
         type: conv.type,
@@ -143,10 +163,12 @@ export async function listConversationsForUser(userId: string) {
         memberCount: conv.members.length,
         members,
         favorited: m.favorited,
+        muted: m.muted,
         lastMessage: lastMessage
           ? { id: lastMessage.id, body: lastMessage.body, createdAt: lastMessage.createdAt.toISOString(), senderId: lastMessage.senderId, senderName: lastMessage.sender.name }
           : null,
         unreadCount,
+        typingUserNames,
       };
     })
   );
@@ -300,6 +322,16 @@ export async function toggleFavorite(conversationId: string, userId: string) {
   const member = await prisma.chatConversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId } } });
   if (!member) throw new Error("Not a member of this conversation.");
   return prisma.chatConversationMember.update({ where: { id: member.id }, data: { favorited: !member.favorited } });
+}
+
+/** Muting stops sound/toast notifications for a conversation (see
+ * ChatView's shouldNotify check) without hiding it or its unread badge —
+ * same "still there, just quiet" semantics as muting a thread anywhere
+ * else. */
+export async function toggleMute(conversationId: string, userId: string) {
+  const member = await prisma.chatConversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId } } });
+  if (!member) throw new Error("Not a member of this conversation.");
+  return prisma.chatConversationMember.update({ where: { id: member.id }, data: { muted: !member.muted } });
 }
 
 /** "Seen by" for a message — every OTHER member whose lastReadAt is at or

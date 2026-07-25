@@ -2,17 +2,19 @@
 
 import { ChatAvatar } from "./ChatAvatar";
 import { PresenceDot } from "./PresenceDot";
-import { PinIcon, CloseIcon } from "@/components/ui/Icons";
+import { PinIcon, CloseIcon, SpeakerIcon, SpeakerMuteIcon } from "@/components/ui/Icons";
+import { cn } from "@/lib/utils";
 import type { ConversationSummary, ChatMessageData, PresenceUser } from "@/lib/chat/clientTypes";
 
 export function RightPanel({
-  conversation, pinned, presenceById, onClose, onJumpToMessage,
+  conversation, pinned, presenceById, onClose, onJumpToMessage, onToggleMute,
 }: {
   conversation: ConversationSummary;
   pinned: ChatMessageData[];
   presenceById: Map<string, PresenceUser>;
   onClose: () => void;
   onJumpToMessage: (id: string) => void;
+  onToggleMute: () => void;
 }) {
   return (
     <div className="flex h-full w-[260px] flex-none flex-col border-l border-[var(--line)] bg-[var(--card)]">
@@ -20,6 +22,22 @@ export function RightPanel({
         <h3 className="text-[13.5px] font-extrabold">Conversation info</h3>
         <button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] sm:hidden">
           <CloseIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="border-b border-[var(--line)] p-3">
+        <button
+          onClick={onToggleMute}
+          className={cn(
+            "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[12.5px] font-bold transition",
+            conversation.muted ? "bg-amber/10 text-amber" : "text-[var(--gray)] hover:bg-[var(--bg-2)]"
+          )}
+        >
+          <span className="flex items-center gap-2">
+            {conversation.muted ? <SpeakerMuteIcon className="h-4 w-4" /> : <SpeakerIcon className="h-4 w-4" />}
+            {conversation.muted ? "Muted" : "Mute notifications"}
+          </span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-wide">{conversation.muted ? "Unmute" : "Mute"}</span>
         </button>
       </div>
 
