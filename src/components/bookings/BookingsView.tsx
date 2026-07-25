@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Accordion } from "@/components/ui/Accordion";
+import { Pill } from "@/components/ui/Pill";
 import { StatCard } from "@/components/ui/StatCard";
 import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
@@ -71,7 +72,17 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
+  const [bookerFilter, setBookerFilter] = useState("all");
+  const [unitFilter, setUnitFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<"today" | "3days" | "week" | "month">("week");
+  // A Booker lands on their own list first — every other role that reaches
+  // this page (Owner/Admin, Co-owner, Housekeeping) sees exactly what it
+  // showed before this tab bar existed, since "all" with no tab bar
+  // rendered is the same underlying scope as today.
+  const isBookerView = role === "BOOKER" && !!ownEmployeeId;
+  const [bookingsTab, setBookingsTab] = useState<"mine" | "all" | "upcoming" | "active" | "completed" | "cancelled">(
+    isBookerView ? "mine" : "all"
+  );
   const [importOpen, setImportOpen] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
   const [logAccordionKey, setLogAccordionKey] = useState(0);
@@ -208,6 +219,38 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     refresh();
   }
 
+  // Every metric on this page (stat cards, Booking insights) is scoped to a
+  // Booker's own bookings, always — independent of whichever list tab is
+  // selected below. Every other role that can reach this page keeps full,
+  // unrestricted visibility across every booker, identical to today.
+  const myBookings = useMemo(
+    () => (role === "BOOKER" && ownEmployeeId ? bookings.filter((b) => b.bookerId === ownEmployeeId) : bookings),
+    [bookings, role, ownEmployeeId]
+  );
+
+  // The personalized greeting's three numbers — deliberately independent of
+  // weekOffset/dateFilter/bookingsTab below (those are all navigable views
+  // the user can wander away from); the greeting always answers "what does
+  // my workload look like right now."
+  const greetingStats = useMemo(() => {
+    if (!isBookerView) return null;
+    const todayIso = dayOf(new Date());
+    const startOfToday = new Date(`${todayIso}T00:00:00Z`);
+    const weekStart = new Date(startOfToday);
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    let upcoming = 0, activeToday = 0, checkInsThisWeek = 0;
+    for (const b of myBookings) {
+      const status = lifecycleStatus(b, todayIso);
+      if (status === "upcoming") upcoming++;
+      if (status === "active") activeToday++;
+      const bDate = new Date(b.date);
+      if (!b.cancelledAt && bDate >= weekStart && bDate < weekEnd) checkInsThisWeek++;
+    }
+    return { upcoming, activeToday, checkInsThisWeek };
+  }, [isBookerView, myBookings]);
+
   // Total bookings / collected / unpaid / units logged, and the Booking
   // insights section below (Rooms logged per booker + Where the money
   // went), are all scoped to a single Sunday-Saturday week, navigable via
@@ -237,8 +280,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   // isCommissionEligible in @/lib/bookingStatus). Only a refund removes
   // money that was actually returned to the guest.
   const weekBookings = useMemo(
-    () => bookings.filter((b) => new Date(b.date) >= weekRange.start && new Date(b.date) < weekRange.end),
-    [bookings, weekRange]
+    () => myBookings.filter((b) => new Date(b.date) >= weekRange.start && new Date(b.date) < weekRange.end),
+    [myBookings, weekRange]
   );
 
   const stats = useMemo(() => {
@@ -253,15 +296,10 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return { total, collected, unpaid, unpaidCount: unpaidList.length, unitsLogged };
   }, [weekBookings]);
 
-  // A Booker only ever sees their own numbers here — every other role that
-  // can reach this section (Owner/Admin, Co-owner, Housekeeping) keeps full,
-  // unrestricted visibility across every booker, same split canEditSpecific
-  // Booking already draws for editing. Feeds both insight blocks below, so
-  // "who's booking" and "where the money went" stay scoped consistently.
-  const insightBookings = useMemo(() => {
-    if (role === "BOOKER" && ownEmployeeId) return weekBookings.filter((b) => b.bookerId === ownEmployeeId);
-    return weekBookings;
-  }, [weekBookings, role, ownEmployeeId]);
+  // weekBookings is already scoped to myBookings above, so this is just an
+  // alias kept for the two insight blocks below ("who's booking" / "where
+  // the money went") to read from.
+  const insightBookings = weekBookings;
 
   // Rooms logged per booker — grouped with the full list of bookings behind
   // each name (date, unit, stay type), so the count isn't a dead end; tap a
@@ -354,8 +392,32 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return { start, end };
   }, [dateFilter]);
 
+  // The tab bar's scope — "mine" and the four lifecycle tabs all read from
+  // myBookings (a Booker's own workload), "all" breaks out to the complete,
+  // unrestricted list. For every non-Booker role this is always just
+  // `bookings`, since bookingsTab is permanently "all" there (no tab bar
+  // renders) — identical to the page's behavior before these tabs existed.
+  const tabScopedBookings = useMemo(() => {
+    if (!isBookerView) return bookings;
+    if (bookingsTab === "all") return bookings;
+    if (bookingsTab === "mine") return myBookings;
+    const todayIso = dayOf(new Date());
+    return myBookings.filter((b) => lifecycleStatus(b, todayIso) === bookingsTab);
+  }, [isBookerView, bookings, myBookings, bookingsTab]);
+
+  // Counts for the tab bar's badges — cheap enough to just recompute
+  // straight from myBookings (a handful of bookings per booker in practice)
+  // rather than maintaining a second parallel set of memoized counters.
+  const tabCounts = useMemo(() => {
+    if (!isBookerView) return null;
+    const todayIso = dayOf(new Date());
+    const counts = { mine: myBookings.length, all: bookings.length, upcoming: 0, active: 0, completed: 0, cancelled: 0 };
+    for (const b of myBookings) counts[lifecycleStatus(b, todayIso)]++;
+    return counts;
+  }, [isBookerView, myBookings, bookings]);
+
   const filtered = useMemo(() => {
-    return bookings.filter((b) => {
+    return tabScopedBookings.filter((b) => {
       const bDate = new Date(b.date);
       if (bDate < dateRange.start || bDate >= dateRange.end) return false;
       if (statusFilter === "unpaid" && b.paid) return false;
@@ -363,6 +425,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       if (statusFilter === "cancelled" && !b.cancelledAt) return false;
       if (statusFilter === "pastdue" && !isPastDue(b)) return false;
       if (platformFilter !== "all" && b.platform !== platformFilter) return false;
+      if (bookerFilter !== "all" && b.bookerId !== bookerFilter) return false;
+      if (unitFilter !== "all" && b.unitId !== unitFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = [b.guests.join(" "), b.contactNumber, b.booker?.name, b.receivedBy?.name, b.unit.name, b.confirmationNumber]
@@ -372,7 +436,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
       }
       return true;
     });
-  }, [bookings, search, statusFilter, platformFilter, dateRange]);
+  }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter, dateRange]);
 
   // Group into a day-by-day agenda: each booking contributes a check-in row on
   // its start date and a check-out row on its end date. Any days strictly in
@@ -409,7 +473,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
 
   const AGENDA_PAGE_SIZE = 10;
   const [agendaPage, setAgendaPage] = useState(1);
-  useEffect(() => setAgendaPage(1), [search, statusFilter, platformFilter, dateFilter]);
+  useEffect(() => setAgendaPage(1), [search, statusFilter, platformFilter, bookerFilter, unitFilter, dateFilter, bookingsTab]);
   const agendaPageCount = Math.max(1, Math.ceil(agenda.length / AGENDA_PAGE_SIZE));
   const pagedAgenda = agenda.slice((agendaPage - 1) * AGENDA_PAGE_SIZE, agendaPage * AGENDA_PAGE_SIZE);
 
@@ -490,6 +554,21 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
           </button>
         )}
       </div>
+
+      {isBookerView && greetingStats && (
+        <div className="mb-5 rounded-2xl border border-rausch/20 bg-gradient-to-br from-rausch/10 via-transparent to-transparent p-5">
+          <h2 className="text-[19px] font-extrabold tracking-tight">
+            Welcome back, {emps.find((e) => e.id === ownEmployeeId)?.name.split(" ")[0] ?? "there"}! 👋
+          </h2>
+          <p className="mt-1 text-[13.5px] text-[var(--gray)]">You currently have:</p>
+          <ul className="mt-2 space-y-1 text-[13.5px] font-semibold">
+            <li>• {greetingStats.upcoming} upcoming booking{greetingStats.upcoming !== 1 ? "s" : ""}</li>
+            <li>• {greetingStats.activeToday} guest{greetingStats.activeToday !== 1 ? "s" : ""} staying today</li>
+            <li>• {greetingStats.checkInsThisWeek} check-in{greetingStats.checkInsThisWeek !== 1 ? "s" : ""} this week</li>
+          </ul>
+          <p className="mt-2 text-[12.5px] text-[var(--gray)]">Below are your assigned bookings.</p>
+        </div>
+      )}
 
       <div className="card mb-5 p-5">
         <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-2">
@@ -673,6 +752,17 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         <BookingImportModal onClose={() => setImportOpen(false)} onImported={refresh} />
       )}
 
+      {isBookerView && tabCounts && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          <Pill on={bookingsTab === "mine"} onClick={() => setBookingsTab("mine")}>My Bookings ({tabCounts.mine})</Pill>
+          <Pill on={bookingsTab === "all"} onClick={() => setBookingsTab("all")}>All Bookings ({tabCounts.all})</Pill>
+          <Pill on={bookingsTab === "upcoming"} onClick={() => setBookingsTab("upcoming")}>Upcoming ({tabCounts.upcoming})</Pill>
+          <Pill on={bookingsTab === "active"} onClick={() => setBookingsTab("active")}>Active ({tabCounts.active})</Pill>
+          <Pill on={bookingsTab === "completed"} onClick={() => setBookingsTab("completed")}>Completed ({tabCounts.completed})</Pill>
+          <Pill on={bookingsTab === "cancelled"} onClick={() => setBookingsTab("cancelled")}>Cancelled ({tabCounts.cancelled})</Pill>
+        </div>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div className="relative min-w-[180px] flex-1">
           <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--gray)]" />
@@ -694,6 +784,14 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
         <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All platforms</option>
           {PLATFORMS.map((p) => <option key={p} value={p}>{PLATFORM_LABEL[p] ?? p}</option>)}
+        </select>
+        <select value={bookerFilter} onChange={(e) => setBookerFilter(e.target.value)} className="field-input w-auto">
+          <option value="all">All bookers</option>
+          {emps.filter((e) => e.role === "BOOKER").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <select value={unitFilter} onChange={(e) => setUnitFilter(e.target.value)} className="field-input w-auto">
+          <option value="all">All units</option>
+          {units.map((u) => <option key={u.id} value={u.id}>{u.shortName}</option>)}
         </select>
       </div>
 
@@ -786,6 +884,20 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
  * actually overdue. */
 function isPastDue(b: Booking) {
   return !b.paid && dayOf(new Date(b.date)) < dayOf(new Date());
+}
+
+/** Stay-lifecycle bucket for the Bookings-page quick tabs — reuses the same
+ * fields/effectiveRange logic "Today's occupancy" already relies on, so a
+ * booking's bucket here always agrees with what that card shows. Order
+ * matters: cancelled and an explicit checkedOutAt both short-circuit before
+ * date-math even runs. */
+function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed" | "active" | "upcoming" {
+  if (b.cancelledAt) return "cancelled";
+  if (b.checkedOutAt) return "completed";
+  const { inIso, outIso } = effectiveRange(b);
+  if (b.checkedInAt || (inIso <= todayIso && todayIso < outIso)) return "active";
+  if (outIso <= todayIso) return "completed";
+  return "upcoming";
 }
 
 function BookingLine({
