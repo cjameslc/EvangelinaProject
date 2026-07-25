@@ -87,6 +87,26 @@ function addUtcDays(iso: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Who's allowed to appear in a "Received by" dropdown — a Booker never
+ * shows up there (they log bookings, they don't confirm receiving the
+ * money), and for Cash specifically it narrows further to just Owner and
+ * Housekeeping, since they're the roles actually handling physical cash
+ * on-site (unlike GCash/Bank transfer, which any non-Booker role may
+ * confirm). */
+function paymentEligibleEmployees(employees: Employee[], method: string, currentId?: string): Employee[] {
+  const eligible = (e: Employee) => {
+    if (e.role === "BOOKER") return false;
+    if (method === "Cash" && e.role !== "OWNER_ADMIN" && e.role !== "HOUSEKEEPING") return false;
+    return true;
+  };
+  // Keeps an already-saved selection visible/selected even if it no longer
+  // qualifies under the current rules (e.g. a booking logged before this
+  // restriction existed) — same escape hatch already used for bookerId
+  // below, so editing an old booking never silently blanks out its
+  // existing "received by" value.
+  return employees.filter((e) => eligible(e) || e.id === currentId);
+}
+
 export function BookingForm({
   units, employees, initial, defaultDpFee, bookingId, confirmationNumber, confirmationOverrideUntil,
   confirmationDate, confirmationCheckOutDate, confirmationCancelled,
@@ -649,7 +669,7 @@ export function BookingForm({
                 <label className="field-label">Received by</label>
                 <select value={extraReceivedById} onChange={(e) => setExtraReceivedById(e.target.value)} className="field-input mt-1.5">
                   <option value="">— Select —</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  {paymentEligibleEmployees(employees, extraMethod, extraReceivedById).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </div>
               <div>
@@ -689,7 +709,7 @@ export function BookingForm({
             <label className="field-label">Received by</label>
             <select value={v.dpReceivedById} onChange={(e) => set("dpReceivedById", e.target.value)} className="field-input mt-1.5">
               <option value="">— Select —</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              {paymentEligibleEmployees(employees, v.dpMethod, v.dpReceivedById).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
         </div>
@@ -717,7 +737,7 @@ export function BookingForm({
             <label className="field-label">Received by {v.paid && <span className="text-rausch">*</span>}</label>
             <select value={v.receivedById} onChange={(e) => set("receivedById", e.target.value)} className="field-input mt-1.5">
               <option value="">— Select —</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              {paymentEligibleEmployees(employees, v.method, v.receivedById).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
             {err("receivedById")}
           </div>
