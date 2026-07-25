@@ -101,13 +101,18 @@ export async function refreshCategory(categoryKey: string): Promise<{ ok: boolea
  * itself in practice (daily cron only), so no locking needed.
  */
 export async function warmUnsplashCache(): Promise<{ key: string; ok: boolean; error?: string; skipped?: boolean }[]> {
-  const existing = await prisma.unsplashImageCache.findMany({ select: { category: true, fetchedAt: true } });
-  const freshByKey = new Map(existing.map((r) => [r.category, r.fetchedAt]));
+  const existing = await prisma.unsplashImageCache.findMany({ select: { category: true, fetchedAt: true, fetchError: true } });
+  const rowByKey = new Map(existing.map((r) => [r.category, r]));
 
   const results: { key: string; ok: boolean; error?: string; skipped?: boolean }[] = [];
   for (const def of UNSPLASH_CATEGORIES) {
-    const fetchedAt = freshByKey.get(def.key);
-    if (fetchedAt && !isStale(fetchedAt)) {
+    const row = rowByKey.get(def.key);
+    // A row with fetchError set never had a successful fetch — even though
+    // fetchedAt got stamped on that failed attempt (see refreshCategory's
+    // create branch), it must always retry on the next warm pass rather
+    // than being treated as "checked recently" for a full 24h with zero
+    // real images to show.
+    if (row && !row.fetchError && !isStale(row.fetchedAt)) {
       results.push({ key: def.key, ok: true, skipped: true });
       continue;
     }

@@ -29,7 +29,10 @@ export const UNSPLASH_CATEGORIES: UnsplashCategoryDef[] = [
   { key: "nearby-restaurants", query: "fine dining restaurant asian food", count: 4 },
   { key: "nearby-shopping", query: "shopping mall retail lifestyle", count: 4 },
   { key: "nearby-nightlife", query: "city lights cocktails skyline", count: 4 },
-  { key: "nearby-attractions", query: "Philippines Quezon City Cubao", count: 4 },
+  // "Philippines Quezon City Cubao" (the spec's literal suggested terms,
+  // combined) returned zero results from Unsplash's random endpoint — too
+  // narrow a combination. Broadened to what actually has real inventory.
+  { key: "nearby-attractions", query: "Philippines cityscape landmark", count: 4 },
   { key: "nearby-transportation", query: "train station city transport", count: 4 },
 
   { key: "gallery-bedroom", query: "bedroom interior design", count: 4 },
