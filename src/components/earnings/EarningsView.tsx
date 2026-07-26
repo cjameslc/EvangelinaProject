@@ -699,10 +699,26 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
   );
 }
 
+// Full-size receipt view — receiptUrl is a raw base64 data: URL (uploaded
+// via fileToDataUrl, never hosted), and browsers won't reliably open a
+// data: URL from a target="_blank" link (Chrome in particular just does
+// nothing), which is why tapping the thumbnail previously looked broken.
+// An in-page modal sidesteps that entirely.
+function ReceiptViewerModal({ url, onClose }: { url: string | null; onClose: () => void }) {
+  if (!url) return null;
+  return (
+    <Modal open onClose={onClose} title="Receipt">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="Receipt" className="w-full rounded-xl object-contain" />
+    </Modal>
+  );
+}
+
 // Employee-facing list of their own submitted requests, with status badges
 // and a rejection reason shown when relevant. Cancel only while PENDING.
 function MyExpenseRequestsList({ requests, onChanged, readOnly }: { requests: ExpenseRequestRow[]; onChanged: () => void; readOnly?: boolean }) {
   const toast = useToast();
+  const [viewing, setViewing] = useState<string | null>(null);
 
   async function cancel(id: string) {
     if (!confirm("Cancel this request?")) return;
@@ -731,9 +747,9 @@ function MyExpenseRequestsList({ requests, onChanged, readOnly }: { requests: Ex
             )}
           </div>
           {r.receiptUrl && (
-            <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="flex-none" title="View attached receipt">
+            <button type="button" onClick={() => setViewing(r.receiptUrl)} className="flex-none" title="View attached receipt">
               <img src={r.receiptUrl} alt="Receipt" className="h-10 w-10 flex-none rounded-lg border border-[var(--line)] object-cover hover:opacity-80" />
-            </a>
+            </button>
           )}
           {r.status === "PENDING" && !readOnly && (
             <button onClick={() => cancel(r.id)} className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch" aria-label="Cancel">
@@ -742,6 +758,7 @@ function MyExpenseRequestsList({ requests, onChanged, readOnly }: { requests: Ex
           )}
         </div>
       ))}
+      <ReceiptViewerModal url={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }
@@ -754,6 +771,7 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
   const [rejecting, setRejecting] = useState<PendingRequestRow | null>(null);
   const [reason, setReason] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
 
   async function approve(id: string) {
     setBusyId(id);
@@ -805,9 +823,9 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
               </div>
             </div>
             {r.receiptUrl && (
-              <a href={r.receiptUrl} target="_blank" rel="noopener noreferrer" className="flex-none" title="View attached receipt">
+              <button type="button" onClick={() => setViewing(r.receiptUrl)} className="flex-none" title="View attached receipt">
                 <img src={r.receiptUrl} alt="Receipt" className="h-12 w-12 flex-none rounded-lg border border-[var(--line)] object-cover hover:opacity-80" />
-              </a>
+              </button>
             )}
             <div className="flex flex-none gap-1.5">
               <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="btn btn-sm">Approve</button>
@@ -816,6 +834,8 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
           </div>
         ))}
       </div>
+
+      <ReceiptViewerModal url={viewing} onClose={() => setViewing(null)} />
 
       {rejecting && (
         <Modal
