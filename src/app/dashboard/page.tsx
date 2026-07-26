@@ -8,6 +8,7 @@ import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { DashboardView } from "@/components/dashboard/DashboardView";
+import { AirbnbEarningsSection } from "@/components/analytics/sections/AirbnbEarningsSection";
 
 // Everything the Dashboard reads is scoped only by role+ownedUnitIds (see
 // dashboardUnitWhere/dashboardUnitIdWhere), so those two are sufficient as a
@@ -259,6 +260,12 @@ export default async function DashboardPage() {
       monthRangeStart={new Date(monthRangeStart).toISOString()}
       monthRangeEnd={new Date(monthRangeEnd).toISOString()}
       dismissedAttentionKeys={dismissedAttentionKeys}
+      airbnbEarningsSlot={
+        <AirbnbEarningsSection
+          user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }}
+          filters={{ preset: "month", unitIds: null }}
+        />
+      }
     />
   );
 }

@@ -91,6 +91,7 @@ export function DashboardView({
   monthRangeStart,
   monthRangeEnd,
   dismissedAttentionKeys,
+  airbnbEarningsSlot,
 }: {
   role: string;
   units: Unit[];
@@ -119,6 +120,10 @@ export function DashboardView({
   monthRangeStart: string;
   monthRangeEnd: string;
   dismissedAttentionKeys: string[];
+  /** Server-rendered <AirbnbEarningsSection> from the page — a server
+   * component reused as-is from Analytics, passed down as a slot since
+   * this view itself is a client component and can't fetch it directly. */
+  airbnbEarningsSlot?: React.ReactNode;
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -1343,6 +1348,8 @@ export function DashboardView({
         leaderboard={revenueGoalLeaderboard}
         bookerContribution={bookerContribution}
       />
+
+      {airbnbEarningsSlot && <div className="mt-4">{airbnbEarningsSlot}</div>}
 
       <Accordion title="Earnings" sub={periodLabel}>
         {/* Collapsed by default — the accordion header above already shows
