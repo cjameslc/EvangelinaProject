@@ -1020,6 +1020,37 @@ model AuditLog {
   @@map("audit_log")
 }
 
+// One row per admin-impersonation session — the authoritative audit trail
+// for Settings > Security > Impersonation Logs. Snapshots admin/target
+// name+role+username at start time (not just a foreign key) so the log
+// stays readable even if a user is later renamed, re-roled, or deleted.
+// endedAt null + startedAt older than the 30-minute inactivity window (see
+// src/middleware.ts) means the session timed out without an explicit
+// "Return to My Account" click — the UI treats those as implicitly ended
+// even before a sweep finalizes the row.
+model ImpersonationSession {
+  id             String    @id @default(cuid())
+  adminUserId    String
+  adminName      String
+  adminUsername  String
+  targetUserId   String
+  targetName     String
+  targetUsername String
+  targetRole     String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  durationSeconds Int?
+  endReason      String? // "manual" | "timeout" | "admin_logout" | "admin_disabled"
+  ipAddress      String?
+  userAgent      String?
+  reason         String? // optional free-text the admin gave when starting
+
+  @@index([startedAt])
+  @@index([adminUserId])
+  @@index([targetUserId])
+  @@map("impersonation_sessions")
+}
+
 // Dashboard "Needs your attention" cards are aggregate/recomputed-every-load
 // (e.g. "attn-pastdue" bundles every currently past-due booking into one
 // card, not one row per booking), so there's no natural per-record id to

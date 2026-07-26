@@ -769,8 +769,14 @@ async function fetchAirbnbEarningsComparison(role: string, ownedUnitIds: string[
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
 
+  // Scoped to the range actually requested (Feb 2025 - Mar 2026) — later
+  // imported months (e.g. June 2026) are kept in the table for future use
+  // but intentionally excluded from this view until that range is extended.
   const [reportRows, units, airbnbBookings] = await Promise.all([
-    prismaPool[0].airbnbEarningsMonth.findMany({ orderBy: { month: "asc" } }),
+    prismaPool[0].airbnbEarningsMonth.findMany({
+      where: { month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
+      orderBy: { month: "asc" },
+    }),
     prismaPool[1].unit.findMany({ where: unitIdWhere, select: { id: true, unitNumber: true, shortName: true } }),
     prismaPool[2].booking.findMany({
       where: { ...bookingUnitWhere, platform: "Airbnb", cancelledAt: null },

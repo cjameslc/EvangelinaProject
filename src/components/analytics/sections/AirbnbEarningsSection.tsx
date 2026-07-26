@@ -22,19 +22,20 @@ export async function AirbnbEarningsSection({ user, filters }: { user: { role: s
   const { months } = (await getAirbnbEarningsComparison(user, filters)) as { months: MonthRow[] };
   if (months.length === 0) return null;
 
-  const monthKeys = months.map((m) => m.month);
-  const first = monthKeys[0].slice(0, 7);
-  const last = monthKeys[monthKeys.length - 1].slice(0, 7);
+  // Fixed to the requested Feb 2025 - Mar 2026 window (not derived from
+  // whatever data happens to be present) so a gap in the middle of the
+  // range — e.g. no report imported yet for Jan-Mar 2026 — still shows up
+  // even though it isn't between the first and last imported month.
   const allMonthsInRange: string[] = [];
   {
-    const cur = new Date(first + "-01T00:00:00Z");
-    const end = new Date(last + "-01T00:00:00Z");
+    const cur = new Date("2025-02-01T00:00:00Z");
+    const end = new Date("2026-03-01T00:00:00Z");
     while (cur <= end) {
       allMonthsInRange.push(cur.toISOString());
       cur.setUTCMonth(cur.getUTCMonth() + 1);
     }
   }
-  const presentSet = new Set(monthKeys);
+  const presentSet = new Set(months.map((m) => m.month));
   const missingMonths = allMonthsInRange.filter((m) => !presentSet.has(m));
 
   return (
