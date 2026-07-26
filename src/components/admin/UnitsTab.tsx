@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
-import { peso } from "@/lib/format";
+import { peso, formatUnitDisplay } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { fileToDataUrl } from "@/lib/file";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 type OwnerCandidate = { id: string; name: string; role: string };
 type Unit = {
   id: string; name: string; unitNumber: string; shortName: string; location: string; nightlyRate: number; active: boolean;
-  rating: number; photoUrl: string | null;
+  rating: number; photoUrl: string | null; monthlyRevenueTargetOverride: number | null;
   icalToken: string | null; icalImportUrl: string | null; icalLastSyncAt: string | null; icalLastSyncError: string | null;
   wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null; checkInInstructions: string | null; checkOutInstructions: string | null; videoTutorialUrl: string | null;
   ttlockLockId: number | null; ttlockLockName: string | null; ttlockHasGateway: boolean | null; ttlockBatteryPct: number | null; ttlockBatterySyncedAt: string | null; ttlockSyncError: string | null; ttlockBatteryReplacedAt: string | null;
@@ -33,6 +33,7 @@ function batteryTier(pct: number | null): { label: string; className: string } {
 const EMPTY = {
   name: "", unitNumber: "", shortName: "", location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.9, photoUrl: null as string | null, ownerUserIds: [] as string[], icalImportUrl: "",
   wifiSsid: "", wifiPassword: "", doorCode: "", checkInInstructions: "", checkOutInstructions: "", videoTutorialUrl: "",
+  monthlyRevenueTargetOverride: null as number | null,
 };
 
 export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Unit[]; onUnitsChange: (units: Unit[]) => void; ownerCandidates: OwnerCandidate[] }) {
@@ -87,8 +88,7 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
             <div className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <span className="w-fit rounded-md bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">unit {u.unitNumber}</span>
-                  <h3 className="mt-1 text-[14.5px] font-extrabold leading-tight">{u.name}</h3>
+                  <h3 className="text-[14.5px] font-extrabold leading-tight">{formatUnitDisplay(u.unitNumber, u.name)}</h3>
                 </div>
                 <div className="flex flex-none gap-1">
                   <button onClick={() => setModal({ unit: u })} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
@@ -130,6 +130,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
       ? {
           name: unit.name, unitNumber: unit.unitNumber, shortName: unit.shortName, location: unit.location, nightlyRate: unit.nightlyRate, rating: unit.rating, photoUrl: unit.photoUrl, ownerUserIds: (unit.owners ?? []).map((o) => o.user.id), icalImportUrl: unit.icalImportUrl ?? "",
           wifiSsid: unit.wifiSsid ?? "", wifiPassword: unit.wifiPassword ?? "", doorCode: unit.doorCode ?? "", checkInInstructions: unit.checkInInstructions ?? "", checkOutInstructions: unit.checkOutInstructions ?? "", videoTutorialUrl: unit.videoTutorialUrl ?? "",
+          monthlyRevenueTargetOverride: unit.monthlyRevenueTargetOverride ?? null,
         }
       : EMPTY
   );
@@ -282,6 +283,18 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
             <label className="field-label">Rating (0–5)</label>
             <input type="number" min={0} max={5} step={0.1} value={form.rating} onChange={(e) => setForm({ ...form, rating: +e.target.value })} className="field-input mt-1.5" />
           </div>
+        </div>
+        <div>
+          <label className="field-label">Monthly revenue target override (₱, optional)</label>
+          <input
+            type="number"
+            min={1}
+            value={form.monthlyRevenueTargetOverride ?? ""}
+            onChange={(e) => setForm({ ...form, monthlyRevenueTargetOverride: e.target.value === "" ? null : +e.target.value })}
+            placeholder="Uses the default from Settings"
+            className="field-input mt-1.5"
+          />
+          <p className="mt-1 text-[11px] text-[var(--gray)]">Leave blank to use Settings&rsquo; monthly revenue target for every unit.</p>
         </div>
         <div>
           <label className="field-label">Listing photo</label>

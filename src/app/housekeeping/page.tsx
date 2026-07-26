@@ -28,7 +28,7 @@ export default async function HousekeepingPage() {
   const [units, states, logs, stocks, employees, openShift, bills, settings, upcomingBookings, housekeepingOpenShifts] = await Promise.all([
     prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prisma.housekeepingUnitState.findMany({ where }),
-    prisma.cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 30, include: { unit: { select: { name: true, shortName: true } } } }),
+    prisma.cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 30, include: { unit: { select: { name: true, shortName: true, unitNumber: true } } } }),
     prisma.stock.findMany({ where, orderBy: { name: "asc" } }),
     prisma.employee.findMany({ where: { active: true, role: { in: ["HOUSEKEEPING", "OWNER_ADMIN"] } } }),
     prisma.shift.findFirst({ where: { userId: user.id, clockOut: null } }),

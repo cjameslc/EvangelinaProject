@@ -1,7 +1,7 @@
 "use client";
 
 import { paymentLabel } from "@/lib/bookingStatus";
-import { fmtDate, fmtTimeStr } from "@/lib/format";
+import { fmtDate, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { pickTravelQuote } from "@/lib/unsplash/quotes";
 import { useTrackUnsplashView } from "@/lib/unsplash/useImageTracking";
 import type { UnsplashImage } from "@/lib/unsplash/types";
@@ -11,7 +11,7 @@ const UTM = "utm_source=evangelinas_staycation&utm_medium=referral";
 type WelcomeBooking = {
   id: string;
   guests: string[];
-  unit: { unitNumber: string };
+  unit: { unitNumber: string; name?: string };
   date: string;
   checkOutDate: string | null;
   checkInTime: string | null;
@@ -63,7 +63,7 @@ export function GuestWelcomeBanner({ booking, heroImage }: { booking: WelcomeBoo
         <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-white/10 p-3.5 backdrop-blur-md sm:grid-cols-4 sm:p-4">
           <div>
             <div className="text-[9.5px] font-bold uppercase tracking-wide text-white/65">Room</div>
-            <div className="text-[14px] font-extrabold">Unit {booking.unit.unitNumber}</div>
+            <div className="text-[14px] font-extrabold">{formatUnitDisplay(booking.unit.unitNumber, booking.unit.name)}</div>
           </div>
           <div>
             <div className="text-[9.5px] font-bold uppercase tracking-wide text-white/65">Check-in</div>

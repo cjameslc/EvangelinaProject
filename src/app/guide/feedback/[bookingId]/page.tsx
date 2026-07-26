@@ -5,6 +5,7 @@ import { getGuestBookingForGuide } from "@/lib/bookingEngine/guestService";
 import { getFeedbackForBooking } from "@/lib/bookingEngine/feedbackService";
 import { isBookingCompleted } from "@/lib/bookingStatus";
 import { FeedbackFormView } from "@/components/guest/FeedbackFormView";
+import { formatUnitDisplay } from "@/lib/format";
 
 export default async function FeedbackPage({ params }: { params: { bookingId: string } }) {
   const guest = await getCurrentGuest();
@@ -37,7 +38,7 @@ export default async function FeedbackPage({ params }: { params: { bookingId: st
   return (
     <FeedbackFormView
       bookingId={booking.id}
-      unitName={booking.unit.name}
+      unitName={formatUnitDisplay(booking.unit.unitNumber, booking.unit.name)}
       existingVoucher={existing ? { voucherCode: existing.voucherCode, voucherExpiresAt: existing.voucherExpiresAt.toISOString(), rewardType: existing.rewardType } : null}
     />
   );

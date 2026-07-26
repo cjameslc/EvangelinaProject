@@ -13,6 +13,7 @@ type Settings = {
   housekeepingDayRate: number; housekeepingNightBonus: number; bookerCommission: number; auditorWeeklyRate: number;
   weekdayRate12h: number; weekdayRate21h: number; weekendRate12h: number; weekendRate21h: number; weekdayNightPromoPct: number;
   dailyRevenueGoal?: number | null;
+  monthlyRevenueTargetPerUnit: number;
   extensionFeePerHour: number; flexibleTimeFee: number; parkingCarRate: number; parkingMotorcycleRate: number;
   celebrationPackagePrice: number; celebrationPackageItems?: string[] | null;
   batteryLowThresholdPct: number; batteryCriticalThresholdPct: number;
@@ -54,7 +55,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
       "nightlyRate", "dpFee", "housekeepingDayRate", "housekeepingNightBonus", "bookerCommission", "auditorWeeklyRate",
       "weekdayRate12h", "weekdayRate21h", "weekendRate12h", "weekendRate21h", "weekdayNightPromoPct",
       "extensionFeePerHour", "flexibleTimeFee", "parkingCarRate", "parkingMotorcycleRate", "celebrationPackagePrice",
-      "batteryLowThresholdPct", "batteryCriticalThresholdPct",
+      "batteryLowThresholdPct", "batteryCriticalThresholdPct", "monthlyRevenueTargetPerUnit",
     ];
     for (const key of numericFields) {
       const v = form[key];
@@ -164,6 +165,17 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
               className="field-input mt-1.5"
             />
             <p className="mt-1 text-[11px] text-[var(--gray)]">Powers the progress bar on Bookings → Revenue Opportunities. Leave blank to hide it.</p>
+          </div>
+          <div>
+            <label className="field-label">Monthly revenue target per unit (₱)</label>
+            <input
+              type="number"
+              min={1}
+              value={form.monthlyRevenueTargetPerUnit}
+              onChange={(e) => setForm({ ...form, monthlyRevenueTargetPerUnit: +e.target.value })}
+              className="field-input mt-1.5"
+            />
+            <p className="mt-1 text-[11px] text-[var(--gray)]">Default monthly goal shown on Dashboard/Analytics for every unit — override an individual unit's target from the Units tab.</p>
           </div>
           <div>
             <label className="field-label">Flexible time fee (₱)</label>

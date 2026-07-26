@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, formatUnitDisplay } from "@/lib/format";
 import { LIKED_TAGS, REWARD_OPTIONS, RECOMMEND_OPTIONS } from "@/lib/feedbackContent";
 import type { FeedbackAnalytics } from "@/lib/bookingEngine/feedbackService";
 import { useToast } from "@/components/ui/Toast";
@@ -74,7 +74,7 @@ export function FeedbackTab({ feedback: initial, analytics }: { feedback: Feedba
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[15px] font-extrabold">{"★".repeat(f.overallRating)}{"☆".repeat(5 - f.overallRating)}</span>
-                      <span className="text-[12px] text-[var(--gray)]">{f.unit.shortName} · Unit {f.unit.unitNumber}</span>
+                      <span className="text-[12px] text-[var(--gray)]">{formatUnitDisplay(f.unit.unitNumber, f.unit.shortName)}</span>
                     </div>
                     <div className="mt-0.5 text-[12.5px] text-[var(--gray)]">{fmtDate(f.createdAt, { month: "short", day: "numeric", year: "numeric" })} · {f.contactName} · {f.contactPhone}</div>
                   </div>

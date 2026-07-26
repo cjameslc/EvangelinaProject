@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
 import { guestJourneyStage, paymentLabel } from "@/lib/bookingStatus";
-import { peso, fmtDate } from "@/lib/format";
+import { peso, fmtDate, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { InfoIcon, ArrowRightIcon } from "@/components/ui/Icons";
 
@@ -95,7 +95,7 @@ export default async function MyBookingsPage({ searchParams }: { searchParams?: 
                       className="card group block p-4 transition hover:border-[var(--ink)] hover:shadow-card active:scale-[0.99]"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-extrabold">{b.unit.shortName}</span>
+                        <span className="font-extrabold">{formatUnitDisplay(b.unit.unitNumber, b.unit.name)}</span>
                         <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase ${STATUS_COLOR[statusOf(b as any)]}`}>{STATUS_LABEL[statusOf(b as any)]}</span>
                       </div>
                       <div className="mt-1 text-[13px] text-[var(--gray)]">

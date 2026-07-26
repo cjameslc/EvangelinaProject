@@ -5,6 +5,7 @@ import { ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { Tag } from "@/components/ui/Tag";
 import { PhotoCapture } from "@/components/housekeeping/PhotoCapture";
 import { cn } from "@/lib/utils";
+import { formatUnitDisplay } from "@/lib/format";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
 type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked?: boolean[][]; photoUrls?: string[] };
@@ -64,8 +65,7 @@ export function RoomCard({
     <div className={cn("card flex flex-col gap-3 p-4", status === "cleaning" && "border-teal/50", status === "todo" && "border-amber/40")}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-[14.5px] font-extrabold leading-tight">{unit.shortName}</h3>
-          <div className="mt-0.5 text-[12px] text-[var(--gray)]">Unit {unit.unitNumber}</div>
+          <h3 className="text-[14.5px] font-extrabold leading-tight">{formatUnitDisplay(unit.unitNumber, unit.shortName)}</h3>
           <div className="text-[11px] text-[var(--gray)]">Owner: {unit.owners?.length ? unit.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}</div>
         </div>
         <Tag variant={status}>{status === "todo" ? "To clean" : status === "cleaning" ? "Cleaning" : "Clean"}</Tag>

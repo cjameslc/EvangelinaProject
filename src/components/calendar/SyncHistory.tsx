@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/utils";
+import { formatUnitDisplay } from "@/lib/format";
 
 type UnitLite = { id: string; shortName: string; unitNumber: string };
 type SyncLogRow = {
@@ -263,7 +264,7 @@ export function SyncHistory({ units, isSyncingNow, refreshSignal }: { units: Uni
                     {logs.map((l) => (
                       <tr key={l.id} className="border-b border-[var(--line)] text-[var(--gray)] last:border-0">
                         <td className="py-1.5 pr-3 whitespace-nowrap text-[var(--ink)]">{fmtDateTime(l.startedAt)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">{l.unit.unitNumber} · {l.unit.shortName}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">{formatUnitDisplay(l.unit.unitNumber, l.unit.shortName)}</td>
                         <td className="py-1.5 pr-3">{l.syncType === "AUTOMATIC" ? "Automatic" : "Manual"}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">{fmtDuration(l.durationMs)}</td>
                         <td className="py-1.5 pr-3 text-right">{l.imported}</td>

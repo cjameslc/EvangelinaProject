@@ -1,4 +1,4 @@
-import { peso, pesoCentavos } from "@/lib/format";
+import { peso, pesoCentavos, formatUnitDisplay } from "@/lib/format";
 import type { ExportData } from "@/app/api/analytics/export/data";
 
 function csvCell(v: string | number): string {
@@ -65,7 +65,7 @@ export function buildExportCsv(data: ExportData): string {
 
   section("Unit Performance");
   row("Unit", "Occupancy", "Revenue", "Expenses", "Profit", "Bookings", "Rating");
-  data.units.rows.forEach((u) => row(u.name, `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.expensesCentavos), pesoCentavos(u.profitCentavos), u.bookingCount, u.rating.toFixed(1)));
+  data.units.rows.forEach((u) => row(formatUnitDisplay(u.unitNumber, u.name), `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.expensesCentavos), pesoCentavos(u.profitCentavos), u.bookingCount, u.rating.toFixed(1)));
 
   return "﻿" + lines.join("\r\n");
 }

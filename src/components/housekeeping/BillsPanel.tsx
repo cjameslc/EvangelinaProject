@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BILL_TYPES } from "@/lib/constants";
-import { peso, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
+import { peso, pesoCentavos, billCentavos, billPaidCentavos, formatUnitDisplay } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
@@ -88,7 +88,7 @@ export function BillsPanel({
       {/* Shared/site-wide bills (no single unit — e.g. the shared Internet
           line) get their own pseudo-group after the real units, so a null
           unitId never gets silently dropped from the list. */}
-      {[...units.map((u) => ({ id: u.id, chip: `unit ${u.unitNumber}`, label: u.shortName, realUnit: u as Unit | null })), ...(bills.some((b) => !b.unitId) ? [{ id: "__shared__", chip: "shared", label: "All units", realUnit: null as Unit | null }] : [])].map((g) => {
+      {[...units.map((u) => ({ id: u.id, chip: `unit ${u.unitNumber}`, label: formatUnitDisplay(u.unitNumber, u.shortName), realUnit: u as Unit | null })), ...(bills.some((b) => !b.unitId) ? [{ id: "__shared__", chip: "shared", label: "All units", realUnit: null as Unit | null }] : [])].map((g) => {
         const unitBills = bills.filter((b) => (g.realUnit ? b.unitId === g.id : !b.unitId));
         const allPaid = unitBills.length > 0 && unitBills.every((b) => b.paid);
         const open = !collapsible || !closedUnits.has(g.id);

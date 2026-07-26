@@ -5,7 +5,7 @@ import { Pill } from "@/components/ui/Pill";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
-import { peso, fmtDate, fmtTimeStr, unitLabel, manilaDayStart } from "@/lib/format";
+import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 
@@ -493,8 +493,7 @@ export function BookingForm({
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13.5px] sm:grid-cols-4">
               <div>
                 <div className="text-[11px] font-bold text-[var(--gray)]">Unit</div>
-                <div className="font-extrabold">{unit ? (unit.unitNumber ? `Unit ${unit.unitNumber}` : unit.name) : "—"}</div>
-                {unit?.unitNumber && <div className="truncate text-[11.5px] text-[var(--gray)]">{unit.name}</div>}
+                <div className="font-extrabold">{unit ? formatUnitDisplay(unit.unitNumber, unit.name) : "—"}</div>
               </div>
               <div>
                 <div className="text-[11px] font-bold text-[var(--gray)]">Type</div>

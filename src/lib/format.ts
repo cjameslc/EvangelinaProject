@@ -35,6 +35,32 @@ export function unitLabel(unit: { unitNumber?: string | null; name?: string | nu
   return secondary ? `Unit ${unit.unitNumber} · ${secondary}` : `Unit ${unit.unitNumber}`;
 }
 
+/**
+ * The official, single-source-of-truth display name for each unit — "Unit
+ * 1118 - Evangelina's Comfort Stay" — used for every PRIMARY unit-identity
+ * display app-wide (page headings, card/row headlines, table "Unit"
+ * columns, PDF/Excel exports, guest-facing pages). Looked up by unitNumber
+ * alone (not the full Unit row) so it works from any call site regardless
+ * of which fields that particular query happened to select — many existing
+ * queries only fetch shortName, not the full name. Compact, space-limited
+ * UI (filter pills, dropdown options, chart legends/ticks, small badges) is
+ * explicitly exempt per the naming-convention spec and may keep using
+ * unitLabel()/shortName above instead.
+ */
+const OFFICIAL_UNIT_NAMES: Record<string, string> = {
+  "1118": "Evangelina's Comfort Stay",
+  "1558": "Evangelina's Cozy City Stay",
+  "1116": "Relax at Evangelina's Stay",
+  "2045": "Evangelina's Signature Suites",
+  "1845": "Unwind @ Evangelina's Haven",
+};
+
+export function formatUnitDisplay(unitNumber: string | null | undefined, fallbackName?: string | null): string {
+  if (!unitNumber) return fallbackName || "Unit";
+  const officialName = OFFICIAL_UNIT_NAMES[unitNumber] ?? fallbackName;
+  return officialName ? `Unit ${unitNumber} - ${officialName}` : `Unit ${unitNumber}`;
+}
+
 export function peso(n: number | null | undefined): string {
   const v = Math.round(n ?? 0);
   return "₱" + v.toLocaleString("en-PH");

@@ -12,6 +12,7 @@ import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot
 import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
 import { unitPerformance, bestWorstUnits, type UnitPerformanceRow } from "@/lib/analytics/units";
+import { formatUnitDisplay } from "@/lib/format";
 
 export type AnalyticsFilters = {
   preset: AnalyticsPeriodPreset;
@@ -558,7 +559,7 @@ async function fetchHousekeepingData(
     // quick clean themselves), and excluding them from this lookup would
     // show their name as "Unknown" instead of who it actually was.
     prismaPool[2].employee.findMany({ where: { active: true }, select: { id: true, name: true } }),
-    prismaPool[3].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true } }),
+    prismaPool[3].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true, unitNumber: true } }),
   ]);
   return JSON.parse(JSON.stringify({ logs, states, employees, units }));
 }
@@ -581,7 +582,7 @@ export async function getHousekeepingAnalytics(user: { role: string; ownedUnitId
     user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { logs, states, employees, units } = data;
-  const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, u.shortName]));
+  const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, formatUnitDisplay(u.unitNumber, u.shortName)]));
   const stats = cleaningStats(logs);
   const rooms = roomsReadySnapshot(states);
   return {
@@ -676,7 +677,7 @@ async function fetchUnitPerformanceData(
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
   const [units, bookings, bills, blocks] = await Promise.all([
-    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, rating: true } }),
+    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, unitNumber: true, rating: true } }),
     prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true } }),
     prismaPool[2].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { unitId: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     prismaPool[3].calendarBlock.findMany({
@@ -703,7 +704,7 @@ export async function getUnitPerformance(user: { role: string; ownedUnitIds: str
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
 
   const rows = unitPerformance(
-    units.map((u: any) => ({ id: u.id, name: u.shortName, rating: u.rating })),
+    units.map((u: any) => ({ id: u.id, name: u.shortName, unitNumber: u.unitNumber, rating: u.rating })),
     bookings,
     bills,
     blocks.filter((b: any) => b.type === "Maintenance"),
@@ -713,4 +714,44 @@ export async function getUnitPerformance(user: { role: string; ownedUnitIds: str
   );
   const { best, worst } = bestWorstUnits(rows, "revenueCentavos");
   return { rows, best, worst };
+}
+
+// Monthly Revenue Goal panel — always the real current/previous CALENDAR
+// MONTH (via periodRangeFor("monthly", ...)), independent of whatever
+// period preset the filter bar has selected — "monthly target" is a fixed
+// concept, not something that should shift if someone picks "This Week" on
+// the same page. Same effectiveUnitIds scoping every other query here uses,
+// so a Co-Owner only ever sees their own units' goals.
+const goalBookingSelect = { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true } as const;
+
+async function fetchRevenueGoalsData(role: string, ownedUnitIds: string[], filterUnitIdsJoined: string) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+
+  const current = periodRangeFor("monthly", 0);
+  const previous = periodRangeFor("monthly", -1);
+
+  const [units, bookingsThisMonth, bookingsLastMonth, settings] = await Promise.all([
+    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true, unitNumber: true, monthlyRevenueTargetOverride: true } }),
+    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: goalBookingSelect }),
+    prismaPool[2].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: previous.start, lt: previous.end } }, select: goalBookingSelect }),
+    prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 }, select: { monthlyRevenueTargetPerUnit: true } }),
+  ]);
+
+  return JSON.parse(JSON.stringify({
+    units, bookingsThisMonth, bookingsLastMonth,
+    monthlyRevenueTargetPerUnit: settings.monthlyRevenueTargetPerUnit,
+    monthStart: current.start, monthEnd: current.end,
+  }));
+}
+
+const cachedFetchRevenueGoalsData = unstable_cache(fetchRevenueGoalsData, ["analytics-revenue-goals"], { revalidate: 60 });
+
+export type RevenueGoalsData = Awaited<ReturnType<typeof fetchRevenueGoalsData>>;
+
+export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
+  return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
 }

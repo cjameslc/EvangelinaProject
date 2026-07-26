@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtDate, manilaDayStart } from "@/lib/format";
+import { fmtDate, manilaDayStart, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { CalendarIcon } from "@/components/ui/Icons";
@@ -57,7 +57,7 @@ export function AvailabilityChat({ units, onPrefillBooking }: { units: Unit[]; o
   function unitLabel(id: string) {
     if (!id) return "any unit";
     const u = units.find((x) => x.id === id);
-    return u ? `Unit ${u.unitNumber} · ${u.shortName}` : id;
+    return u ? formatUnitDisplay(u.unitNumber, u.shortName) : id;
   }
 
   function submitDate() {

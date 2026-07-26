@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { fmtDate, fmtTimeStr } from "@/lib/format";
+import { fmtDate, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import type { GuidebookCategory, Amenity } from "@/lib/guidebookContent";
 import { mapsSearchUrl, wazeUrl, GRAB_URL, messengerUrl, telUrl, PH_NATIONAL_EMERGENCY_HOTLINE } from "@/lib/guideUtils";
@@ -171,8 +171,8 @@ export function GuidebookView({ booking, guidebook }: { booking: GuideBooking; g
         </div>
         <div className="p-5">
           <div className="text-[11px] font-bold uppercase tracking-wide text-rausch">Welcome to</div>
-          <h1 className="mt-0.5 text-[22px] font-extrabold tracking-tight">{booking.unit.name}</h1>
-          <p className="text-[13px] text-[var(--gray)]">{booking.unit.location} · Unit {booking.unit.unitNumber}</p>
+          <h1 className="mt-0.5 text-[22px] font-extrabold tracking-tight">{formatUnitDisplay(booking.unit.unitNumber, booking.unit.name)}</h1>
+          <p className="text-[13px] text-[var(--gray)]">{booking.unit.location}</p>
           <p className={`mt-2 text-[13.5px] font-extrabold ${status.tone}`}>{status.label}</p>
         </div>
       </div>

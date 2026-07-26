@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { peso } from "@/lib/format";
+import { peso, formatUnitDisplay } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/Pill";
 import type { UnitOpportunity } from "@/lib/bookingEngine/opportunity";
@@ -79,7 +79,7 @@ export function OpportunityPanel({
           {(lastAvailableUnit || doubleBookedToday > 0) && (
             <div className="mb-4 space-y-1.5">
               {lastAvailableUnit && (
-                <p className="text-[12.5px] font-semibold text-rausch">⚡ Last available unit for {isToday ? "today" : dayLabel}: Unit {lastAvailableUnit.unitNumber} · {lastAvailableUnit.shortName}</p>
+                <p className="text-[12.5px] font-semibold text-rausch">⚡ Last available unit for {isToday ? "today" : dayLabel}: {formatUnitDisplay(lastAvailableUnit.unitNumber, lastAvailableUnit.shortName)}</p>
               )}
               {isToday && doubleBookedToday > 0 && (
                 <p className="text-[12.5px] font-semibold text-green">🏆 {doubleBookedToday} unit{doubleBookedToday !== 1 ? "s" : ""} fully optimized today (both slots booked)</p>
@@ -120,7 +120,7 @@ function OpportunityCard({ o, onBook }: { o: UnitOpportunity; onBook: (unitId: s
   return (
     <div className={cn("flex flex-col gap-2.5 rounded-xl border p-3.5", fullyOptimized ? "border-[var(--line)] bg-[var(--bg-2)]" : "border-rausch/20 bg-rausch/[0.03]")}>
       <div className="flex items-center justify-between">
-        <span className="text-[14.5px] font-extrabold">🏡 Unit {o.unitNumber} <span className="font-semibold text-[var(--gray)]">· {o.shortName}</span></span>
+        <span className="text-[14.5px] font-extrabold">🏡 {formatUnitDisplay(o.unitNumber, o.shortName)}</span>
         {!fullyOptimized && <span className={cn("text-[12px] font-bold", SCORE_COLOR[o.score])}>{SCORE_STARS[o.score]}</span>}
       </div>
 

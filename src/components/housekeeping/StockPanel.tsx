@@ -7,8 +7,9 @@ import { Pill } from "@/components/ui/Pill";
 import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
+import { formatUnitDisplay } from "@/lib/format";
 
-type Unit = { id: string; name: string; shortName: string };
+type Unit = { id: string; name: string; shortName: string; unitNumber?: string };
 type Stock = { id: string; unitId: string; name: string; count: number };
 
 export function StockPanel({
@@ -70,7 +71,7 @@ export function StockPanel({
         return (
           <div key={u.id} className="card overflow-hidden">
             <button onClick={() => setOpenUnit(open ? null : u.id)} className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left">
-              <h3 className="text-[14px] font-extrabold">{u.shortName}</h3>
+              <h3 className="text-[14px] font-extrabold">{formatUnitDisplay(u.unitNumber, u.shortName)}</h3>
               {lowCount > 0 && <span className="ml-auto text-[12px] font-bold text-amber">{lowCount} low</span>}
             </button>
             {open && (

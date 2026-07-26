@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
+import { peso, fmtDate, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { isBookingCompleted } from "@/lib/bookingStatus";
 import { resizeImageForUpload } from "@/lib/imageResize";
@@ -109,7 +109,7 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
       body: [
         ["Confirmation number", booking.confirmationNumber ?? "—"],
         ["Guest", booking.guests.join(", ")],
-        ["Property", `${booking.unit.name} (Unit ${booking.unit.unitNumber})`],
+        ["Property", formatUnitDisplay(booking.unit.unitNumber, booking.unit.name)],
         ["Stay type", STAY_TYPES[booking.stayType as keyof typeof STAY_TYPES]?.label ?? booking.stayType],
         ["Check-in", fmtDate(booking.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })],
         ["Check-out", booking.checkOutDate ? fmtDate(booking.checkOutDate, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—"],
@@ -137,11 +137,11 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[20px] font-extrabold tracking-tight">{booking.unit.name}</h1>
+        <h1 className="text-[20px] font-extrabold tracking-tight">{formatUnitDisplay(booking.unit.unitNumber, booking.unit.name)}</h1>
         {booking.cancelledAt && <span className="rounded-full bg-amber/10 px-2.5 py-1 text-[11px] font-extrabold uppercase text-amber">Cancelled</span>}
         {completed && <span className="rounded-full bg-[var(--bg-2)] px-2.5 py-1 text-[11px] font-extrabold uppercase text-[var(--gray)]">Completed</span>}
       </div>
-      <p className="text-[13px] text-[var(--gray)]">{booking.unit.location} · Unit {booking.unit.unitNumber}</p>
+      <p className="text-[13px] text-[var(--gray)]">{booking.unit.location}</p>
 
       {booking.confirmationNumber && (
         <div className="card mt-5 p-4">

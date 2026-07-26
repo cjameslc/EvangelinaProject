@@ -4,6 +4,7 @@ import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { SecureDoorCodeCard, NoActiveStayNotice } from "@/components/guest/SecureGuideCards";
 import { CHECKIN_STEPS } from "@/lib/guidebookContent";
 import { GALLERY } from "@/lib/galleryContent";
+import { formatUnitDisplay } from "@/lib/format";
 
 export default async function CheckInPage() {
   const guest = await getCurrentGuest();
@@ -16,7 +17,7 @@ export default async function CheckInPage() {
         image={GALLERY.checkin[0].src}
         icon="🔑"
         title="Check-In Guide"
-        subtitle={hasCode ? `Here's how to get into ${booking!.unit.name}.` : "Here's how self check-in works for every unit."}
+        subtitle={hasCode ? `Here's how to get into ${formatUnitDisplay(booking!.unit.unitNumber, booking!.unit.name)}.` : "Here's how self check-in works for every unit."}
       />
 
       <div className="card mt-3 divide-y divide-[var(--line)] p-0">

@@ -7,7 +7,7 @@ import { Pill } from "@/components/ui/Pill";
 import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
 import { SyncHistory } from "@/components/calendar/SyncHistory";
-import { fmtDate, fmtTimeStr, unitLabel, peso } from "@/lib/format";
+import { fmtDate, fmtTimeStr, formatUnitDisplay, peso } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { nightsFor } from "@/lib/stayRange";
 import { canManageUnits } from "@/lib/rbac";
@@ -362,7 +362,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
             </button>
           ) : null}
           <h1 className="text-[24px] font-extrabold tracking-tight">
-            {focusedUnit ? `Unit ${focusedUnit.unitNumber} · ${focusedUnit.shortName}` : "Availability Calendar"}
+            {focusedUnit ? formatUnitDisplay(focusedUnit.unitNumber, focusedUnit.shortName) : "Availability Calendar"}
           </h1>
           <p className="mt-1 text-[13px] text-[var(--gray)]">
             {focusedUnit
@@ -539,12 +539,11 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                       !focusedUnit && "cursor-pointer hover:bg-rausch/[0.06] active:bg-rausch/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
                     )}
                     style={{ width: SIDEBAR_W }}
-                    title={focusedUnit ? undefined : `View Unit ${u.unitNumber} · ${u.shortName} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
-                    aria-label={focusedUnit ? undefined : `Focus calendar on Unit ${u.unitNumber}, ${u.shortName}`}
+                    title={focusedUnit ? undefined : `View ${formatUnitDisplay(u.unitNumber, u.shortName)} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
+                    aria-label={focusedUnit ? undefined : `Focus calendar on ${formatUnitDisplay(u.unitNumber, u.shortName)}`}
                   >
                     <div className="flex w-full min-w-0 items-center gap-1.5">
-                      <span className="flex-none rounded bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">{u.unitNumber}</span>
-                      <span className="truncate text-[13px] font-extrabold leading-tight group-hover:text-rausch group-hover:underline">{u.shortName}</span>
+                      <span className="truncate text-[13px] font-extrabold leading-tight group-hover:text-rausch group-hover:underline">{formatUnitDisplay(u.unitNumber, u.shortName)}</span>
                       {!focusedUnit && (
                         <ArrowRightIcon className="ml-auto h-3.5 w-3.5 flex-none text-[var(--gray)] opacity-40 transition group-hover:translate-x-0.5 group-hover:text-rausch group-hover:opacity-100" />
                       )}
@@ -673,7 +672,7 @@ function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () =
   const bk = b.booking;
 
   return (
-    <Modal open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={unitLabel(b.unit)} maxWidth={440}>
+    <Modal open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={formatUnitDisplay(b.unit.unitNumber, b.unit.shortName ?? b.unit.name)} maxWidth={440}>
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999" }}>

@@ -17,6 +17,7 @@ import { UnitPerformanceSection } from "@/components/analytics/sections/UnitPerf
 import { ExportMenu } from "@/components/analytics/ExportMenu";
 import { AutoRefresh } from "@/components/analytics/AutoRefresh";
 import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
+import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoalsSection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -66,6 +67,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
 
       <div className="mt-4">
         <AIInsightsPanel section="executive" filters={filters} title="AI Insights — Executive Summary" />
+      </div>
+
+      <div className="mt-4">
+        <Suspense fallback={<SectionSkeleton />} key={`goals-${JSON.stringify(filters)}`}>
+          <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
       </div>
 
       <div className="mt-6">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { peso, pesoCentavos } from "@/lib/format";
+import { peso, pesoCentavos, formatUnitDisplay } from "@/lib/format";
 import type { UnitPerformanceAnalytics } from "@/app/analytics/queries";
 
 export function UnitPerformanceSectionClient({ data }: { data: UnitPerformanceAnalytics }) {
@@ -11,8 +11,8 @@ export function UnitPerformanceSectionClient({ data }: { data: UnitPerformanceAn
     <div className="space-y-3">
       {data.best && data.worst && data.best.unitId !== data.worst.unitId && (
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full bg-[#00A699]/10 px-3 py-1.5 text-[12px] font-extrabold text-[#00A699]">🏆 Best: {data.best.name} · {pesoCentavos(data.best.revenueCentavos)}</span>
-          <span className="rounded-full bg-amber/10 px-3 py-1.5 text-[12px] font-extrabold text-amber">Needs attention: {data.worst.name} · {pesoCentavos(data.worst.revenueCentavos)}</span>
+          <span className="rounded-full bg-[#00A699]/10 px-3 py-1.5 text-[12px] font-extrabold text-[#00A699]">🏆 Best: {formatUnitDisplay(data.best.unitNumber, data.best.name)} · {pesoCentavos(data.best.revenueCentavos)}</span>
+          <span className="rounded-full bg-amber/10 px-3 py-1.5 text-[12px] font-extrabold text-amber">Needs attention: {formatUnitDisplay(data.worst.unitNumber, data.worst.name)} · {pesoCentavos(data.worst.revenueCentavos)}</span>
         </div>
       )}
 
@@ -24,7 +24,7 @@ export function UnitPerformanceSectionClient({ data }: { data: UnitPerformanceAn
               className="flex w-full items-center justify-between p-3 text-left"
             >
               <div>
-                <div className="text-[13px] font-extrabold">{row.name}</div>
+                <div className="text-[13px] font-extrabold">{formatUnitDisplay(row.unitNumber, row.name)}</div>
                 <div className="text-[11.5px] text-[var(--gray)]">{row.occupancyPct}% occupancy · {row.bookingCount} bookings · ★ {row.rating.toFixed(1)}</div>
               </div>
               <div className="text-right">

@@ -44,7 +44,7 @@ export function BookingCard({ confirmationNumber }: { confirmationNumber: string
         </span>
       </div>
       <div className="mt-1.5 text-[14px] font-extrabold leading-tight">{data.guest}</div>
-      <div className="text-[12px] text-[var(--gray)]">Unit {data.unitNumber} · {data.unit}</div>
+      <div className="text-[12px] text-[var(--gray)]">{data.unit}</div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11.5px] text-[var(--gray)]">
         <span>In: {fmtDate(data.checkIn, { month: "short", day: "numeric" })}</span>
         {data.checkOut && <span>Out: {fmtDate(data.checkOut, { month: "short", day: "numeric" })}</span>}

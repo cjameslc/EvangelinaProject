@@ -28,6 +28,11 @@ const getDashboardData = unstable_cache(
     const weekAgo = new Date(now.getTime() - 7 * 86400000);
     const monthStart = manilaMonthStart(now);
     const nextMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
+    // Previous calendar month — Revenue Goals leaderboard's "fastest
+    // growing"/"most improved" highlights compare this month's pace against
+    // last month's actual total, so this is fetched alongside bookingsMonth
+    // rather than adding a client-side round trip later.
+    const prevMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 1, 1));
     // Findings scoped to this user's units, plus any general (no-unit) ones.
     const unitFilter = (where as any).unitId;
     const findingsWhere = unitFilter ? { OR: [{ unitId: unitFilter }, { unitId: null }] } : {};
@@ -111,13 +116,19 @@ const getDashboardData = unstable_cache(
       // attention item. Small dataset (at most 10 rows/unit) either way.
       prismaPool[14 % prismaPool.length].reserveAccessCode.findMany({ where, select: { unitId: true, status: true } }),
       prismaPool[15 % prismaPool.length].ttlockStatus.findUnique({ where: { id: 1 } }),
+      // Revenue Goals leaderboard baseline — minimal columns, previous
+      // calendar month only.
+      prismaPool[16 % prismaPool.length].booking.findMany({
+        where: { ...where, date: { gte: prevMonthStart, lt: monthStart } },
+        select: { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true },
+      }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
       weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent,
-      calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus,
+      calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth,
       // The exact window boundaries used to fetch bookingsWeek/bookingsMonth/
       // calendarBlocksOccupancy above — the client must reuse these (not
       // recompute its own "now") so occupancy/RevPAR/ADR are always
@@ -150,7 +161,7 @@ export default async function DashboardPage() {
   // other Settings-driven read in the app already uses. Falls back to the
   // schema defaults (matching the demo-fixture path below) rather than
   // throwing, so a DB hiccup here can't take down the whole dashboard.
-  const bookingSettings = await getCachedBookingSettings().catch(() => ({ batteryLowThresholdPct: 30, batteryCriticalThresholdPct: 20 }));
+  const bookingSettings = await getCachedBookingSettings().catch(() => ({ batteryLowThresholdPct: 30, batteryCriticalThresholdPct: 20, monthlyRevenueTargetPerUnit: 50000 }));
 
   // Uncached, every request — a dismissal should disappear from "Needs your
   // attention" immediately, not wait out the dashboard-data cache's 45s
@@ -188,6 +199,7 @@ export default async function DashboardPage() {
   let calendarBlocksOccupancy: any[] = [];
   let reserveAccessCodes: any[] = [];
   let ttlockStatus: any = null;
+  let bookingsPrevMonth: any[] = [];
   let weekRangeStart = new Date(Date.now() - 7 * 86400000);
   let weekRangeEnd = new Date();
   let monthRangeStart = monthStart;
@@ -195,7 +207,7 @@ export default async function DashboardPage() {
 
   try {
     const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -237,6 +249,8 @@ export default async function DashboardPage() {
       calendarBlocksOccupancy={JSON.parse(JSON.stringify(calendarBlocksOccupancy))}
       reserveAccessCodes={JSON.parse(JSON.stringify(reserveAccessCodes))}
       ttlockStatus={JSON.parse(JSON.stringify(ttlockStatus))}
+      bookingsPrevMonth={JSON.parse(JSON.stringify(bookingsPrevMonth))}
+      monthlyRevenueTargetPerUnit={bookingSettings.monthlyRevenueTargetPerUnit}
       batteryLowThresholdPct={bookingSettings.batteryLowThresholdPct}
       batteryCriticalThresholdPct={bookingSettings.batteryCriticalThresholdPct}
       pendingGuestRequests={JSON.parse(JSON.stringify(pendingGuestRequests))}

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { peso } from "@/lib/format";
+import { peso, formatUnitDisplay } from "@/lib/format";
 import { manilaTodayISO } from "@/lib/manilaTime";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; location: string; nightlyRate: number; photoUrl: string | null; rating: number };
@@ -135,7 +135,7 @@ function CinematicHero({ units }: { units: Unit[] }) {
       </div>
 
       <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-black/35 px-4 py-2.5 backdrop-blur-md">
-        <div className="text-[13px] font-bold text-white">{current.shortName}</div>
+        <div className="text-[13px] font-bold text-white">{formatUnitDisplay(current.unitNumber, current.shortName)}</div>
         <div className="text-[11px] text-white/80">{current.location}</div>
       </div>
     </div>
@@ -242,7 +242,7 @@ function ListingCard({ unit: u }: { unit: Unit }) {
       </div>
       <div className="mt-2.5 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-extrabold">{u.shortName}</div>
+          <div className="truncate font-extrabold">{formatUnitDisplay(u.unitNumber, u.shortName)}</div>
           <div className="truncate text-[13px] text-[var(--gray)]">{u.location}</div>
         </div>
         <div className="flex flex-none items-center gap-1 text-[13px] font-bold">★ {u.rating.toFixed(1)}</div>

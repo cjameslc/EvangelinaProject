@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
-import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos } from "@/lib/format";
+import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { attentionKey } from "@/lib/attentionKey";
 import { cn } from "@/lib/utils";
@@ -16,14 +16,17 @@ import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry }
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
 import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
+import { computeUnitGoal, computePortfolioGoal, computeMilestones, computeLeaderboard, computeBookerContribution } from "@/lib/analytics/revenueGoals";
+import { RevenueGoalsPanel } from "@/components/shared/RevenueGoalsPanel";
 
 type Unit = {
   id: string; name: string; shortName: string; unitNumber: string; nightlyRate: number; rating: number; photoUrl: string | null; location: string;
   owners?: { user: { name: string } }[]; icalLastSyncError?: string | null;
   ttlockLockId?: number | null; ttlockBatteryPct?: number | null; ttlockHasGateway?: boolean | null; ttlockBatterySyncedAt?: string | null;
+  monthlyRevenueTargetOverride?: number | null;
 };
 type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null; refundedAt?: string | null };
-type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean };
+type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean; userId?: string | null };
 type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };
 type WeeklyExpenseRow = { id: string; date: string; createdAt?: string; amount: number; note: string; category?: "GENERAL" | "TIKTOK_ADS"; targetEmployee: Employee | null; addedBy: { id: string; name: string } | null };
@@ -78,6 +81,8 @@ export function DashboardView({
   calendarBlocksOccupancy,
   reserveAccessCodes,
   ttlockStatus,
+  bookingsPrevMonth,
+  monthlyRevenueTargetPerUnit,
   batteryLowThresholdPct,
   batteryCriticalThresholdPct,
   pendingGuestRequests,
@@ -91,6 +96,8 @@ export function DashboardView({
   units: Unit[];
   bookingsWeek: Booking[];
   bookingsMonth: Booking[];
+  bookingsPrevMonth: Booking[];
+  monthlyRevenueTargetPerUnit: number;
   employees: Employee[];
   bills: Bill[];
   hkStates: HkState[];
@@ -125,6 +132,35 @@ export function DashboardView({
       // Best-effort — it'll just reappear on next load if this failed, not worth surfacing an error for.
     }
   }
+
+  // Monthly Revenue Goal — entirely derived from bookingsMonth/bookingsPrevMonth,
+  // both already fetched for other cards on this page; no extra request.
+  const unitGoals = useMemo(
+    () =>
+      units.map((u) =>
+        computeUnitGoal({
+          unitId: u.id,
+          unitLabel: formatUnitDisplay(u.unitNumber, u.shortName),
+          targetPesos: u.monthlyRevenueTargetOverride ?? monthlyRevenueTargetPerUnit,
+          bookingsThisMonth: bookingsMonth,
+          bookingsLastMonth: bookingsPrevMonth,
+          now: new Date(),
+          monthStart: new Date(monthRangeStart),
+          monthEnd: new Date(monthRangeEnd),
+        })
+      ),
+    [units, bookingsMonth, bookingsPrevMonth, monthlyRevenueTargetPerUnit, monthRangeStart, monthRangeEnd]
+  );
+  const revenueGoalPortfolio = useMemo(() => computePortfolioGoal(unitGoals), [unitGoals]);
+  const revenueGoalMilestones = useMemo(() => computeMilestones(unitGoals, bookingsMonth), [unitGoals, bookingsMonth]);
+  const revenueGoalLeaderboard = useMemo(() => computeLeaderboard(unitGoals), [unitGoals]);
+  const ownEmployeeId = useMemo(() => employees.find((e) => e.userId === session?.user?.id)?.id ?? null, [employees, session?.user?.id]);
+  const bookerContribution = useMemo(() => {
+    if (role !== "BOOKER" || !ownEmployeeId) return undefined;
+    return unitGoals
+      .map((g) => ({ unitLabel: g.unitLabel, ...computeBookerContribution(ownEmployeeId, g, bookingsMonth) }))
+      .filter((c) => c.revenuePesos > 0);
+  }, [role, ownEmployeeId, unitGoals, bookingsMonth]);
 
   // Only count the remaining-balance amount once it's actually paid — an
   // unpaid balance isn't collected revenue yet, same convention already
@@ -749,7 +785,7 @@ export function DashboardView({
         items.push({
           id: `attn-checkin-risk-${r.unit.id}`,
           dot: "bg-rausch",
-          title: `Upcoming check-in risk — ${r.unit.shortName}`,
+          title: `Upcoming check-in risk — ${formatUnitDisplay(r.unit.unitNumber, r.unit.name)}`,
           desc: `A guest is arriving ${when} and this unit's lock ${batteryText}. Replace the battery or check its connection before they arrive.`,
           tag: "Locks",
           href: "/admin?tab=Units",
@@ -1024,7 +1060,7 @@ export function DashboardView({
       stayMix: (["Daycation", "Night", "Full"] as const)
         .map((k) => [STAY_TYPES[k].label, String(monthlyStayCounts[k]), `${Math.round((monthlyStayCounts[k] / monthlyStayTotal) * 100)}%`])
         .concat([["Total", String(monthlyStayCounts.Daycation + monthlyStayCounts.Night + monthlyStayCounts.Full), "100%"]]),
-      listings: units.map((u) => [u.name, unitStatus(u).label, p(u.nightlyRate), p(perUnitMonthlyEarned.get(u.id) ?? 0)]),
+      listings: units.map((u) => [formatUnitDisplay(u.unitNumber, u.name), unitStatus(u).label, p(u.nightlyRate), p(perUnitMonthlyEarned.get(u.id) ?? 0)]),
       team: monthlyPayroll.map((emp) => [emp.name, emp.role.replace("_", " "), p(emp.collected)]),
       expenses: dueBills.map((b) => [billMeta(b).label, b.unit?.shortName ?? "Shared", pc(billCentavos(b))]),
       expensesTotal: pc(billsDueMonthCentavos),
@@ -1299,6 +1335,14 @@ export function DashboardView({
           <p className="mt-1 text-[15px] text-[var(--gray)]">Here&rsquo;s how your {units.length} stays in Cubao are performing.</p>
         </div>
       </div>
+
+      <RevenueGoalsPanel
+        portfolio={revenueGoalPortfolio}
+        unitGoals={unitGoals}
+        milestones={revenueGoalMilestones}
+        leaderboard={revenueGoalLeaderboard}
+        bookerContribution={bookerContribution}
+      />
 
       <Accordion title="Earnings" sub={periodLabel}>
         {/* Collapsed by default — the accordion header above already shows
@@ -1660,7 +1704,7 @@ export function DashboardView({
                 )}
                 <div className="space-y-1.5 p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[14px] font-bold">{u.name}</span>
+                    <span className="text-[14px] font-bold">{formatUnitDisplay(u.unitNumber, u.name)}</span>
                     <span className="text-[12px] font-bold text-amber">★ {u.rating.toFixed(1)}</span>
                   </div>
                   <div className="text-[11.5px] text-[var(--gray)]">{u.location}</div>

@@ -3,6 +3,7 @@ import { getActiveGuideBooking } from "@/lib/bookingEngine/guestService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { SecureWifiCard, NoActiveStayNotice } from "@/components/guest/SecureGuideCards";
 import { GALLERY } from "@/lib/galleryContent";
+import { formatUnitDisplay } from "@/lib/format";
 
 export default async function WifiPage() {
   const guest = await getCurrentGuest();
@@ -15,7 +16,7 @@ export default async function WifiPage() {
         image={GALLERY.wifi[0].src}
         icon="📶"
         title="WiFi"
-        subtitle={hasWifi ? `Connect your devices in ${booking!.unit.name}.` : "Every unit has its own free WiFi network."}
+        subtitle={hasWifi ? `Connect your devices in ${formatUnitDisplay(booking!.unit.unitNumber, booking!.unit.name)}.` : "Every unit has its own free WiFi network."}
       />
 
       <div className="card mt-3 p-5">

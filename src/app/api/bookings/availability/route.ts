@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser, unitIdWhere, unitWhere } from "@/lib/session";
 import { bookingsConflict } from "@/lib/calendarMirror";
+import { formatUnitDisplay } from "@/lib/format";
 
 const STAY_TYPE_KEYS = ["Daycation", "Night", "Full", "Flexible"] as const;
 const NEARBY_DAYS = 7; // how many days before/after the requested date to search for a free alternative
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
   }
 
   const stayTypesToCheck = stayType ? [stayType] : [...STAY_TYPE_KEYS];
-  const unitLabel = (u: (typeof units)[number]) => `Unit ${u.unitNumber} · ${u.shortName}`;
+  const unitLabel = (u: (typeof units)[number]) => formatUnitDisplay(u.unitNumber, u.shortName);
 
   // The exact combination(s) asked about, on the exact date.
   const requested = units.flatMap((u) =>

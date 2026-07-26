@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { peso, pesoCentavos } from "@/lib/format";
+import { peso, pesoCentavos, formatUnitDisplay } from "@/lib/format";
 import type { ExportData } from "@/app/api/analytics/export/data";
 
 /** Real multi-sheet .xlsx via the xlsx package already used elsewhere in this app for parsing imports — this is its first use as a writer. */
@@ -83,7 +83,7 @@ export function buildExportXlsx(data: ExportData): Buffer {
 
   const unitSheet = XLSX.utils.aoa_to_sheet([
     ["Unit", "Occupancy", "Revenue", "Expenses", "Profit", "Bookings", "Rating"],
-    ...data.units.rows.map((u) => [u.name, `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.expensesCentavos), pesoCentavos(u.profitCentavos), u.bookingCount, u.rating.toFixed(1)]),
+    ...data.units.rows.map((u) => [formatUnitDisplay(u.unitNumber, u.name), `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.expensesCentavos), pesoCentavos(u.profitCentavos), u.bookingCount, u.rating.toFixed(1)]),
   ]);
   XLSX.utils.book_append_sheet(wb, unitSheet, "Units");
 

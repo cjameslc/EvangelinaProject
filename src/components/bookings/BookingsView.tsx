@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon } from "@/components/ui/Icons";
-import { peso, fmtDate, fmtTime, fmtTimeStr } from "@/lib/format";
+import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditBookings, canEditSpecificBooking, canDeleteBookings, isReadOnlyFinancials } from "@/lib/rbac";
@@ -628,7 +628,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
               <div className="flex items-center gap-3">
                 <span className={`h-2.5 w-2.5 flex-none rounded-full ${r.occupied ? "bg-rausch" : "bg-green"}`} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13.5px] font-extrabold">Unit {r.unit.unitNumber} · {r.unit.shortName}</div>
+                  <div className="truncate text-[13.5px] font-extrabold">{formatUnitDisplay(r.unit.unitNumber)}</div>
                   <div className="truncate text-[12px] text-[var(--gray)]">{r.detail}</div>
                   <div className="truncate text-[11px] text-[var(--gray)]">Owner: {r.unit.owners?.length ? r.unit.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}</div>
                 </div>
@@ -729,7 +729,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                             <span className="min-w-0">
                               <span className="block truncate font-semibold text-[var(--ink)]">{b.guests.join(", ") || "Guest"}</span>
                               <span className="block truncate text-[var(--gray)]">
-                                {fmtDate(b.date, { month: "short", day: "numeric" })} · Unit {b.unit.unitNumber} · {b.unit.shortName}
+                                {fmtDate(b.date, { month: "short", day: "numeric" })} · {formatUnitDisplay(b.unit.unitNumber)}
                               </span>
                             </span>
                             <span className="flex-none font-semibold">{STAY_TYPES[b.stayType as keyof typeof STAY_TYPES]?.label ?? b.stayType}</span>
@@ -965,7 +965,7 @@ function BookingLine({
       style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
     >
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="truncate text-[17px] font-extrabold leading-tight text-rausch">Unit {b.unit.unitNumber} · {b.unit.shortName}</div>
+        <div className="truncate text-[17px] font-extrabold leading-tight text-rausch">{formatUnitDisplay(b.unit.unitNumber)}</div>
         <div className="truncate text-[16px] font-extrabold leading-tight">{b.guests.join(", ") || "Guest"}</div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5 text-[12.5px] text-[var(--gray)]">
           <span>{b.contactNumber || "no contact"}</span>
@@ -1039,7 +1039,7 @@ function OccupiedLine({ b }: { b: Booking }) {
       style={{ boxShadow: "inset 3px 0 0 var(--amber)" }}
     >
       <span className="rounded-full bg-amber/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber">Occupied</span>
-      <span className="font-extrabold text-rausch">Unit {b.unit.unitNumber} · {b.unit.shortName}</span>
+      <span className="font-extrabold text-rausch">{formatUnitDisplay(b.unit.unitNumber)}</span>
       <span className="font-bold">{b.guests.join(", ") || "Guest"}</span>
       {b.confirmationNumber && <span className="font-mono text-[12px] font-bold text-[var(--gray)]">🔑 {b.confirmationNumber}</span>}
     </div>

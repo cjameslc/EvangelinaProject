@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pill } from "@/components/ui/Pill";
-import { peso } from "@/lib/format";
+import { peso, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { resizeImageForUpload } from "@/lib/imageResize";
 import { RateBreakdown } from "@/components/guest/RateBreakdown";
@@ -250,7 +250,7 @@ export function BookFlowView() {
         <div className="mb-3 text-5xl">🎉</div>
         <h1 className="text-[22px] font-extrabold">Booking request received!</h1>
         <p className="mt-2 text-[14px] text-[var(--gray)]">
-          {selected.shortName} · {STAY_TYPES[stayType].label} · {peso(quote.total)}
+          {formatUnitDisplay(selected.unitNumber, selected.shortName)} · {STAY_TYPES[stayType].label} · {peso(quote.total)}
         </p>
         {confirmationNumber && (
           <div className="card mt-5 p-4">
@@ -344,7 +344,7 @@ export function BookFlowView() {
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-extrabold">{r.shortName}</div>
+                <div className="font-extrabold">{formatUnitDisplay(r.unitNumber, r.shortName)}</div>
                 {r.available ? (
                   <div className="text-[13px] text-[var(--gray)]">
                     {r.quote.discountPct > 0 ? (
@@ -372,7 +372,7 @@ export function BookFlowView() {
       {step === "details" && selected && (
         <form onSubmit={confirm} className="mt-6 space-y-4">
           <div className="card p-4">
-            <div className="font-extrabold">{selected.shortName}</div>
+            <div className="font-extrabold">{formatUnitDisplay(selected.unitNumber, selected.shortName)}</div>
             <div className="text-[13px] text-[var(--gray)]">
               {STAY_TYPES[stayType].label}
               {stayType === "Flexible" ? ` · ${checkInTime}–${checkOutTime}` : ` · ${selected.quote.nights} night${selected.quote.nights === 1 ? "" : "s"}`}

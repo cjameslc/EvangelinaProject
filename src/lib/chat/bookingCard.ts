@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatUnitDisplay } from "@/lib/format";
 
 /** Real booking data for a rich card — nothing fabricated, same fields the
  * Bookings list itself shows. Returns null for an unknown/mistyped ref
@@ -19,7 +20,7 @@ export async function getBookingCard(confirmationNumber: string) {
     id: booking.id,
     confirmationNumber: booking.confirmationNumber,
     guest: booking.guests[0] ?? "Guest",
-    unit: booking.unit.shortName,
+    unit: formatUnitDisplay(booking.unit.unitNumber, booking.unit.shortName),
     unitNumber: booking.unit.unitNumber,
     checkIn: booking.date.toISOString(),
     checkOut: booking.checkOutDate?.toISOString() ?? null,

@@ -123,6 +123,9 @@ export const unitSchema = z.object({
   checkInInstructions: z.string().nullable().optional(),
   checkOutInstructions: z.string().nullable().optional(),
   videoTutorialUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+  // Monthly Revenue Target override — null falls back to
+  // Settings.monthlyRevenueTargetPerUnit, same as every other unit.
+  monthlyRevenueTargetOverride: z.number().int().positive().nullable().optional(),
 });
 
 export const employeeSchema = z.object({
@@ -271,6 +274,7 @@ export const settingsSchema = z.object({
   weekendRate21h: z.number().int().positive().optional(),
   weekdayNightPromoPct: z.number().int().min(0).max(100).optional(),
   dailyRevenueGoal: z.number().int().nonnegative().nullable().optional(),
+  monthlyRevenueTargetPerUnit: z.number().int().positive().optional(),
   extensionFeePerHour: z.number().int().nonnegative().optional(),
   flexibleTimeFee: z.number().int().nonnegative().optional(),
   parkingCarRate: z.number().int().nonnegative().optional(),

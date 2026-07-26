@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { peso } from "@/lib/format";
+import { peso, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
 
@@ -25,8 +25,8 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
       <div className="mt-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[24px] font-extrabold tracking-tight">{unit.name}</h1>
-          <p className="mt-1 text-[14px] text-[var(--gray)]">{unit.location} · Unit {unit.unitNumber}</p>
+          <h1 className="text-[24px] font-extrabold tracking-tight">{formatUnitDisplay(unit.unitNumber, unit.name)}</h1>
+          <p className="mt-1 text-[14px] text-[var(--gray)]">{unit.location}</p>
         </div>
         <div className="flex items-center gap-1 text-[15px] font-bold">★ {unit.rating.toFixed(1)}</div>
       </div>

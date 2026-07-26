@@ -5,6 +5,7 @@ import { netProfitCentavos, paidExpensesCentavosForUnit, type ExpenseLike } from
 export type UnitPerformanceRow = {
   unitId: string;
   name: string;
+  unitNumber: string;
   occupancyPct: number;
   revenueCentavos: number;
   expensesCentavos: number;
@@ -24,7 +25,7 @@ export type UnitPerformanceRow = {
  * KPIs use, not a second parallel formula.
  */
 export function unitPerformance(
-  units: { id: string; name: string; rating: number }[],
+  units: { id: string; name: string; unitNumber: string; rating: number }[],
   bookings: (OccupancyBooking & { unitId: string })[],
   expenses: (ExpenseLike & { unitId: string | null })[],
   maintenanceBlocks: OccupancyBlock[],
@@ -55,6 +56,7 @@ export function unitPerformance(
     return {
       unitId: unit.id,
       name: unit.name,
+      unitNumber: unit.unitNumber,
       occupancyPct: occ.occupancyPct,
       revenueCentavos,
       expensesCentavos,

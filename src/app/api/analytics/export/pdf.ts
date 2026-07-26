@@ -1,4 +1,4 @@
-import { peso, pesoCentavos, fmtDate } from "@/lib/format";
+import { peso, pesoCentavos, fmtDate, formatUnitDisplay } from "@/lib/format";
 import type { ExportData } from "@/app/api/analytics/export/data";
 
 /**
@@ -84,7 +84,7 @@ export async function buildExportPdf(data: ExportData): Promise<Buffer> {
 
   nextTable({
     head: [["Unit", "Occupancy", "Revenue", "Profit"]],
-    body: data.units.rows.map((u) => [u.name, `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.profitCentavos)]),
+    body: data.units.rows.map((u) => [formatUnitDisplay(u.unitNumber, u.name), `${u.occupancyPct}%`, pesoCentavos(u.revenueCentavos), pesoCentavos(u.profitCentavos)]),
   });
 
   return Buffer.from(doc.output("arraybuffer"));

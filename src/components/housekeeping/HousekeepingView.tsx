@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { ChevronDownIcon } from "@/components/ui/Icons";
-import { fmtDate, fmtTime, fmtTimeStr, unitLabel } from "@/lib/format";
+import { fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
 import { canEditHousekeeping, canAddHousekeepingStock } from "@/lib/rbac";
@@ -27,7 +27,7 @@ const dayOf = (d: Date) =>
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
 type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked: boolean[][]; startedAt?: string | null; endedAt?: string | null; cleanedBookingIds?: string[] };
-type Log = { id: string; unitId: string; unit: { shortName: string }; startedAt: string; endedAt: string | null };
+type Log = { id: string; unitId: string; unit: { shortName: string; unitNumber?: string }; startedAt: string; endedAt: string | null };
 type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
 type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
@@ -307,7 +307,7 @@ export function HousekeepingView({
             <>
               {logs.slice(0, 8).map((l) => (
                 <div key={l.id} className="flex items-center justify-between border-t border-[var(--line)] py-2.5 text-[13px] first:border-0">
-                  <span className="font-bold">{l.unit.shortName}</span>
+                  <span className="font-bold">{formatUnitDisplay(l.unit.unitNumber, l.unit.shortName)}</span>
                   <span className="text-[var(--gray)]">{fmtDate(l.startedAt)} · {fmtTime(l.startedAt)}{l.endedAt ? `–${fmtTime(l.endedAt)}` : ""}</span>
                 </div>
               ))}
@@ -340,8 +340,7 @@ export function HousekeepingView({
               return (
                 <div key={b.id} className="rounded-2xl border border-[var(--line)] p-3.5">
                   <div className="flex items-center gap-2">
-                    <span className="flex-none rounded-md bg-rausch/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rausch">unit {b.unit.unitNumber}</span>
-                    <span className="truncate text-[13.5px] font-extrabold">{b.unit.shortName}</span>
+                    <span className="truncate text-[13.5px] font-extrabold">{formatUnitDisplay(b.unit.unitNumber, b.unit.shortName)}</span>
                   </div>
                   <div className="mt-0.5 truncate text-[12.5px] text-[var(--gray)]">{b.guests?.[0] ?? "Guest"} · {stayMeta?.label ?? b.stayType}</div>
 

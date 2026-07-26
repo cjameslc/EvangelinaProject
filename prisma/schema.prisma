@@ -116,6 +116,13 @@ model Unit {
   ttlockSyncError         String?
   ttlockBatteryReplacedAt DateTime? // set via the Units tab "Mark battery replaced" action
 
+  // Monthly Revenue Target override — null means this unit uses
+  // Settings.monthlyRevenueTargetPerUnit like every other unit; set only
+  // when Admin deliberately wants a different figure for this specific
+  // unit (e.g. a smaller/larger room with a genuinely different realistic
+  // target).
+  monthlyRevenueTargetOverride Int?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -822,6 +829,13 @@ model Settings {
   // goal progress bar until then, same as this app's other optional-until-
   // configured settings.
   dailyRevenueGoal       Int?
+  // Monthly Revenue Target (Dashboard/Analytics "Revenue Goals" panel) —
+  // the default per-unit monthly target; a real starting figure (not
+  // null-until-set like dailyRevenueGoal above) since the spec asks for
+  // ₱50,000/unit/month as the actual working default, adjustable here.
+  // Unit.monthlyRevenueTargetOverride below lets an individual unit deviate
+  // from this default without changing it for every other unit.
+  monthlyRevenueTargetPerUnit Int @default(50000)
   // Extending a stay past checkout, and Flexible stay's own-choice-of-time
   // option — both flat fees, same admin-editable-rate convention as the
   // rate table above. See the Guest Experience "Rates" page.
