@@ -18,8 +18,8 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
-import { AvailabilityChat, type AvailabilityResult } from "./AvailabilityChat";
-import { TeamCollaborationPanel } from "./TeamCollaborationPanel";
+import type { AvailabilityResult } from "./AvailabilityChat";
+import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import type { ConversationSummary } from "@/lib/chat/clientTypes";
 import { OpportunityPanel } from "./OpportunityPanel";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
@@ -106,7 +106,6 @@ export function BookingsView({
   const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
   const [logAccordionKey, setLogAccordionKey] = useState(0);
   const [forceLogOpen, setForceLogOpen] = useState(false);
-  const [checkAvailabilityKey, setCheckAvailabilityKey] = useState(0);
   const [lastAvailability, setLastAvailability] = useState<{ data: AvailabilityResult; unitLabel: string } | null>(null);
 
   // Availability chat's "Log this booking" hands off unitId/date/stayType
@@ -787,29 +786,17 @@ export function BookingsView({
       {canEdit && (
         <>
           <div id="check-availability-anchor" className="mb-3">
-            <Accordion key={checkAvailabilityKey} title="Check availability & Team Collaboration" sub="chat-style availability check, plus your team chat — together in one place">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="min-w-0">
-                  <AvailabilityChat
-                    units={units}
-                    onPrefillBooking={handlePrefillBooking}
-                    onResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
-                  />
-                </div>
-                <TeamCollaborationPanel
-                  currentUserId={currentUserId}
-                  isAdmin={role === "OWNER_ADMIN"}
-                  initialConversations={initialConversations}
-                  recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
-                  lastAvailability={lastAvailability}
-                  onOpenCheckAvailability={() => {
-                    setCheckAvailabilityKey((k) => k + 1);
-                    requestAnimationFrame(() => document.getElementById("check-availability-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                  }}
-                  onOpenCreateBooking={openAddBooking}
-                />
-              </div>
-            </Accordion>
+            <BookingAssistantPanel
+              units={units}
+              onPrefillBooking={handlePrefillBooking}
+              onAvailabilityResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
+              currentUserId={currentUserId}
+              isAdmin={role === "OWNER_ADMIN"}
+              initialConversations={initialConversations}
+              recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
+              lastAvailability={lastAvailability}
+              onOpenCreateBooking={openAddBooking}
+            />
           </div>
           <div className="mb-3 flex justify-end">
             <button onClick={() => setImportOpen(true)} className="btn btn-sm">

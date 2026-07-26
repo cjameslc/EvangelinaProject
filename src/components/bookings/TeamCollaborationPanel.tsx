@@ -45,7 +45,7 @@ function formatAvailabilityCard(data: AvailabilityResult, unitLabel: string): st
  */
 export function TeamCollaborationPanel({
   currentUserId, isAdmin, initialConversations, recentBookings, lastAvailability,
-  onOpenCheckAvailability, onOpenCreateBooking,
+  onOpenCheckAvailability, onOpenCreateBooking, bare = false,
 }: {
   currentUserId: string;
   isAdmin: boolean;
@@ -54,6 +54,10 @@ export function TeamCollaborationPanel({
   lastAvailability: { data: AvailabilityResult; unitLabel: string } | null;
   onOpenCheckAvailability: () => void;
   onOpenCreateBooking: () => void;
+  /** Drops the outer card border/corners — used when a parent (Booking
+   * Assistant's tabbed panel) already supplies that chrome, so the two
+   * don't nest into a visible "card inside a card." */
+  bare?: boolean;
 }) {
   const toast = useToast();
   const chatRef = useRef<ChatViewHandle>(null);
@@ -100,15 +104,13 @@ export function TeamCollaborationPanel({
   }
 
   return (
-    <div className="flex h-[640px] min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--line)]">
-      <div className="flex-none border-b border-[var(--line)] bg-[var(--card)] px-4 py-3">
+    <div className={cn("flex h-[640px] min-w-0 flex-col overflow-hidden", !bare && "rounded-2xl border border-[var(--line)]")}>
+      <div className={cn("flex-none border-b border-[var(--line)] bg-[var(--card)] px-4", bare ? "py-3" : "py-3")}>
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[14.5px] font-extrabold">Team Collaboration</div>
-            <button onClick={() => setRosterOpen((v) => !v)} className="text-[11.5px] font-semibold text-[var(--gray)] hover:text-[var(--ink)]">
-              {onlineCount} team member{onlineCount !== 1 ? "s" : ""} online
-            </button>
-          </div>
+          <button onClick={() => setRosterOpen((v) => !v)} className="flex items-center gap-1.5 text-[12.5px] font-bold text-[var(--ink)] hover:text-rausch">
+            <span className={cn("h-2 w-2 rounded-full", onlineCount > 0 ? "bg-green" : "bg-[var(--line-2)]")} />
+            {onlineCount} team member{onlineCount !== 1 ? "s" : ""} online
+          </button>
           {isAdmin && (
             <a href="/chat/audit" title="Admin audit log" className="text-[11px] font-bold text-rausch hover:underline">Audit log</a>
           )}
@@ -135,12 +137,13 @@ export function TeamCollaborationPanel({
           </div>
         )}
 
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <button onClick={onOpenCheckAvailability} className="pill">🏡 Check Availability</button>
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {!bare && <button onClick={onOpenCheckAvailability} className="pill">🏡 Check Availability</button>}
           <button onClick={onOpenCreateBooking} className="pill">➕ Create Booking</button>
           <Link href="/calendar" className="pill">📅 Open Calendar</Link>
+          <span className="mx-0.5 h-4 w-px flex-none bg-[var(--line)]" />
           <div className="relative">
-            <button onClick={() => setShareBookingOpen((v) => !v)} className="pill">📤 Share Booking</button>
+            <button onClick={() => setShareBookingOpen((v) => !v)} className="pill"><ShareIcon className="mr-1 inline h-3 w-3" />Share Booking</button>
             {shareBookingOpen && (
               <div className="absolute left-0 top-[34px] z-10 w-64 rounded-xl border border-[var(--line)] bg-[var(--card)] p-1.5 shadow-card">
                 {recentBookings.filter((b) => b.confirmationNumber).length === 0 ? (
@@ -160,9 +163,9 @@ export function TeamCollaborationPanel({
               </div>
             )}
           </div>
-          <button onClick={shareAvailability} className="pill"><ShareIcon className="mr-1 inline h-3 w-3" />Share Availability</button>
-          <button onClick={copyAvailability} className="pill"><CopyIcon className="mr-1 inline h-3 w-3" />Copy Availability</button>
-          <button onClick={pinConversation} className="pill"><PinIcon className="mr-1 inline h-3 w-3" />Pin Conversation</button>
+          <button onClick={shareAvailability} className="pill" title="Send your last availability check into this conversation"><ShareIcon className="mr-1 inline h-3 w-3" />Share Availability</button>
+          <button onClick={copyAvailability} className="pill" title="Copy your last availability check to clipboard"><CopyIcon className="mr-1 inline h-3 w-3" />Copy Availability</button>
+          <button onClick={pinConversation} className="pill" title="Pin this conversation"><PinIcon className="mr-1 inline h-3 w-3" />Pin</button>
         </div>
       </div>
 
