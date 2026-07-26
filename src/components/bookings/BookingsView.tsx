@@ -786,28 +786,30 @@ export function BookingsView({
 
       {canEdit && (
         <>
-          <div className="mb-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div id="check-availability-anchor" className="min-w-0">
-              <Accordion key={checkAvailabilityKey} title="Check availability" sub="chat-style — ask before you log a booking">
-                <AvailabilityChat
-                  units={units}
-                  onPrefillBooking={handlePrefillBooking}
-                  onResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
+          <div id="check-availability-anchor" className="mb-3">
+            <Accordion key={checkAvailabilityKey} title="Check availability & Team Collaboration" sub="chat-style availability check, plus your team chat — together in one place">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="min-w-0">
+                  <AvailabilityChat
+                    units={units}
+                    onPrefillBooking={handlePrefillBooking}
+                    onResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
+                  />
+                </div>
+                <TeamCollaborationPanel
+                  currentUserId={currentUserId}
+                  isAdmin={role === "OWNER_ADMIN"}
+                  initialConversations={initialConversations}
+                  recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
+                  lastAvailability={lastAvailability}
+                  onOpenCheckAvailability={() => {
+                    setCheckAvailabilityKey((k) => k + 1);
+                    requestAnimationFrame(() => document.getElementById("check-availability-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  }}
+                  onOpenCreateBooking={openAddBooking}
                 />
-              </Accordion>
-            </div>
-            <TeamCollaborationPanel
-              currentUserId={currentUserId}
-              isAdmin={role === "OWNER_ADMIN"}
-              initialConversations={initialConversations}
-              recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
-              lastAvailability={lastAvailability}
-              onOpenCheckAvailability={() => {
-                setCheckAvailabilityKey((k) => k + 1);
-                requestAnimationFrame(() => document.getElementById("check-availability-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-              }}
-              onOpenCreateBooking={openAddBooking}
-            />
+              </div>
+            </Accordion>
           </div>
           <div className="mb-3 flex justify-end">
             <button onClick={() => setImportOpen(true)} className="btn btn-sm">
