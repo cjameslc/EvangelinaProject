@@ -91,7 +91,7 @@ export function DashboardView({
   monthRangeStart,
   monthRangeEnd,
   dismissedAttentionKeys,
-  airbnbEarningsSlot,
+  airbnbHistoricalMonthly,
 }: {
   role: string;
   units: Unit[];
@@ -120,10 +120,14 @@ export function DashboardView({
   monthRangeStart: string;
   monthRangeEnd: string;
   dismissedAttentionKeys: string[];
-  /** Server-rendered <AirbnbEarningsSection> from the page — a server
-   * component reused as-is from Analytics, passed down as a slot since
-   * this view itself is a client component and can't fetch it directly. */
-  airbnbEarningsSlot?: React.ReactNode;
+  /** Airbnb's own officially-reported monthly totals (pesos), keyed
+   * "YYYY-MM" — covers Feb 2025 through Mar 2026, i.e. mostly months
+   * before this app tracked any bookings itself. Used only as a
+   * record-keeping fallback in the Earnings card's Monthly view: when the
+   * app has zero tracked income for a selected month, this fills in the
+   * real historical figure instead of showing ₱0. Never touches a month
+   * the app already has real tracked income for. */
+  airbnbHistoricalMonthly?: Record<string, number>;
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
@@ -1190,6 +1194,13 @@ export function DashboardView({
 
   const periodIncome = periodBookings.reduce((s, b) => s + collectedAmount(b), 0);
 
+  // Historical-record fallback: only kicks in for a Monthly-view month the
+  // app has zero tracked income for (i.e. before this app existed) — real
+  // tracked income for a month always wins, never blended/overridden.
+  const historicalMonthKey = `${periodRange.start.getUTCFullYear()}-${String(periodRange.start.getUTCMonth() + 1).padStart(2, "0")}`;
+  const historicalIncome = rangeType === "monthly" && periodIncome <= 0 ? airbnbHistoricalMonthly?.[historicalMonthKey] : undefined;
+  const displayedPeriodIncome = historicalIncome ?? periodIncome;
+
   // Occupancy/RevPAR/ADR for the Key metrics card — driven by the same
   // period+status filter as Earnings above (periodRange/filteredUnits),
   // instead of a permanently-fixed "this week, every unit" snapshot. Uses
@@ -1349,8 +1360,6 @@ export function DashboardView({
         bookerContribution={bookerContribution}
       />
 
-      {airbnbEarningsSlot && <div className="mt-4">{airbnbEarningsSlot}</div>}
-
       <Accordion title="Earnings" sub={periodLabel}>
         {/* Collapsed by default — the accordion header above already shows
             periodLabel, so a big always-visible nav bar repeating it was
@@ -1471,8 +1480,11 @@ export function DashboardView({
             <p className="text-[13px] text-[var(--gray)]">
               You&rsquo;ve earned {rangeType === "daily" ? "today" : rangeType === "weekly" ? "this week" : rangeType === "monthly" ? "this month" : rangeType === "custom" ? "in this range" : "this year"}
             </p>
-            <div className="mt-1 text-[38px] font-extrabold tracking-tight">{peso(periodIncome)}</div>
-            {previousPeriodIncome > 0 && (
+            <div className="mt-1 text-[38px] font-extrabold tracking-tight">{peso(displayedPeriodIncome)}</div>
+            {historicalIncome !== undefined && (
+              <p className="mt-1 text-[12px] font-semibold text-[var(--gray)]">Historical record from Airbnb&rsquo;s official report — no day-by-day detail tracked for this month.</p>
+            )}
+            {historicalIncome === undefined && previousPeriodIncome > 0 && (
               <div className="mt-1 flex items-center gap-1.5 text-[13px]">
                 <span className={cn("inline-flex items-center gap-0.5 font-bold", periodTrendPct >= 0 ? "text-green" : "text-rausch")}>
                   {periodTrendPct >= 0 ? "▲" : "▼"} {Math.abs(periodTrendPct)}%
@@ -1515,7 +1527,7 @@ export function DashboardView({
               <div className="mt-2 space-y-1.5 text-[13.5px]">
                 <div className="flex items-center justify-between">
                   <span className="text-[var(--gray)]">Paid</span>
-                  <span className="font-bold text-green">{peso(periodIncome)}</span>
+                  <span className="font-bold text-green">{peso(displayedPeriodIncome)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[var(--gray)]">Salary</span>
@@ -1523,7 +1535,7 @@ export function DashboardView({
                 </div>
                 <div className="flex items-center justify-between border-t border-[var(--line)] pt-1.5 text-[14.5px]">
                   <span className="font-extrabold">Total earned</span>
-                  <span className={cn("font-extrabold", periodTotalEarned < 0 && "text-amber")}>{peso(periodTotalEarned)}</span>
+                  <span className={cn("font-extrabold", displayedPeriodIncome - periodSalary < 0 && "text-amber")}>{peso(displayedPeriodIncome - periodSalary)}</span>
                 </div>
               </div>
             </div>

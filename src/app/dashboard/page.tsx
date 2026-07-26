@@ -8,7 +8,6 @@ import { manilaMonthStart } from "@/lib/format";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { DashboardView } from "@/components/dashboard/DashboardView";
-import { AirbnbEarningsSection } from "@/components/analytics/sections/AirbnbEarningsSection";
 
 // Everything the Dashboard reads is scoped only by role+ownedUnitIds (see
 // dashboardUnitWhere/dashboardUnitIdWhere), so those two are sufficient as a
@@ -172,6 +171,24 @@ export default async function DashboardPage() {
     .then((rows) => rows.map((r) => r.key))
     .catch(() => []);
 
+  // Airbnb's own officially-reported monthly totals (Feb 2025 - Mar 2026,
+  // mostly pre-dating this app) — a record-keeping fallback for the
+  // Earnings card's Monthly view, folded in there instead of showing as a
+  // separate card (see DashboardView's airbnbHistoricalMonthly prop).
+  // Cheap, rarely-changing dataset — an uncached direct read, same as
+  // dismissedAttentionKeys/pendingGuestRequests below, is simplest.
+  const airbnbHistoricalMonthly = await prisma.airbnbEarningsMonth
+    .findMany({
+      where: { unitId: null, month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
+      select: { month: true, totalCentavos: true },
+    })
+    .then((rows) =>
+      Object.fromEntries(
+        rows.map((r) => [`${r.month.getUTCFullYear()}-${String(r.month.getUTCMonth() + 1).padStart(2, "0")}`, r.totalCentavos / 100])
+      )
+    )
+    .catch(() => ({}));
+
   // Uncached, same reasoning as dismissedAttentionKeys above — a guest
   // request from the Digital Guidebook should show up on the next load, not
   // wait out the 45s dashboard-data cache. Feeds "Needs your attention".
@@ -260,12 +277,7 @@ export default async function DashboardPage() {
       monthRangeStart={new Date(monthRangeStart).toISOString()}
       monthRangeEnd={new Date(monthRangeEnd).toISOString()}
       dismissedAttentionKeys={dismissedAttentionKeys}
-      airbnbEarningsSlot={
-        <AirbnbEarningsSection
-          user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }}
-          filters={{ preset: "month", unitIds: null }}
-        />
-      }
+      airbnbHistoricalMonthly={airbnbHistoricalMonthly}
     />
   );
 }
