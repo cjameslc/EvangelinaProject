@@ -755,3 +755,60 @@ export type RevenueGoalsData = Awaited<ReturnType<typeof fetchRevenueGoalsData>>
 export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
   return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
 }
+
+// Airbnb's own reported earnings (imported from the host account's PDF
+// reports — see AirbnbEarningsMonth) compared month-by-month against what
+// our own Booking records show for platform="Airbnb" in the same month.
+// Bucketed by each booking's check-in date, same convention as every other
+// coarse monthly rollup in this file — this is a reference/reconciliation
+// view, not a proration-accurate revenue series (that's revenueSeries()).
+async function fetchAirbnbEarningsComparison(role: string, ownedUnitIds: string[], filterUnitIdsJoined: string) {
+  const user = { role, ownedUnitIds };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = effectiveUnitIds(user, filterUnitIds);
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+
+  const [reportRows, units, airbnbBookings] = await Promise.all([
+    prismaPool[0].airbnbEarningsMonth.findMany({ orderBy: { month: "asc" } }),
+    prismaPool[1].unit.findMany({ where: unitIdWhere, select: { id: true, unitNumber: true, shortName: true } }),
+    prismaPool[2].booking.findMany({
+      where: { ...bookingUnitWhere, platform: "Airbnb", cancelledAt: null },
+      select: { unitId: true, date: true, amount: true, dpAmount: true, paid: true },
+    }),
+  ]);
+  const scopedUnitIds = new Set(units.map((u) => u.id));
+
+  const appRevenueByMonth = new Map<string, number>();
+  for (const b of airbnbBookings) {
+    const key = new Date(Date.UTC(b.date.getUTCFullYear(), b.date.getUTCMonth(), 1)).toISOString();
+    const collected = (b.paid ? b.amount : 0) + (b.dpAmount ?? 0);
+    appRevenueByMonth.set(key, (appRevenueByMonth.get(key) ?? 0) + collected);
+  }
+
+  const scopedReportRows = effective ? reportRows.filter((r) => r.unitId === null || scopedUnitIds.has(r.unitId)) : reportRows;
+  const monthKeys = [...new Set(scopedReportRows.map((r) => r.month.toISOString()))].sort();
+
+  const months = monthKeys.map((monthIso) => {
+    const portfolioRow = scopedReportRows.find((r) => r.month.toISOString() === monthIso && r.unitId === null && r.unitLabel === null);
+    const unitRows = scopedReportRows.filter((r) => r.month.toISOString() === monthIso && (r.unitId !== null || r.unitLabel !== null));
+    return {
+      month: monthIso,
+      reportedTotalPesos: portfolioRow ? portfolioRow.totalCentavos / 100 : null,
+      appTrackedRevenuePesos: appRevenueByMonth.get(monthIso) ?? 0,
+      unitDetail: unitRows.length > 0
+        ? unitRows.map((r) => ({ unitId: r.unitId, unitLabel: r.unitLabel ?? "Unit", totalPesos: r.totalCentavos / 100 }))
+        : null,
+    };
+  });
+
+  return JSON.parse(JSON.stringify({ months }));
+}
+
+const cachedFetchAirbnbEarningsComparison = unstable_cache(fetchAirbnbEarningsComparison, ["analytics-airbnb-earnings"], { revalidate: 600 });
+
+export type AirbnbEarningsComparison = Awaited<ReturnType<typeof fetchAirbnbEarningsComparison>>;
+
+export async function getAirbnbEarningsComparison(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<AirbnbEarningsComparison> {
+  return cachedFetchAirbnbEarningsComparison(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
+}

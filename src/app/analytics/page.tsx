@@ -18,6 +18,7 @@ import { ExportMenu } from "@/components/analytics/ExportMenu";
 import { AutoRefresh } from "@/components/analytics/AutoRefresh";
 import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
 import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoalsSection";
+import { AirbnbEarningsSection } from "@/components/analytics/sections/AirbnbEarningsSection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
@@ -78,6 +79,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`revenue-${JSON.stringify(filters)}`}>
           <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`airbnb-earnings-${JSON.stringify(filters)}`}>
+          <AirbnbEarningsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
         </Suspense>
       </div>
 

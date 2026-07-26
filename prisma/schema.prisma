@@ -559,6 +559,34 @@ model BookingMigrationRecord {
   @@map("booking_migration_records")
 }
 
+// Airbnb's own reported earnings, imported from the host account's PDF
+// earnings reports (not derived from our own Booking records) — a reference
+// dataset for reconciling what Airbnb says it paid out against what our own
+// bookings show, one row per (month, unit). unitId is null for a
+// portfolio-wide monthly total row (the only granularity Airbnb's yearly
+// report PDFs give per month — per-unit detail is only available in
+// single-month report PDFs). unitId may also reference an Airbnb listing
+// that isn't one of this app's tracked Units (the host account manages
+// other properties too) — unitLabel preserves Airbnb's own home name/number
+// in that case so the row is still readable.
+model AirbnbEarningsMonth {
+  id                    String   @id @default(cuid())
+  month                 DateTime // first-of-month, UTC midnight
+  unitId                String? // null = portfolio total for the month
+  unitLabel             String? // Airbnb's own "Unit XXXX" label, kept even when unitId can't be matched to a tracked Unit
+  grossEarningsCentavos Int
+  serviceFeesCentavos   Int // stored positive (magnitude of the fee)
+  taxWithheldCentavos   Int
+  totalCentavos         Int
+  nightsBooked          Int?
+  avgNightStay          Float?
+  sourceFile            String // originating PDF filename, for audit trail
+  importedAt            DateTime @default(now())
+
+  @@index([month])
+  @@map("airbnb_earnings_months")
+}
+
 // Calendar occupancy blocks: reservations, cleaning holds, maintenance holds.
 model CalendarBlock {
   id         String   @id @default(cuid())
