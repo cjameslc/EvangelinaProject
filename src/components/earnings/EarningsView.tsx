@@ -10,18 +10,21 @@ import { peso, fmtDate, manilaWeekRange, manilaMonthStart, initials } from "@/li
 import { ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { Trophy, Medal, Award, type LucideIcon } from "lucide-react";
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
 import { WorldMapProgress, EliteBadgeButton, AchievementBadgeCard } from "@/components/earnings/WorldMapProgress";
+import { TeamsSection } from "@/components/earnings/TeamsSection";
 import { playFanfare, playPop } from "@/lib/sound";
+import type { UnsplashImage } from "@/lib/unsplash/types";
 
 // Festive top-3 treatment for the Leaderboard — gold/silver/bronze medal
 // badge, a matching soft gradient wash, and a glow ring, so the top spots
 // read as a podium at a glance instead of a plain numbered list.
-const RANK_STYLE: Record<number, { medal: string; badgeBg: string; card: string; ring: string }> = {
-  1: { medal: "🥇", badgeBg: "linear-gradient(135deg,#FFE082,#C87D00)", card: "bg-gradient-to-r from-amber/20 via-amber/5 to-transparent", ring: "ring-2 ring-amber/60" },
-  2: { medal: "🥈", badgeBg: "linear-gradient(135deg,#E9EDF2,#94A3B8)", card: "bg-gradient-to-r from-slate-300/25 via-slate-300/5 to-transparent", ring: "ring-2 ring-slate-300/70" },
-  3: { medal: "🥉", badgeBg: "linear-gradient(135deg,#FDBA74,#B45309)", card: "bg-gradient-to-r from-orange-400/20 via-orange-400/5 to-transparent", ring: "ring-2 ring-orange-400/60" },
+const RANK_STYLE: Record<number, { medal: LucideIcon; badgeBg: string; card: string; ring: string }> = {
+  1: { medal: Trophy, badgeBg: "linear-gradient(135deg,#FFE082,#C87D00)", card: "bg-gradient-to-r from-amber/20 via-amber/5 to-transparent", ring: "ring-2 ring-amber/60" },
+  2: { medal: Medal, badgeBg: "linear-gradient(135deg,#E9EDF2,#94A3B8)", card: "bg-gradient-to-r from-slate-300/25 via-slate-300/5 to-transparent", ring: "ring-2 ring-slate-300/70" },
+  3: { medal: Award, badgeBg: "linear-gradient(135deg,#FDBA74,#B45309)", card: "bg-gradient-to-r from-orange-400/20 via-orange-400/5 to-transparent", ring: "ring-2 ring-orange-400/60" },
 };
 
 type EmployeeLite = { id: string; name: string; role: string };
@@ -150,12 +153,15 @@ function BaseSalaryStat({
 }
 
 export function EarningsView({
-  role, isAdminViewer, ownEmployeeId, employees,
+  role, isAdminViewer, ownEmployeeId, employees, journeyImages, teamImages, unitImages,
 }: {
   role: string;
   isAdminViewer: boolean;
   ownEmployeeId: string | null;
   employees: EmployeeLite[];
+  journeyImages?: Record<string, UnsplashImage[]>;
+  teamImages?: Record<string, UnsplashImage[]>;
+  unitImages?: Record<string, UnsplashImage[]>;
 }) {
   // Owners land on the company-wide summary by default rather than a
   // specific employee's earnings — that's the primary reason for being on
@@ -411,7 +417,9 @@ export function EarningsView({
         </div>
       </Accordion>
 
-      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} employeeId={data.employee.id} />}
+      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} employeeId={data.employee.id} journeyImages={journeyImages} />}
+
+      <TeamsSection teamImages={teamImages} unitImages={unitImages} />
 
       {(data.employee.role === "BOOKER" || data.employee.role === "HOUSEKEEPING") && (
         <Accordion title="Achievements">
@@ -528,7 +536,7 @@ export function EarningsView({
                       )}
                       style={style ? { background: style.badgeBg } : undefined}
                     >
-                      {style ? style.medal : rank}
+                      {style ? <style.medal className="h-[10px] w-[10px]" /> : rank}
                     </span>
                   </span>
                   <div className="min-w-0 flex-1">
@@ -568,7 +576,11 @@ export function EarningsView({
                     )}
                   </div>
                 )}
-                {RANK_STYLE[leaderboard.rank] && <div className="animate-float text-4xl">{RANK_STYLE[leaderboard.rank].medal}</div>}
+                {RANK_STYLE[leaderboard.rank] && (
+                  <div className="flex animate-float justify-center text-amber">
+                    {(() => { const RankIcon = RANK_STYLE[leaderboard.rank].medal; return <RankIcon className="h-9 w-9" />; })()}
+                  </div>
+                )}
                 <div className="text-3xl font-extrabold text-rausch">#{leaderboard.rank}</div>
                 <p className="mt-1 text-[13px] text-[var(--gray)]">out of {leaderboard.total} booker{leaderboard.total === 1 ? "" : "s"} this month</p>
                 {leaderboard.own && <p className="mt-2 text-[13px] font-semibold">{leaderboard.own.completedThisMonth} completed bookings</p>}
@@ -587,11 +599,11 @@ export function EarningsView({
 // Challenge data (see WorldMapProgress.tsx) — same numbers as before,
 // presented as a journey through seven original waypoints instead of a
 // plain stat card. No licensed art/characters/music of any kind.
-function EliteChallengeQuest({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
+function EliteChallengeQuest({ challenge, employeeId, journeyImages }: { challenge: EliteChallenge; employeeId: string; journeyImages?: Record<string, UnsplashImage[]> }) {
   return (
     <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
       <div className="mb-4">
-        <WorldMapProgress challenge={challenge} employeeId={employeeId} />
+        <WorldMapProgress challenge={challenge} employeeId={employeeId} journeyImages={journeyImages} />
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
         {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} />)}

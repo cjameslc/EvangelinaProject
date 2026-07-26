@@ -53,6 +53,23 @@ export const UNSPLASH_CATEGORIES: UnsplashCategoryDef[] = [
   { key: "tile-guest-guide", query: "travel guide map planning", count: 2 },
   { key: "tile-faqs", query: "hotel concierge desk", count: 2 },
   { key: "tile-support", query: "smiling receptionist hospitality", count: 2 },
+
+  // Gamification module (My Earnings > Elite Booker Challenge world map +
+  // Teams section) — one query per journey zone / team theme, per the
+  // visual-enhancement spec. Unit Priority Cards deliberately reuse the
+  // existing gallery-bedroom/gallery-living-area/room-info categories
+  // above instead of adding 3 more calls here — they already match the
+  // requested "cozy condo / luxury bedroom / modern interior" keywords.
+  { key: "journey-village", query: "cozy neighborhood residential street", count: 2 },
+  { key: "journey-forest", query: "lush pine forest nature trail", count: 2 },
+  { key: "journey-castle", query: "boutique luxury hotel lobby", count: 2 },
+  { key: "journey-peak", query: "mountain summit scenic viewpoint", count: 2 },
+  { key: "journey-volcano", query: "volcanic mountain dramatic landscape", count: 2 },
+  { key: "journey-sky", query: "blue sky aerial clouds", count: 2 },
+  { key: "journey-kingdom", query: "luxury penthouse skyline night lights", count: 2 },
+  { key: "team-booking", query: "hotel reception hospitality handshake", count: 2 },
+  { key: "team-housekeeping", query: "clean hotel room fresh linens luxury bedroom", count: 2 },
+  { key: "team-operations", query: "building maintenance technician property management", count: 2 },
 ];
 
 export const UNSPLASH_CATEGORY_KEYS = UNSPLASH_CATEGORIES.map((c) => c.key);

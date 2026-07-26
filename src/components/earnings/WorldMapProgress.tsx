@@ -6,6 +6,14 @@ import { peso } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/Modal";
 import { playCoin, playFanfare, playXpGain, playChestOpen, playPop, playQuestComplete, getSoundPrefs, subscribeSoundPrefs, setSoundEnabled, setSoundVolume } from "@/lib/sound";
+import { UnsplashImage } from "@/components/guest/UnsplashImage";
+import { pickStable } from "@/lib/unsplash/pick";
+import type { UnsplashImage as UnsplashImageData } from "@/lib/unsplash/types";
+import {
+  Home, TreePine, Castle, Mountain, Flame, Cloud, Crown,
+  Medal, Award, Trophy, Gem, Lock, DoorOpen, Info, Volume2, VolumeX,
+  Ticket, Coins, Map as MapIcon, RefreshCw, HelpCircle, type LucideIcon,
+} from "lucide-react";
 
 type EliteTierStatus = { tier: number; amount: number; stars: number; badge: string; medal: string; slotsTotal: number; slotsTaken: number; wonByMe: boolean };
 type EliteChallenge = {
@@ -30,14 +38,19 @@ type Achievement = { id: string; label: string; unlocked: boolean; threshold?: n
 // skin. Evangelina's Kingdom, the finale, makes the brand itself the
 // legendary destination.
 const WORLD_NODES = [
-  { key: "village", threshold: 0, icon: "🏘️", label: "Cubao Village", from: "#7ED957", to: "#4FC3F7" },
-  { key: "forest", threshold: 25, icon: "🌲", label: "Araneta Forest", from: "#3FA34D", to: "#2E7D32" },
-  { key: "bronze", threshold: 50, icon: "🏰", label: "Comfort Castle", from: "#C97A3D", to: "#8D5524" },
-  { key: "silver", threshold: 100, icon: "⛰️", label: "Cozy Peak", from: "#8EA9C1", to: "#5C7A99" },
-  { key: "gold", threshold: 150, icon: "🌋", label: "Relax Volcano", from: "#FF7A45", to: "#B71C1C" },
-  { key: "platinum", threshold: 200, icon: "☁️", label: "Signature Sky", from: "#B3E5FC", to: "#7C9EFF" },
-  { key: "legend", threshold: 250, icon: "👑", label: "Evangelina's Kingdom", from: "#B983FF", to: "#6C5CE7" },
+  { key: "village", imageKey: "journey-village", threshold: 0, icon: Home, label: "Cubao Village", from: "#7ED957", to: "#4FC3F7" },
+  { key: "forest", imageKey: "journey-forest", threshold: 25, icon: TreePine, label: "Araneta Forest", from: "#3FA34D", to: "#2E7D32" },
+  { key: "bronze", imageKey: "journey-castle", threshold: 50, icon: Castle, label: "Comfort Castle", from: "#C97A3D", to: "#8D5524" },
+  { key: "silver", imageKey: "journey-peak", threshold: 100, icon: Mountain, label: "Cozy Peak", from: "#8EA9C1", to: "#5C7A99" },
+  { key: "gold", imageKey: "journey-volcano", threshold: 150, icon: Flame, label: "Relax Volcano", from: "#FF7A45", to: "#B71C1C" },
+  { key: "platinum", imageKey: "journey-sky", threshold: 200, icon: Cloud, label: "Signature Sky", from: "#B3E5FC", to: "#7C9EFF" },
+  { key: "legend", imageKey: "journey-kingdom", threshold: 250, icon: Crown, label: "Evangelina's Kingdom", from: "#B983FF", to: "#6C5CE7" },
 ] as const;
+
+// Bronze → Legend tier medal icons, in tier order — replaces the old emoji
+// medal strings (gamification.ts's own `medal` field is left as-is for any
+// non-UI consumers; this component renders its own icon by index instead).
+const TIER_ICONS: LucideIcon[] = [Medal, Award, Trophy, Gem, Crown];
 
 // A few in-character tips/encouragements the mascot hands out from the
 // Mystery Reward Box — flavor only, no mechanical effect.
@@ -70,7 +83,7 @@ function useCountUp(target: number, durationMs = 900) {
   return value;
 }
 
-export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteChallenge; employeeId: string }) {
+export function WorldMapProgress({ challenge, employeeId, journeyImages }: { challenge: EliteChallenge; employeeId: string; journeyImages?: Record<string, UnsplashImageData[]> }) {
   const completed = challenge.completedThisMonth;
   const maxThreshold = WORLD_NODES[WORLD_NODES.length - 1].threshold;
   const overallPct = Math.min(100, (completed / maxThreshold) * 100);
@@ -83,6 +96,8 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
   }, [completed]);
   const zone = WORLD_NODES[currentZoneIndex];
   const isNight = zone.key === "legend"; // Legend Kingdom reads as a starry night-sky realm
+  const zoneImage = pickStable(journeyImages?.[zone.imageKey] ?? [], zone.key);
+  const ZoneIcon = zone.icon;
 
   const displayedCompleted = useCountUp(completed);
   const displayedCommission = useCountUp(challenge.estimatedCommission);
@@ -125,6 +140,11 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
       className="relative overflow-hidden rounded-2xl p-5 text-white transition-colors duration-1000 [text-shadow:0_1px_5px_rgba(0,0,0,0.55)]"
       style={{ background: `linear-gradient(160deg, ${zone.from}, ${zone.to})` }}
     >
+      {zoneImage && (
+        <div className="pointer-events-none absolute inset-0 opacity-35 mix-blend-overlay transition-opacity duration-1000">
+          <UnsplashImage image={zoneImage} alt={zone.label} className="h-full w-full" showAttribution={false} />
+        </div>
+      )}
       <SkyLayer isNight={isNight} />
 
       {/* Header */}
@@ -136,7 +156,7 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
                 <span className="inline-block animate-float">{"⭐".repeat(challenge.currentStars)}</span> {challenge.currentBadge}
               </span>
             ) : (
-              <span>{zone.icon} Traveling through {zone.label}</span>
+              <span className="inline-flex items-center gap-1.5"><ZoneIcon className="h-[18px] w-[18px]" /> Traveling through {zone.label}</span>
             )}
           </div>
           <div className="mt-0.5 text-[13px] text-white/85">
@@ -163,12 +183,15 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
             own spin on a "warp gate," since every world here is a stay. */}
         <div className="absolute left-0 top-[13px] flex w-full justify-between px-[calc(50%/7)]">
           {WORLD_NODES.slice(0, -1).map((n, i) => (
-            <span key={n.key} className={cn("text-[13px] opacity-0 sm:opacity-100", completed >= WORLD_NODES[i + 1].threshold ? "grayscale-0" : "grayscale opacity-40")}>🚪</span>
+            <span key={n.key} className={cn("opacity-0 sm:opacity-100", completed >= WORLD_NODES[i + 1].threshold ? "grayscale-0" : "grayscale opacity-40")}>
+              <DoorOpen className="h-[13px] w-[13px]" />
+            </span>
           ))}
         </div>
         <div className="relative flex justify-between">
           {WORLD_NODES.map((n) => {
             const reached = completed >= n.threshold;
+            const NodeIcon = n.icon;
             return (
               <div key={n.key} className="flex flex-col items-center" style={{ width: `${100 / WORLD_NODES.length}%` }}>
                 <motion.div
@@ -176,11 +199,11 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ type: "spring", stiffness: 260, damping: 16 }}
                   className={cn(
-                    "grid h-9 w-9 place-items-center rounded-full border-2 text-[16px] shadow-md",
+                    "grid h-9 w-9 place-items-center rounded-full border-2 shadow-md",
                     reached ? "border-white bg-white/25 backdrop-blur-sm" : "border-white/30 bg-black/10 opacity-50 grayscale"
                   )}
                 >
-                  {n.icon}
+                  <NodeIcon className="h-[17px] w-[17px]" />
                 </motion.div>
                 <div className={cn("mt-1 text-center text-[9.5px] font-bold leading-tight", reached ? "text-white" : "text-white/60")}>{n.label}</div>
               </div>
@@ -216,15 +239,17 @@ export function WorldMapProgress({ challenge, employeeId }: { challenge: EliteCh
 
       {challenge.nextTier ? (
         <div className="relative mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[13px] font-semibold text-white/90">
-            <b className="text-white">{challenge.remaining} more booking{challenge.remaining === 1 ? "" : "s"}</b> to unlock 💰 {peso(challenge.nextTierAmount ?? 0)}
+          <p className="inline-flex items-center gap-1 text-[13px] font-semibold text-white/90">
+            <b className="text-white">{challenge.remaining} more booking{challenge.remaining === 1 ? "" : "s"}</b> to unlock <Coins className="h-[13px] w-[13px]" /> {peso(challenge.nextTierAmount ?? 0)}
           </p>
-          <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", challenge.slotsRemainingForNextTier > 0 ? "bg-white/25" : "bg-black/25")}>
-            🎟️ {challenge.slotsRemainingForNextTier} of {challenge.slotsTotalForNextTier} slots left
+          <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold", challenge.slotsRemainingForNextTier > 0 ? "bg-white/25" : "bg-black/25")}>
+            <Ticket className="h-[12px] w-[12px]" /> {challenge.slotsRemainingForNextTier} of {challenge.slotsTotalForNextTier} slots left
           </span>
         </div>
       ) : (
-        <p className="relative mt-3 text-[13px] font-extrabold">👑 You&apos;ve reached Evangelina&apos;s Kingdom this month — legendary!</p>
+        <p className="relative mt-3 inline-flex items-center gap-1.5 text-[13px] font-extrabold">
+          <Crown className="h-[15px] w-[15px]" /> You&apos;ve reached Evangelina&apos;s Kingdom this month — legendary!
+        </p>
       )}
 
       <div className="relative mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3">
@@ -334,6 +359,7 @@ function SkyLayer({ isNight }: { isNight: boolean }) {
 }
 
 export function EliteBadgeButton({ tier, index }: { tier: EliteTierStatus; index: number }) {
+  const TierIcon = TIER_ICONS[index] ?? Medal;
   return (
     <button
       type="button"
@@ -344,11 +370,11 @@ export function EliteBadgeButton({ tier, index }: { tier: EliteTierStatus; index
         tier.wonByMe ? "animate-glow-pulse border-rausch/40 bg-gradient-to-b from-rausch/10 to-transparent" : "border-[var(--line)] opacity-60 grayscale hover:opacity-90 hover:grayscale-0"
       )}
     >
-      <div className={cn("text-lg", tier.wonByMe && "animate-float")}>{tier.medal}</div>
+      <TierIcon className={cn("mx-auto h-5 w-5 text-rausch", tier.wonByMe && "animate-float")} />
       <div className="mt-0.5 text-[11.5px] font-extrabold">{tier.badge}</div>
       <div className="text-[10.5px] text-[var(--gray)]">{tier.tier} bookings · {peso(tier.amount)}</div>
       <div className="mt-1 text-[10.5px] font-bold text-[var(--gray)]">{Math.max(0, tier.slotsTotal - tier.slotsTaken)} of {tier.slotsTotal} slots left</div>
-      {!tier.wonByMe && <div className="absolute right-1.5 top-1.5 text-[11px] opacity-40">🔒</div>}
+      {!tier.wonByMe && <Lock className="absolute right-1.5 top-1.5 h-3 w-3 opacity-40" />}
     </button>
   );
 }
@@ -427,43 +453,46 @@ function HowItWorksButton({ challenge }: { challenge: EliteChallenge }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="grid h-9 w-9 place-items-center rounded-xl bg-white/15 text-[15px] backdrop-blur-sm hover:bg-white/25"
+        className="grid h-9 w-9 place-items-center rounded-xl bg-white/15 backdrop-blur-sm hover:bg-white/25"
         aria-label="How this works"
         title="How this works"
       >
-        ℹ️
+        <Info className="h-[17px] w-[17px]" />
       </button>
       {open && (
         <Modal open onClose={() => setOpen(false)} title="How the Elite Booker Challenge works" maxWidth={480} footer={<button onClick={() => setOpen(false)} className="btn-primary ml-auto">Got it</button>}>
           <div className="space-y-4 text-[13px] text-[var(--gray)]">
             <section>
-              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🗺️ The world map</h3>
+              <h3 className="mb-1 inline-flex items-center gap-1.5 text-[13px] font-extrabold text-[var(--ink)]"><MapIcon className="h-[15px] w-[15px]" /> The world map</h3>
               <p>Your position on the road tracks <b className="text-[var(--ink)]">completed bookings this month</b> — a booking counts once the stay is actually finished, not the moment it&rsquo;s logged. Every completed booking moves you further along, through Cubao Village → Araneta Forest → Comfort Castle → Cozy Peak → Relax Volcano → Signature Sky → Evangelina&rsquo;s Kingdom.</p>
             </section>
             <section>
-              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🏆 Reward tiers</h3>
+              <h3 className="mb-1 inline-flex items-center gap-1.5 text-[13px] font-extrabold text-[var(--ink)]"><Trophy className="h-[15px] w-[15px]" /> Reward tiers</h3>
               <p className="mb-1.5">Five of the seven worlds carry a real ₱ reward, with <b className="text-[var(--ink)]">limited slots</b> — first come, first served each month:</p>
               <div className="overflow-hidden rounded-xl border border-[var(--line)]">
-                {challenge.tiers.map((t) => (
-                  <div key={t.tier} className="flex items-center justify-between border-t border-[var(--line)] px-3 py-1.5 text-[12px] first:border-0">
-                    <span>{t.medal} {t.badge} · {t.tier} bookings</span>
-                    <span className="font-bold text-[var(--ink)]">{peso(t.amount)} · {t.slotsTotal} slot{t.slotsTotal === 1 ? "" : "s"}</span>
-                  </div>
-                ))}
+                {challenge.tiers.map((t, i) => {
+                  const TIcon = TIER_ICONS[i] ?? Medal;
+                  return (
+                    <div key={t.tier} className="flex items-center justify-between border-t border-[var(--line)] px-3 py-1.5 text-[12px] first:border-0">
+                      <span className="inline-flex items-center gap-1.5"><TIcon className="h-3.5 w-3.5" /> {t.badge} · {t.tier} bookings</span>
+                      <span className="font-bold text-[var(--ink)]">{peso(t.amount)} · {t.slotsTotal} slot{t.slotsTotal === 1 ? "" : "s"}</span>
+                    </div>
+                  );
+                })}
               </div>
               <p className="mt-1.5">Whoever reaches a tier&rsquo;s booking count first claims a slot — once a tier&rsquo;s slots are full, later bookers can still reach that world, just without the ₱ reward attached.</p>
             </section>
             <section>
-              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🎖️ Achievements</h3>
+              <h3 className="mb-1 inline-flex items-center gap-1.5 text-[13px] font-extrabold text-[var(--ink)]"><Award className="h-[15px] w-[15px]" /> Achievements</h3>
               <p>Separate from the monthly challenge — these are set per person by the owner, based on your <b className="text-[var(--ink)]">lifetime</b> completed bookings/cleanings, not this month&rsquo;s. Once unlocked, a badge (and its ₱ reward, if it has one) is yours for good — it never resets.</p>
             </section>
             <section>
-              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">🔁 Monthly reset</h3>
+              <h3 className="mb-1 inline-flex items-center gap-1.5 text-[13px] font-extrabold text-[var(--ink)]"><RefreshCw className="h-[15px] w-[15px]" /> Monthly reset</h3>
               <p>The world map and tier rewards reset on the 1st of every month. Rank, slots, and position all start over — but every badge you&rsquo;ve already earned stays earned.</p>
             </section>
             <section>
-              <h3 className="mb-1 text-[13px] font-extrabold text-[var(--ink)]">❓ Mystery Box &amp; sound</h3>
-              <p>The gold “?” along the road just hands out a quick tip for fun — it doesn&rsquo;t change your rewards. The 🔊 button next to it mutes or adjusts the little sound effects; your choice is remembered next time you visit.</p>
+              <h3 className="mb-1 inline-flex items-center gap-1.5 text-[13px] font-extrabold text-[var(--ink)]"><HelpCircle className="h-[15px] w-[15px]" /> Mystery Box &amp; sound</h3>
+              <p>The gold “?” along the road just hands out a quick tip for fun — it doesn&rsquo;t change your rewards. The sound button next to it mutes or adjusts the little sound effects; your choice is remembered next time you visit.</p>
             </section>
           </div>
         </Modal>
@@ -481,11 +510,11 @@ function SoundControl() {
       <button
         type="button"
         onClick={() => setSoundEnabled(!prefs.enabled)}
-        className="grid h-6 w-6 place-items-center text-[13px]"
+        className="grid h-6 w-6 place-items-center"
         aria-label={prefs.enabled ? "Mute sound effects" : "Unmute sound effects"}
         title={prefs.enabled ? "Mute sound effects" : "Unmute sound effects"}
       >
-        {prefs.enabled ? "🔊" : "🔇"}
+        {prefs.enabled ? <Volume2 className="h-[15px] w-[15px]" /> : <VolumeX className="h-[15px] w-[15px]" />}
       </button>
       {prefs.enabled && (
         <input
@@ -532,9 +561,15 @@ export function AchievementBadgeCard({ a, index }: { a: Achievement; index: numb
       )}
     >
       {a.unlocked && <div className="pointer-events-none absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/40 to-transparent bg-[length:200%_100%]" />}
-      <div className={cn("relative text-2xl", a.unlocked && "animate-float")}>{a.unlocked ? "🏆" : "🔒"}</div>
+      <div className={cn("relative flex justify-center", a.unlocked && "animate-float")}>
+        {a.unlocked ? <Trophy className="h-6 w-6 text-rausch" /> : <Lock className="h-6 w-6 text-[var(--gray)]" />}
+      </div>
       <div className="relative mt-1.5 text-[12.5px] font-bold">{a.label}</div>
-      {a.unlocked && !!a.rewardAmount && <div className="relative mt-0.5 text-[12px] font-bold text-green">🪙 {peso(a.rewardAmount)}</div>}
+      {a.unlocked && !!a.rewardAmount && (
+        <div className="relative mt-0.5 inline-flex items-center gap-1 text-[12px] font-bold text-green">
+          <Coins className="h-3.5 w-3.5" /> {peso(a.rewardAmount)}
+        </div>
+      )}
       {a.unlocked && a.personalMessage && <div className="relative mt-1 text-[11px] italic text-[var(--gray)]">&ldquo;{a.personalMessage}&rdquo;</div>}
       <AnimatePresence>
         {sparkling && (
