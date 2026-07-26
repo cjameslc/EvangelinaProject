@@ -109,7 +109,7 @@ export function Navbar({ viewMode }: { viewMode: ViewMode }) {
   }
 
   return (
-    <nav className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
+    <nav className="z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-3 px-4 sm:px-6">
         <Link href={isStaffNav ? "/dashboard" : "/"} className="flex flex-none items-center gap-2 font-extrabold text-rausch">
           {/* eslint-disable-next-line @next/next/no-img-element */}

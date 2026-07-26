@@ -17,7 +17,7 @@ export default async function AdminPage() {
   const month = manilaMonthStart();
   await ensureRecurringBillsForMonth(month).catch(() => {});
 
-  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows] = await Promise.all([
+  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows, impersonationLogs] = await Promise.all([
     prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
     // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
     // profile photo) IS fetched here now so Users & roles shows each
@@ -53,6 +53,8 @@ export default async function AdminPage() {
     // Feeds the Settings tab's "Nearby places data" refresh panel — one
     // row per category that's been refreshed at least once.
     prismaPool[8].placeInsight.groupBy({ by: ["category"], _count: { _all: true }, _max: { lastFetchedAt: true } }),
+    // Feeds the Settings tab's "Security" section — Impersonation Logs.
+    prismaPool[9 % prismaPool.length].impersonationSession.findMany({ orderBy: { startedAt: "desc" }, take: 300 }),
   ]);
 
   const safeSettings = { ...settings, checklistGroups: (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS };
@@ -73,6 +75,7 @@ export default async function AdminPage() {
       feedbackAnalytics={JSON.parse(JSON.stringify(feedbackAnalytics))}
       guidebookCategories={JSON.parse(JSON.stringify(guidebookCategories))}
       placeInsightSummary={JSON.parse(JSON.stringify(placeInsightSummary))}
+      impersonationLogs={JSON.parse(JSON.stringify(impersonationLogs))}
     />
   );
 }

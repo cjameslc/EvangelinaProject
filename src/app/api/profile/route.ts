@@ -21,9 +21,18 @@ export async function GET() {
 // Self-service only: every field here applies to the caller's own account
 // (user.id from the session), never a target id from the request body — so
 // this route can be open to every role without becoming an escalation path.
+//
+// That "every role" openness is exactly why an active impersonation session
+// must be blocked here explicitly: during impersonation, user.id is the
+// TARGET's id (see the JWT swap in src/lib/auth.ts), so without this check
+// an admin impersonating someone could silently change that person's real
+// password or email through their own self-service route.
 export async function PATCH(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
+  if (user.impersonating) {
+    return NextResponse.json({ error: "Profile changes are disabled while impersonating another user." }, { status: 403 });
+  }
 
   let body;
   try {

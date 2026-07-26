@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
+import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { manilaDayStart } from "@/lib/format";
 import { getCachedActiveUnitCount } from "@/lib/bookingEngine/unitsCache";
 import { getViewMode } from "@/lib/viewMode";
@@ -40,7 +41,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="font-sans antialiased">
         <Providers>
           <ServiceWorkerRegister />
-          <Navbar viewMode={viewMode} />
+          <div className="sticky top-0 z-40">
+            <ImpersonationBanner />
+            <Navbar viewMode={viewMode} />
+          </div>
           <main className="pb-16 md:pb-0">{children}</main>
           <InstallPrompt />
           <footer className="mb-16 mt-14 border-t border-[var(--line)] bg-[var(--bg-2)] md:mb-0">

@@ -73,16 +73,80 @@ export const authOptions: NextAuthOptions = {
         token.ownedUnitIds = user.ownedUnitIds;
         token.avatarColor = user.avatarColor;
         token.mustChangePassword = user.mustChangePassword;
+        token.name = user.name;
+        token.email = user.email ?? undefined;
       }
       // Lets the Profile page push name/email/avatar edits, and the forced
       // change-password screen clear its flag, into the live session (via
       // useSession().update()) without forcing a re-login.
-      if (trigger === "update" && session) {
+      if (trigger === "update" && session && !session.__impersonate) {
         if (session.name) token.name = session.name;
         if (session.email) token.email = session.email;
         if (session.avatarColor) token.avatarColor = session.avatarColor;
         if (session.mustChangePassword === false) token.mustChangePassword = false;
       }
+
+      // Admin impersonation: the client triggers these via
+      // useSession().update({ __impersonate: { action, ... } }) — see
+      // src/lib/impersonation.ts. Everything here is re-validated
+      // server-side (never trust the client payload beyond an id to look
+      // up), and the swap lives entirely inside this one signed cookie —
+      // logging out or letting the cookie expire ends impersonation for
+      // free, no separate cleanup needed for those two cases.
+      if (trigger === "update" && session?.__impersonate?.action === "start") {
+        const { sessionId } = session.__impersonate;
+        if (!token.impersonating && sessionId) {
+          const record = await prisma.impersonationSession.findUnique({ where: { id: sessionId } });
+          if (record && record.adminUserId === token.id && !record.endedAt) {
+            const target = await prisma.user.findUnique({ where: { id: record.targetUserId }, include: { ownedUnits: { select: { unitId: true } } } });
+            if (target && target.active && target.role !== "OWNER_ADMIN") {
+              token.realUser = {
+                id: token.id, name: token.name as string, username: token.username, email: (token.email as string | undefined) ?? null,
+                role: token.role, ownedUnitIds: token.ownedUnitIds, avatarColor: token.avatarColor, mustChangePassword: token.mustChangePassword,
+              };
+              token.id = target.id;
+              token.name = target.name;
+              token.username = target.username;
+              token.email = target.email;
+              token.role = target.role as Role;
+              token.ownedUnitIds = target.ownedUnits.map((o) => o.unitId);
+              token.avatarColor = target.avatarColor;
+              token.mustChangePassword = false; // never force the impersonated view into the change-password screen
+              token.impersonating = true;
+              token.impersonationSessionId = sessionId;
+              token.impersonationStartedAt = Date.now();
+              token.impersonationLastActivityAt = Date.now();
+            }
+          }
+        }
+      }
+      if (trigger === "update" && session?.__impersonate?.action === "stop") {
+        if (token.impersonating && token.realUser) {
+          await prisma.impersonationSession.updateMany({
+            where: { id: token.impersonationSessionId, endedAt: null },
+            data: {
+              endedAt: new Date(),
+              durationSeconds: token.impersonationStartedAt ? Math.round((Date.now() - token.impersonationStartedAt) / 1000) : null,
+              endReason: "manual",
+            },
+          }).catch(() => {});
+          const real = token.realUser;
+          token.id = real.id;
+          token.name = real.name;
+          token.username = real.username;
+          token.email = real.email ?? undefined;
+          token.role = real.role;
+          token.ownedUnitIds = real.ownedUnitIds;
+          token.avatarColor = real.avatarColor;
+          token.mustChangePassword = real.mustChangePassword;
+          delete token.realUser;
+          delete token.impersonating;
+          delete token.impersonationSessionId;
+          delete token.impersonationStartedAt;
+          delete token.impersonationLastActivityAt;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -94,7 +158,31 @@ export const authOptions: NextAuthOptions = {
       session.user.ownedUnitIds = token.ownedUnitIds;
       session.user.avatarColor = token.avatarColor;
       session.user.mustChangePassword = token.mustChangePassword;
+      if (token.impersonating) {
+        session.user.impersonating = true;
+        session.user.impersonationSessionId = token.impersonationSessionId;
+        session.user.impersonationStartedAt = token.impersonationStartedAt;
+        session.user.realUser = token.realUser;
+      }
       return session;
+    },
+  },
+  events: {
+    // Covers the "admin logs out while impersonating" case — impersonation
+    // otherwise ends implicitly with the cookie for a normal logout, but
+    // the ImpersonationSession audit row still needs an endedAt so it
+    // doesn't sit "active" forever in the log.
+    async signOut({ token }) {
+      if (token?.impersonating && token.impersonationSessionId) {
+        await prisma.impersonationSession.updateMany({
+          where: { id: token.impersonationSessionId, endedAt: null },
+          data: {
+            endedAt: new Date(),
+            durationSeconds: token.impersonationStartedAt ? Math.round((Date.now() - token.impersonationStartedAt) / 1000) : null,
+            endReason: "admin_logout",
+          },
+        }).catch(() => {});
+      }
     },
   },
 };

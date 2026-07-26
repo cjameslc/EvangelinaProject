@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
-import { PlusIcon, EditIcon, TrashIcon, ChevronDownIcon } from "@/components/ui/Icons";
+import { PlusIcon, EditIcon, TrashIcon, ChevronDownIcon, UserIcon } from "@/components/ui/Icons";
 import { ROLE_LABEL } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
+import { useImpersonation } from "@/lib/impersonation";
 import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; shortName: string };
@@ -17,7 +19,9 @@ const PAGE_SIZE = 10;
 
 export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; onUsersChange: (users: UserRow[]) => void; units: Unit[] }) {
   const toast = useToast();
+  const { data: session } = useSession();
   const [modal, setModal] = useState<{ user?: UserRow } | null>(null);
+  const [impersonateTarget, setImpersonateTarget] = useState<UserRow | null>(null);
   const [showArchive, setShowArchive] = useState(false);
   const [activePage, setActivePage] = useState(1);
   const [archivePage, setArchivePage] = useState(1);
@@ -102,6 +106,10 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
             </div>
             <span className="rounded-full bg-rausch/10 px-2.5 py-1 text-[11.5px] font-bold text-rausch">{ROLE_LABEL[u.role]}</span>
             <div className="flex gap-1">
+              {/* Super Admin only, per the admin page's own OWNER_ADMIN gate — never offered for another Owner/Admin or for your own row. */}
+              {session?.user?.role === "OWNER_ADMIN" && u.role !== "OWNER_ADMIN" && u.id !== session.user.id && (
+                <button onClick={() => setImpersonateTarget(u)} title={`Log in as ${u.name}`} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--gray)] hover:bg-teal/10 hover:text-teal"><UserIcon className="h-4 w-4" /></button>
+              )}
               <button onClick={() => setModal({ user: u })} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
               <button onClick={() => archive(u.id)} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
             </div>
@@ -151,7 +159,53 @@ export function UsersTab({ users, onUsersChange, units }: { users: UserRow[]; on
       </div>
 
       {modal && <UserModal user={modal.user} units={units} onClose={() => setModal(null)} onSave={save} />}
+      {impersonateTarget && <ImpersonateModal user={impersonateTarget} onClose={() => setImpersonateTarget(null)} />}
     </div>
+  );
+}
+
+function ImpersonateModal({ user, onClose }: { user: UserRow; onClose: () => void }) {
+  const [reason, setReason] = useState("");
+  const { startImpersonation, starting } = useImpersonation();
+  const toast = useToast();
+
+  async function confirm() {
+    const result = await startImpersonation(user.id, reason);
+    if (!result.ok) { toast(result.error ?? "Couldn't start impersonation", true); return; }
+    // startImpersonation already navigates away on success — nothing left to do here.
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Log in as ${user.name}?`}
+      sub="You'll see and act on everything exactly as this account — nothing more."
+      footer={<><button onClick={onClose} className="btn-ghost">Cancel</button><button onClick={confirm} disabled={starting} className="btn-primary ml-auto">{starting ? "Starting…" : "Start impersonation"}</button></>}
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] p-3">
+          {user.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatarUrl} alt={user.name} className="h-10 w-10 flex-none rounded-full object-cover" />
+          ) : (
+            <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-gradient-to-br from-rausch to-[#C13584] text-[13px] font-bold text-white">{initials(user.name)}</span>
+          )}
+          <div className="min-w-0">
+            <div className="text-[14px] font-bold">{user.name}</div>
+            <div className="text-[12px] text-[var(--gray)]">@{user.username} · {ROLE_LABEL[user.role]}</div>
+          </div>
+        </div>
+        <div>
+          <label className="field-label">Reason (optional)</label>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Troubleshooting a booking issue" className="field-input mt-1.5" />
+          <p className="mt-1 text-[11.5px] text-[var(--gray)]">Recorded in the impersonation audit log along with this session's start/end time and your IP.</p>
+        </div>
+        <p className="rounded-xl bg-amber/10 px-3 py-2.5 text-[11.5px] text-amber">
+          This session ends automatically after 30 minutes of inactivity, or any time you click &ldquo;Return to My Account.&rdquo; Your own session stays signed in the whole time.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
