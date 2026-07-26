@@ -346,22 +346,25 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
   }, [insightBookings]);
 
-  type MethodKey = "Cash" | "GCash" | "BankTransfer" | "Other";
-  const METHOD_KEYS: MethodKey[] = ["Cash", "GCash", "BankTransfer", "Other"];
+  type MethodKey = "Cash" | "GCash" | "BankTransfer";
+  const METHOD_KEYS: MethodKey[] = ["Cash", "GCash", "BankTransfer"];
 
   // Where the money went — per receiver, broken down by how it came in.
   // Airbnb bookings never have a manual "received by"/method (nobody at the
   // property takes that payment by hand) — Airbnb pays out via bank
   // transfer, so that revenue is attributed to a dedicated "Airbnb" entry
   // with method Bank transfer, rather than silently missing from this list.
+  // Only these 3 real methods ever exist here — a booking with no method
+  // recorded at all falls back to GCash (the property's actual default/most
+  // common collection method), never a 4th "Unspecified" bucket.
   const byReceiver = useMemo(() => {
     const map = new Map<string, { total: number; byMethod: Record<MethodKey, number> }>();
     function add(name: string, amount: number, method: string | null) {
       if (!amount) return;
-      if (!map.has(name)) map.set(name, { total: 0, byMethod: { Cash: 0, GCash: 0, BankTransfer: 0, Other: 0 } });
+      if (!map.has(name)) map.set(name, { total: 0, byMethod: { Cash: 0, GCash: 0, BankTransfer: 0 } });
       const entry = map.get(name)!;
       entry.total += amount;
-      const key: MethodKey = (method === "Cash" || method === "GCash" || method === "BankTransfer") ? method : "Other";
+      const key: MethodKey = (method === "Cash" || method === "BankTransfer") ? method : "GCash";
       entry.byMethod[key] += amount;
     }
     insightBookings.forEach((b) => {
@@ -757,7 +760,7 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
                     <div className="mb-2.5 ml-5 space-y-1">
                       {METHOD_KEYS.filter((k) => data.byMethod[k] > 0).map((k) => (
                         <div key={k} className="flex items-center justify-between text-[12px] text-[var(--gray)]">
-                          <span>{k === "Other" ? "Unspecified method" : PAYMENT_METHOD_LABEL[k]}</span>
+                          <span>{PAYMENT_METHOD_LABEL[k]}</span>
                           <span className="font-semibold text-[var(--ink)]">{peso(data.byMethod[k])}</span>
                         </div>
                       ))}
