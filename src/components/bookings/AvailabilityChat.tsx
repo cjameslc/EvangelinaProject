@@ -9,8 +9,8 @@ import { CalendarIcon } from "@/components/ui/Icons";
 type Unit = { id: string; unitNumber: string; shortName: string };
 const STAY_TYPE_KEYS = ["Daycation", "Night", "Full"] as const;
 
-type Option = { unitId: string; unit: string; stayType: string; date: string; available: boolean };
-type AvailabilityResult = {
+export type Option = { unitId: string; unit: string; stayType: string; date: string; available: boolean };
+export type AvailabilityResult = {
   date: string;
   requested: Option[];
   allAvailable: boolean;
@@ -35,7 +35,17 @@ function nextId() {
  * (another unit, another stay type, or a nearby free date) when the
  * requested slot isn't open.
  */
-export function AvailabilityChat({ units, onPrefillBooking }: { units: Unit[]; onPrefillBooking: (v: { unitId: string; date: string; stayType: string }) => void }) {
+export function AvailabilityChat({
+  units, onPrefillBooking, onResult,
+}: {
+  units: Unit[];
+  onPrefillBooking: (v: { unitId: string; date: string; stayType: string }) => void;
+  /** Fired with the raw result of every completed check — lets a sibling
+   * panel (Team Collaboration's "Share Availability" quick action) turn
+   * the most recent real check into a chat message without re-querying
+   * the availability API itself. */
+  onResult?: (data: AvailabilityResult, unitLabel: string) => void;
+}) {
   const todayIso = manilaDayStart().toISOString().slice(0, 10);
   const [messages, setMessages] = useState<Msg[]>([
     { id: nextId(), from: "bot", content: "Hi! Let's check availability. What date do you have in mind?" },
@@ -92,6 +102,7 @@ export function AvailabilityChat({ units, onPrefillBooking }: { units: Unit[]; o
     const data: AvailabilityResult = await res.json();
     push("bot", <ResultBubble data={data} unitIdRequested={unitId} onPrefillBooking={onPrefillBooking} onRetryDate={(d) => { setDate(d); runFullCheck(d, unitId, st); }} />);
     setStep("done");
+    onResult?.(data, unitLabel(unitId));
   }
 
   // Used when clicking a "nearby date" suggestion — re-runs the whole check
@@ -106,6 +117,7 @@ export function AvailabilityChat({ units, onPrefillBooking }: { units: Unit[]; o
     if (!res.ok) { push("bot", "Couldn't check that date — try again."); return; }
     const data: AvailabilityResult = await res.json();
     push("bot", <ResultBubble data={data} unitIdRequested={uId} onPrefillBooking={onPrefillBooking} onRetryDate={(dd) => { setDate(dd); runFullCheck(dd, uId, st); }} />);
+    onResult?.(data, unitLabel(uId));
   }
 
   function startOver() {

@@ -21,7 +21,14 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/analytics", label: "Analytics", icon: "chart", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/bookings", label: "Bookings", icon: "file", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
-  { href: "/chat", label: "Chat", icon: "chat", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
+  // Team chat now lives inside Bookings > Check availability (Team
+  // Collaboration panel) for every role that has a Bookings tab. Auditor is
+  // the one role with chat access but no Bookings access (canSeeBookings
+  // excludes AUDITOR by design) — this entry exists only so Auditor keeps a
+  // path to team chat. visibleNavItems() below special-cases this one item
+  // so even OWNER_ADMIN (who otherwise sees every tab) doesn't get a
+  // second, redundant "Chat" tab alongside Bookings.
+  { href: "/chat", label: "Chat", icon: "chat", roles: ["AUDITOR"] },
   { href: "/calendar", label: "Calendar", icon: "calendar", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   { href: "/housekeeping", label: "Housekeeping", icon: "home", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
   { href: "/earnings", label: "My Earnings", icon: "wallet", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
@@ -32,7 +39,10 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
 // Shared by Navbar (desktop) and BottomNav (mobile) so the two nav surfaces
 // can never drift on which tabs a role sees.
 export function visibleNavItems(role: string | undefined) {
-  return NAV_ITEMS.filter((i) => role === "OWNER_ADMIN" || (role && i.roles.includes(role)));
+  return NAV_ITEMS.filter((i) => {
+    if (i.href === "/chat") return role === "AUDITOR";
+    return role === "OWNER_ADMIN" || (role && i.roles.includes(role));
+  });
 }
 
 export const STAY_TYPES = {

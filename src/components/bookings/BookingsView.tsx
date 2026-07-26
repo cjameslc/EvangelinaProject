@@ -18,7 +18,9 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
-import { AvailabilityChat } from "./AvailabilityChat";
+import { AvailabilityChat, type AvailabilityResult } from "./AvailabilityChat";
+import { TeamCollaborationPanel } from "./TeamCollaborationPanel";
+import type { ConversationSummary } from "@/lib/chat/clientTypes";
 import { OpportunityPanel } from "./OpportunityPanel";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
@@ -59,7 +61,14 @@ function effectiveRange(b: Booking) {
   return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
 }
 
-export function BookingsView({ role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [], rates, dailyRevenueGoal = null }: { role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[]; rates: RateTable; dailyRevenueGoal?: number | null }) {
+export function BookingsView({
+  role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [], rates, dailyRevenueGoal = null,
+  currentUserId, initialConversations,
+}: {
+  role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[]; rates: RateTable; dailyRevenueGoal?: number | null;
+  currentUserId: string;
+  initialConversations: ConversationSummary[];
+}) {
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
@@ -97,6 +106,8 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
   const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
   const [logAccordionKey, setLogAccordionKey] = useState(0);
   const [forceLogOpen, setForceLogOpen] = useState(false);
+  const [checkAvailabilityKey, setCheckAvailabilityKey] = useState(0);
+  const [lastAvailability, setLastAvailability] = useState<{ data: AvailabilityResult; unitLabel: string } | null>(null);
 
   // Availability chat's "Log this booking" hands off unitId/date/stayType
   // here — bumping the key forces the (uncontrolled) Accordion to remount
@@ -775,9 +786,29 @@ export function BookingsView({ role, units, employees, initialBookings, defaultD
 
       {canEdit && (
         <>
-          <Accordion title="Check availability" sub="chat-style — ask before you log a booking">
-            <AvailabilityChat units={units} onPrefillBooking={handlePrefillBooking} />
-          </Accordion>
+          <div className="mb-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div id="check-availability-anchor" className="min-w-0">
+              <Accordion key={checkAvailabilityKey} title="Check availability" sub="chat-style — ask before you log a booking">
+                <AvailabilityChat
+                  units={units}
+                  onPrefillBooking={handlePrefillBooking}
+                  onResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
+                />
+              </Accordion>
+            </div>
+            <TeamCollaborationPanel
+              currentUserId={currentUserId}
+              isAdmin={role === "OWNER_ADMIN"}
+              initialConversations={initialConversations}
+              recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
+              lastAvailability={lastAvailability}
+              onOpenCheckAvailability={() => {
+                setCheckAvailabilityKey((k) => k + 1);
+                requestAnimationFrame(() => document.getElementById("check-availability-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+              }}
+              onOpenCreateBooking={openAddBooking}
+            />
+          </div>
           <div className="mb-3 flex justify-end">
             <button onClick={() => setImportOpen(true)} className="btn btn-sm">
               <UploadIcon className="h-3.5 w-3.5" /> Import bookings

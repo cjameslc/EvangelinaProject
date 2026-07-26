@@ -99,7 +99,7 @@ export function MessageBubble({
         {!isOwn && isFirstInGroup && <ChatAvatar name={message.sender.name} avatarUrl={message.sender.avatarUrl} avatarColor={message.sender.avatarColor} size={28} />}
       </div>
 
-      <div className={cn("flex min-w-0 max-w-[76%] flex-col", isOwn ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[76%] shrink-0 flex-col", isOwn ? "items-end" : "items-start")}>
         {!isOwn && isFirstInGroup && (
           <span className="mb-0.5 ml-1 text-[11.5px] font-extrabold text-[var(--gray)]">{message.sender.name}</span>
         )}

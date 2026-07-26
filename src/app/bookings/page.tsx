@@ -4,14 +4,20 @@ import { canSeeBookings } from "@/lib/rbac";
 import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { BookingsView } from "@/components/bookings/BookingsView";
+import { ensureDefaultConversations, listConversationsForUser } from "@/lib/chat/service";
 
 export default async function BookingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (!canSeeBookings(user.role)) redirect("/");
 
+  // Team Collaboration panel reuses the same chat backend the standalone
+  // /chat page used — ensureDefaultConversations is idempotent (a no-op
+  // once the Team channel already exists), same call the old chat page made.
+  await ensureDefaultConversations();
+
   const where = unitWhere(user);
-  const [units, employees, bookings, settings, ownEmployee, hkStates] = await Promise.all([
+  const [units, employees, bookings, settings, ownEmployee, hkStates, conversations] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     // Explicit select — BookingsView never reads proofUrl/dpProofUrl (the
@@ -41,11 +47,14 @@ export default async function BookingsPage() {
     // Read-only room-readiness for the "Today's occupancy" card — Booker
     // already has canSeeBookings, no new RBAC surface needed for a read.
     prismaPool[5].housekeepingUnitState.findMany({ where, select: { unitId: true, status: true } }),
+    listConversationsForUser(user.id),
   ]);
 
   return (
     <BookingsView
       role={user.role}
+      currentUserId={user.id}
+      initialConversations={JSON.parse(JSON.stringify(conversations))}
       units={JSON.parse(JSON.stringify(units))}
       employees={JSON.parse(JSON.stringify(employees))}
       initialBookings={JSON.parse(JSON.stringify(bookings))}

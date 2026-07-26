@@ -143,7 +143,7 @@ export function Navbar({ viewMode }: { viewMode: ViewMode }) {
                 >
                   <span className="relative">
                     <Icon className="h-[15px] w-[15px]" />
-                    {item.icon === "chat" && chatUnread > 0 && (
+                    {(item.icon === "chat" || item.icon === "file") && chatUnread > 0 && (
                       <span className="absolute -right-1.5 -top-1.5 grid h-[15px] min-w-[15px] animate-pop-in place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
                         {chatUnread > 99 ? "99+" : chatUnread}
                       </span>

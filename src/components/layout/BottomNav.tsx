@@ -86,7 +86,7 @@ export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
               >
                 <span className="relative">
                   <Icon className="h-[20px] w-[20px]" />
-                  {item.icon === "chat" && chatUnread > 0 && (
+                  {(item.icon === "chat" || item.icon === "file") && chatUnread > 0 && (
                     <span className="absolute -right-2 -top-1 grid h-[15px] min-w-[15px] animate-pop-in place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
                       {chatUnread > 99 ? "99+" : chatUnread}
                     </span>

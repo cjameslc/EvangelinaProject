@@ -75,3 +75,5 @@ export const SparkleIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 2.5c.4 3.6 1.1 6 2.3 7.2S18 11.6 21.5 12c-3.6.4-6 1.1-7.2 2.3S12.4 18 12 21.5c-.4-3.6-1.1-6-2.3-7.2S6 12.4 2.5 12c3.6-.4 6-1.1 7.2-2.3S11.6 6 12 2.5Z" />
   </svg>
 );
+export const CopyIcon = (p: SVGProps<SVGSVGElement>) => base(<><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>, p);
+export const ShareIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.6" y1="10.6" x2="15.4" y2="6.4" /><line x1="8.6" y1="13.4" x2="15.4" y2="17.6" /></>, p);

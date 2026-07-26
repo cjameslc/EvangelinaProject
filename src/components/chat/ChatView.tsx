@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
@@ -13,13 +13,35 @@ import { usePolling } from "@/lib/chat/usePolling";
 import { playNotificationSound, isSoundMuted, setSoundMuted } from "@/lib/chat/sound";
 import type { ChatMessageData, ConversationSummary, PresenceUser, AnnouncementData } from "@/lib/chat/clientTypes";
 
-export function ChatView({
-  currentUserId, isAdmin, initialConversations,
-}: {
+/** Imperative escape hatch for embedders (e.g. the Bookings page's Team
+ * Collaboration panel) that need to trigger a send or a favorite-toggle
+ * from outside this component's own UI, without duplicating its state or
+ * polling. Kept intentionally minimal — everything else (picking a
+ * conversation, reading messages, replying) still happens through this
+ * component's own rendered UI. */
+export type ChatViewHandle = {
+  sendQuickMessage: (body: string) => Promise<boolean>;
+  pinActiveConversation: () => Promise<boolean>;
+  activeConversationId: () => string | null;
+};
+
+export const ChatView = forwardRef<ChatViewHandle, {
   currentUserId: string;
   isAdmin: boolean;
   initialConversations: ConversationSummary[];
-}) {
+  /** Renders to fill its parent container (`h-full`) instead of the
+   * standalone page's full-viewport height — used when this component is
+   * embedded inside another page's layout (e.g. Bookings). Nothing else
+   * about the component's internals — width, internal scroll areas,
+   * responsive breakpoints — changes between the two modes. */
+  embedded?: boolean;
+  /** Fired every time the internal presence poll resolves, so an embedder
+   * that also wants a live roster (e.g. a "Team Online" header) can reuse
+   * this component's own poll instead of starting a second one. */
+  onPresenceUpdate?: (presence: PresenceUser[]) => void;
+}>(function ChatView({
+  currentUserId, isAdmin, initialConversations, embedded, onPresenceUpdate,
+}, ref) {
   const [conversations, setConversations] = useState(initialConversations);
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
@@ -125,6 +147,7 @@ export function ChatView({
     }
     for (const p of data) prevMap.set(p.id, p.status);
     setPresence(data);
+    onPresenceUpdate?.(data);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, 8000, []);
 
@@ -342,8 +365,23 @@ export function ChatView({
   const presenceById = useMemo(() => new Map(presence.map((p) => [p.id, p])), [presence]);
   const unreadConversationIds = useMemo(() => new Set(conversations.filter((c) => c.unreadCount > 0).map((c) => c.id)), [conversations]);
 
+  useImperativeHandle(ref, () => ({
+    sendQuickMessage: async (body: string) => {
+      if (!activeId) return false;
+      await handleSend(body, null);
+      return true;
+    },
+    pinActiveConversation: async () => {
+      if (!activeId) return false;
+      await handleToggleFavorite(activeId);
+      return true;
+    },
+    activeConversationId: () => activeId,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [activeId]);
+
   return (
-    <div className="flex h-[calc(100dvh-60px)] flex-col overflow-hidden sm:h-[calc(100dvh-60px)]">
+    <div className={embedded ? "flex h-full flex-col overflow-hidden" : "flex h-[calc(100dvh-60px)] flex-col overflow-hidden sm:h-[calc(100dvh-60px)]"}>
       <AnnouncementBanner announcements={announcements} onDismiss={handleDismissAnnouncement} />
       <div className="flex min-h-0 flex-1">
         <div className={activeId ? "hidden sm:flex" : "flex w-full sm:flex"}>
@@ -445,4 +483,4 @@ export function ChatView({
       <ChatToastStack toasts={toasts} onDismiss={dismissToast} onJump={jumpToConversation} />
     </div>
   );
-}
+});
