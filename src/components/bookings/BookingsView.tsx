@@ -94,6 +94,7 @@ export function BookingsView({
   const [bookerFilter, setBookerFilter] = useState("all");
   const [unitFilter, setUnitFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<"today" | "3days" | "week" | "month">("week");
+  const [checkinScheduleTab, setCheckinScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   // A Booker lands on their own list first — every other role that reaches
   // this page (Owner/Admin, Co-owner, Housekeeping) sees exactly what it
   // showed before this tab bar existed, since "all" with no tab bar
@@ -265,6 +266,32 @@ export function BookingsView({
     () => (role === "BOOKER" && ownEmployeeId ? bookings.filter((b) => b.bookerId === ownEmployeeId) : bookings),
     [bookings, role, ownEmployeeId]
   );
+
+  // Upcoming check-ins — the Bookings-tab mirror of Housekeeping's
+  // "Cleaning schedule" (same Today/Tomorrow/This week bucketing, same
+  // Manila-safe day math), but keyed on each booking's check-in day instead
+  // of checkout. Always visible regardless of which bookingsTab/week filter
+  // is selected below — myBookings (not the week/tab-filtered list) is the
+  // source, same booker-scoping every other metric on this page already
+  // uses, so a Booker only sees their own upcoming arrivals.
+  const checkinSchedule = useMemo(() => {
+    const withCheckin = myBookings.filter((b) => !b.cancelledAt).map((b) => ({ ...b, checkinIso: dayOf(new Date(b.date)) }));
+    const todayI = dayOf(new Date());
+    const tomorrowD = new Date(`${todayI}T00:00:00Z`); tomorrowD.setUTCDate(tomorrowD.getUTCDate() + 1);
+    const tomorrowI = dayOf(tomorrowD);
+    const weekEndD = new Date(`${todayI}T00:00:00Z`); weekEndD.setUTCDate(weekEndD.getUTCDate() + 6);
+    const weekEndI = dayOf(weekEndD);
+
+    const byTime = (a: (typeof withCheckin)[number], b: (typeof withCheckin)[number]) =>
+      a.checkinIso.localeCompare(b.checkinIso) || (a.checkInTime ?? "99:99").localeCompare(b.checkInTime ?? "99:99");
+
+    return {
+      today: withCheckin.filter((b) => b.checkinIso === todayI).sort(byTime),
+      tomorrow: withCheckin.filter((b) => b.checkinIso === tomorrowI).sort(byTime),
+      week: withCheckin.filter((b) => b.checkinIso >= todayI && b.checkinIso <= weekEndI).sort(byTime),
+    };
+  }, [myBookings]);
+  const checkinScheduleList = checkinSchedule[checkinScheduleTab];
 
   // The personalized greeting's three numbers — deliberately independent of
   // weekOffset/dateFilter/bookingsTab below (those are all navigable views
@@ -675,6 +702,60 @@ export function BookingsView({
           ))}
         </div>
       </div>
+
+      <Accordion title="Upcoming check-ins" sub="by guest arrival">
+        <div className="mb-4 inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
+          {([["today", `Today (${checkinSchedule.today.length})`], ["tomorrow", `Tomorrow (${checkinSchedule.tomorrow.length})`], ["week", `This week (${checkinSchedule.week.length})`]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setCheckinScheduleTab(key)}
+              className={cn("rounded-full px-3.5 py-1.5 text-[13px] font-bold transition", checkinScheduleTab === key ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {checkinScheduleList.length === 0 ? (
+          <p className="text-[13px] text-[var(--gray)]">No check-ins {checkinScheduleTab === "today" ? "today" : checkinScheduleTab === "tomorrow" ? "tomorrow" : "this week"}.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {checkinScheduleList.map((b) => {
+              const stayMeta = STAY_TYPES[b.stayType as keyof typeof STAY_TYPES];
+              return (
+                <div key={b.id} className="rounded-2xl border border-[var(--line)] p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[13.5px] font-extrabold">{formatUnitDisplay(b.unit.unitNumber, b.unit.shortName)}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[12.5px] text-[var(--gray)]">{b.guests?.[0] ?? "Guest"} · {stayMeta?.label ?? b.stayType}</div>
+
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div>
+                      <div className="text-[11px] font-bold text-[var(--gray)]">Check-in</div>
+                      <div className="text-[13px] font-extrabold">
+                        {checkinScheduleTab === "week" ? fmtDate(b.checkinIso, { month: "short", day: "numeric", timeZone: "UTC" }) : ""}
+                        {checkinScheduleTab === "week" && b.checkInTime ? " · " : ""}
+                        {b.checkInTime ? fmtTimeStr(b.checkInTime) : (checkinScheduleTab !== "week" ? "—" : "")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold text-[var(--gray)]">Booker</div>
+                      <div className="text-[13px] font-extrabold">{b.booker?.name ?? "Unassigned"}</div>
+                    </div>
+                    {b.checkedInAt ? (
+                      <span className="ml-auto flex-none rounded-full bg-teal/15 px-2.5 py-1 text-[11px] font-extrabold text-teal">Checked in {fmtTime(b.checkedInAt)}</span>
+                    ) : canEdit ? (
+                      <button onClick={() => markCheckedIn(b)} className="btn-sm btn-ghost ml-auto flex-none !px-2.5 !py-1 text-[11px]">Check in</button>
+                    ) : (
+                      <span className="ml-auto flex-none rounded-full bg-[var(--bg-2)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--gray)]">Upcoming</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Accordion>
 
       {/* Collapsed by default — a quiet "Jul 19 – 25" pill, not a prominent
           filter bar, since most visits just want this week and shouldn't be
