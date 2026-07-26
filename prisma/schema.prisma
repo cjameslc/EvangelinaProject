@@ -525,6 +525,33 @@ model Booking {
   @@map("bookings")
 }
 
+// Idempotency ledger for the one-off legacy-booking migration (evangelinas-p
+// .vercel.app -> production). Deliberately a separate table rather than
+// fields on Booking itself — the vast majority of bookings were never
+// migrated, and this keeps that model untouched. Every legacy record gets
+// exactly one row here per legacySourceId+legacyBookingId; a terminal status
+// means a re-run skips it, which is what makes the migration script safe to
+// run repeatedly.
+model BookingMigrationRecord {
+  id                  String   @id @default(cuid())
+  legacySourceId      String
+  legacyBookingId     String
+  productionBookingId String?
+  status              String
+  confidenceScore     Float?
+  conflictSeverity    String?
+  conflictReason      String?
+  migrationBatchId    String
+  migrationVersion    String   @default("1.0")
+  migratedAt          DateTime @default(now())
+  notes               String?
+
+  @@unique([legacySourceId, legacyBookingId])
+  @@index([migrationBatchId])
+  @@index([status])
+  @@map("booking_migration_records")
+}
+
 // Calendar occupancy blocks: reservations, cleaning holds, maintenance holds.
 model CalendarBlock {
   id         String   @id @default(cuid())
