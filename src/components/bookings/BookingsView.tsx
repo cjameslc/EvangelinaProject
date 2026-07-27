@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, CalendarIcon, MenuIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -18,6 +18,7 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
+import { BookingScheduleGrid } from "./BookingScheduleGrid";
 import type { AvailabilityResult } from "./AvailabilityChat";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import type { ConversationSummary } from "@/lib/chat/clientTypes";
@@ -94,6 +95,12 @@ export function BookingsView({
   const [bookerFilter, setBookerFilter] = useState("all");
   const [unitFilter, setUnitFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<"today" | "3days" | "week" | "month">("week");
+  // Schedule = a per-unit calendar timeline (own date-window navigation,
+  // independent of the day-range `dateFilter` below, which only applies to
+  // List). List = the original day-by-day agenda. Schedule first — it's the
+  // faster "who's in what unit, when" glance the day-range agenda made you
+  // scroll for.
+  const [scheduleView, setScheduleView] = useState<"schedule" | "list">("schedule");
   const [checkinScheduleTab, setCheckinScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   // A Booker lands on their own list first — every other role that reaches
   // this page (Owner/Admin, Co-owner, Housekeeping) sees exactly what it
@@ -506,6 +513,30 @@ export function BookingsView({
     });
   }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter, dateRange]);
 
+  // Same filters as `filtered` above, minus the day-range check — the
+  // Schedule grid navigates its own date window (see BookingScheduleGrid),
+  // so it needs every booking that matches the other filters regardless of
+  // which day-range pill is selected for the List view.
+  const nonDateFiltered = useMemo(() => {
+    return tabScopedBookings.filter((b) => {
+      if (statusFilter === "unpaid" && b.paid) return false;
+      if (statusFilter === "paid" && !b.paid) return false;
+      if (statusFilter === "cancelled" && !b.cancelledAt) return false;
+      if (statusFilter === "pastdue" && !isPastDue(b)) return false;
+      if (platformFilter !== "all" && b.platform !== platformFilter) return false;
+      if (bookerFilter !== "all" && b.bookerId !== bookerFilter) return false;
+      if (unitFilter !== "all" && b.unitId !== unitFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const hay = [b.guests.join(" "), b.contactNumber, b.booker?.name, b.receivedBy?.name, b.unit.name, b.confirmationNumber]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter]);
+
   // Group into a day-by-day agenda: each booking contributes a check-in row on
   // its start date and a check-out row on its end date. Any days strictly in
   // between (multi-night stays) get an "occupied guests" row instead — so the
@@ -906,17 +937,34 @@ export function BookingsView({
         </div>
       )}
 
+      <div className="mb-3 inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
+        <button
+          onClick={() => setScheduleView("schedule")}
+          className={cn("flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-bold transition", scheduleView === "schedule" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+        >
+          <CalendarIcon className="h-3.5 w-3.5" /> Schedule
+        </button>
+        <button
+          onClick={() => setScheduleView("list")}
+          className={cn("flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-bold transition", scheduleView === "list" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+        >
+          <MenuIcon className="h-3.5 w-3.5" /> List
+        </button>
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div className="relative min-w-[180px] flex-1">
           <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--gray)]" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, phone, booking ID, booker, or receiver" className="field-input pl-10" />
         </div>
-        <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="field-input w-auto">
-          <option value="today">Today</option>
-          <option value="3days">Next 3 days</option>
-          <option value="week">This week (Sun–Sat)</option>
-          <option value="month">This month</option>
-        </select>
+        {scheduleView === "list" && (
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="field-input w-auto">
+            <option value="today">Today</option>
+            <option value="3days">Next 3 days</option>
+            <option value="week">This week (Sun–Sat)</option>
+            <option value="month">This month</option>
+          </select>
+        )}
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All statuses</option>
           <option value="unpaid">Unpaid only</option>
@@ -938,7 +986,15 @@ export function BookingsView({
         </select>
       </div>
 
-      {filtered.length === 0 ? (
+      {scheduleView === "schedule" ? (
+        <BookingScheduleGrid
+          units={units}
+          bookings={nonDateFiltered}
+          canEdit={canEdit}
+          onSelectBooking={(b) => setEditing(b as Booking)}
+          onCreateBooking={(unitId, dateIso) => handlePrefillBooking({ unitId, date: dateIso, stayType: "Night" })}
+        />
+      ) : filtered.length === 0 ? (
         <div className="card overflow-hidden">
           <EmptyState title="No bookings in this range" sub="Try a wider date range, or open “Log new booking” above to add one." />
         </div>
