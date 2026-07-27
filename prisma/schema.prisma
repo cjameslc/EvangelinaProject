@@ -427,6 +427,17 @@ model Booking {
   // refunded below.
   cancelledAt       DateTime?
   cancellationReason String?
+  // Distinguishes a guest-initiated cancellation (null — the original,
+  // still-default meaning of cancelledAt) from a staff-initiated removal:
+  // the guest never asked to cancel, staff pulled the booking off the
+  // calendar themselves, either because it was a mistaken/duplicate entry
+  // (bookerConfusion) or to free the unit for a higher-priority guest
+  // (vipReassignment). Rides on the exact same cancelledAt/cancellationReason
+  // mechanism — same calendar-freeing, same commission rule (isCommissionEligible
+  // in bookingStatus.ts doesn't look at this field) — this is purely a display/
+  // reporting distinction, via the dedicated "Remove" action (POST
+  // /api/bookings/[id]/cancel with a category) instead of "Cancel booking".
+  cancellationCategory String?
   // Refund — independent of cancellation (a booking can be cancelled with
   // the deposit kept, or refunded without being formally cancelled). This is
   // a factual record ("the money was given back"), not a payment action

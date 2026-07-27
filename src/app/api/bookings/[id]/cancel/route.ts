@@ -14,6 +14,12 @@ import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
 // still cancel one they logged, as long as they give a reason. Every other
 // role canEditBookings() already covers can cancel too (same as edit), on
 // top of also still having DELETE.
+//
+// Also the endpoint behind the "Remove" action on a booking card (as
+// opposed to "Cancel") — same mechanism, distinguished only by an optional
+// `category` in the body for when staff pull a booking that the guest
+// never asked to cancel (a duplicate/confused entry, or bumping someone
+// for a higher-priority guest) rather than a guest-initiated cancellation.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
@@ -35,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const parsed = parseOrError(bookingCancelSchema, await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
-  const { reason } = parsed.data;
+  const { reason, category } = parsed.data;
 
   // updateMany with cancelledAt: null in the where clause makes this one
   // atomic conditional UPDATE — if two cancel requests race (e.g. a
@@ -44,11 +50,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // both succeeding and firing duplicate notifications/audit entries.
   const { count } = await prisma.booking.updateMany({
     where: { id: params.id, cancelledAt: null },
-    data: { cancelledAt: new Date(), cancellationReason: reason },
+    data: { cancelledAt: new Date(), cancellationReason: reason, cancellationCategory: category ?? null },
   });
   if (count === 0) return NextResponse.json({ error: "This booking is already cancelled." }, { status: 400 });
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: params.id } });
-  await logAudit(user.id, "booking.cancel", "Booking", booking.id, { reason });
+  await logAudit(user.id, category ? "booking.remove" : "booking.cancel", "Booking", booking.id, { reason, category });
 
   // A cancelled booking frees up the unit (availabilityService already
   // excludes cancelledAt bookings) — the mirrored CalendarBlock has to go
