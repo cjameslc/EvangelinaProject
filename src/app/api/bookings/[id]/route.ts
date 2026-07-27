@@ -64,35 +64,50 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // Same range-overlap guard as creating a booking — re-checked against every
   // other booking on the unit whenever the date range or stay type changes,
-  // so an edit can't silently create a double-booking either.
-  const nextUnitId = data.unitId ?? existing.unitId;
-  const nextDate = data.date ?? existing.date;
-  const nextCheckOutDate = "checkOutDate" in data ? data.checkOutDate : existing.checkOutDate;
-  const nextPlatform = data.platform ?? existing.platform;
-  const nextStayType = normalizeStayTypeForPlatform(nextPlatform, data.stayType ?? existing.stayType);
-  data.stayType = nextStayType;
-  const nextCheckInTime = "checkInTime" in data ? data.checkInTime : existing.checkInTime;
-  const nextCheckOutTime = "checkOutTime" in data ? data.checkOutTime : existing.checkOutTime;
+  // so an edit can't silently create a double-booking either. Only actually
+  // run when the edit touches one of the fields that guard cares about —
+  // otherwise an operational update with no bearing on scheduling (marking a
+  // guest checked in/out, marking paid, adding a note, reassigning who
+  // received a payment) would get blocked by a conflict the booking already
+  // had *before* this edit and that this edit does nothing to change. That
+  // exact case isn't hypothetical: several real bookings carry a pre-existing
+  // overlap flag from the legacy migration, and "Check in" on one of them was
+  // silently failing (a 409 the client's optimistic UI update masked) before
+  // this guard was scoped to only the fields it's actually protecting.
+  const conflictRelevantFieldsChanged = ["unitId", "date", "checkOutDate", "stayType", "checkInTime", "checkOutTime", "platform"].some((k) => k in body);
 
-  // Same reasoning as booking creation (see createBookingCore in
-  // bookingService.ts): the overlap guard and the actual update must be one
-  // atomic unit, or two near-simultaneous edits/creates targeting an
-  // overlapping range can both pass the guard before either commits.
   let booking: Awaited<ReturnType<typeof prisma.booking.update>>;
-  try {
-    booking = await prisma.$transaction(async (tx) => {
-      const { available } = await checkAvailability(
-        { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any, checkInTime: nextCheckInTime, checkOutTime: nextCheckOutTime },
-        { excludeBookingId: params.id, client: tx }
-      );
-      if (!available) throw new BookingConflictError();
-      return tx.booking.update({ where: { id: params.id }, data });
-    });
-  } catch (e) {
-    if (e instanceof BookingConflictError) {
-      return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
+  if (!conflictRelevantFieldsChanged) {
+    booking = await prisma.booking.update({ where: { id: params.id }, data });
+  } else {
+    const nextUnitId = data.unitId ?? existing.unitId;
+    const nextDate = data.date ?? existing.date;
+    const nextCheckOutDate = "checkOutDate" in data ? data.checkOutDate : existing.checkOutDate;
+    const nextPlatform = data.platform ?? existing.platform;
+    const nextStayType = normalizeStayTypeForPlatform(nextPlatform, data.stayType ?? existing.stayType);
+    data.stayType = nextStayType;
+    const nextCheckInTime = "checkInTime" in data ? data.checkInTime : existing.checkInTime;
+    const nextCheckOutTime = "checkOutTime" in data ? data.checkOutTime : existing.checkOutTime;
+
+    // Same reasoning as booking creation (see createBookingCore in
+    // bookingService.ts): the overlap guard and the actual update must be one
+    // atomic unit, or two near-simultaneous edits/creates targeting an
+    // overlapping range can both pass the guard before either commits.
+    try {
+      booking = await prisma.$transaction(async (tx) => {
+        const { available } = await checkAvailability(
+          { unitId: nextUnitId, date: nextDate, checkOutDate: nextCheckOutDate, stayType: nextStayType as any, checkInTime: nextCheckInTime, checkOutTime: nextCheckOutTime },
+          { excludeBookingId: params.id, client: tx }
+        );
+        if (!available) throw new BookingConflictError();
+        return tx.booking.update({ where: { id: params.id }, data });
+      });
+    } catch (e) {
+      if (e instanceof BookingConflictError) {
+        return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
+      }
+      throw e;
     }
-    throw e;
   }
   await logAudit(user.id, "booking.update", "Booking", booking.id, body);
 

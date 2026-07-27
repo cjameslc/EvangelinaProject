@@ -531,32 +531,10 @@ export function BookingsView({
     return counts;
   }, [isBookerView, myBookings, bookings]);
 
-  const filtered = useMemo(() => {
-    return tabScopedBookings.filter((b) => {
-      const bDate = new Date(b.date);
-      if (bDate < dateRange.start || bDate >= dateRange.end) return false;
-      if (statusFilter === "unpaid" && b.paid) return false;
-      if (statusFilter === "paid" && !b.paid) return false;
-      if (statusFilter === "cancelled" && !b.cancelledAt) return false;
-      if (statusFilter === "pastdue" && !isPastDue(b)) return false;
-      if (platformFilter !== "all" && b.platform !== platformFilter) return false;
-      if (bookerFilter !== "all" && b.bookerId !== bookerFilter) return false;
-      if (unitFilter !== "all" && b.unitId !== unitFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const hay = [b.guests.join(" "), b.contactNumber, b.booker?.name, b.receivedBy?.name, b.unit.name, b.confirmationNumber]
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter, dateRange]);
-
-  // Same filters as `filtered` above, minus the day-range check — the
-  // Schedule grid navigates its own date window (see BookingScheduleGrid),
-  // so it needs every booking that matches the other filters regardless of
-  // which day-range pill is selected for the List view.
+  // Every filter except the day-range pill — the Schedule grid navigates its
+  // own date window (see BookingScheduleGrid) and needs this on its own;
+  // List further narrows it by dateRange below. One predicate, so the two
+  // views can never silently drift on what "matches the filters" means.
   const nonDateFiltered = useMemo(() => {
     return tabScopedBookings.filter((b) => {
       if (statusFilter === "unpaid" && b.paid) return false;
@@ -576,6 +554,13 @@ export function BookingsView({
       return true;
     });
   }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter]);
+
+  const filtered = useMemo(() => {
+    return nonDateFiltered.filter((b) => {
+      const bDate = new Date(b.date);
+      return bDate >= dateRange.start && bDate < dateRange.end;
+    });
+  }, [nonDateFiltered, dateRange]);
 
   // Group into a day-by-day agenda: each booking contributes a check-in row on
   // its start date and a check-out row on its end date. Any days strictly in
