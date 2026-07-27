@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, CalendarIcon, MenuIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, CalendarIcon, MenuIcon, HomeIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -52,6 +52,23 @@ type HkState = { unitId: string; status: string };
 // Manila calendar date instead of the server/runtime's own timezone.
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+
+// A distinct border/text color per unit (cycling through the palette
+// entries that actually have full numbered shades — see the Tailwind
+// palette note in memory) so a guest card's unit badge is recognizable at
+// a glance across a busy day, the same way the legacy system's booking
+// list colored each unit's badge differently.
+const UNIT_BADGE_COLORS = [
+  { border: "border-violet/50", text: "text-violet" },
+  { border: "border-green/50", text: "text-green" },
+  { border: "border-amber/50", text: "text-amber" },
+  { border: "border-blue/50", text: "text-blue" },
+  { border: "border-teal/50", text: "text-teal" },
+];
+function unitBadgeColor(unitId: string, units: { id: string }[]) {
+  const idx = units.findIndex((u) => u.id === unitId);
+  return UNIT_BADGE_COLORS[(idx < 0 ? 0 : idx) % UNIT_BADGE_COLORS.length];
+}
 
 /** Effective check-in/check-out day for a booking: explicit checkOutDate if
  * set, else the same-day (Daycation) / next-day (Night, Full) default. */
@@ -273,6 +290,29 @@ export function BookingsView({
     () => (role === "BOOKER" && ownEmployeeId ? bookings.filter((b) => b.bookerId === ownEmployeeId) : bookings),
     [bookings, role, ownEmployeeId]
   );
+
+  // "1st booking" — a guest's very first (non-cancelled) stay at the
+  // property, across every unit/platform, computed off the full unfiltered
+  // `bookings` (not myBookings/tabScopedBookings) so it's accurate
+  // regardless of which booker/tab is viewing. Grouped by contact number
+  // when we have a real one; falls back to the guest name for
+  // walk-ins/Airbnb imports that never collected a phone number.
+  const firstBookingIds = useMemo(() => {
+    const byGuest = new Map<string, Booking[]>();
+    for (const b of bookings) {
+      if (b.cancelledAt) continue;
+      const contact = b.contactNumber?.trim();
+      const key = contact && contact.toLowerCase() !== "not provided" ? contact : (b.guests.join(",").toLowerCase() || b.id);
+      if (!byGuest.has(key)) byGuest.set(key, []);
+      byGuest.get(key)!.push(b);
+    }
+    const ids = new Set<string>();
+    for (const list of byGuest.values()) {
+      const earliest = list.reduce((a, c) => (new Date(c.date) < new Date(a.date) ? c : a));
+      ids.add(earliest.id);
+    }
+    return ids;
+  }, [bookings]);
 
   // Upcoming check-ins — the Bookings-tab mirror of Housekeeping's
   // "Cleaning schedule" (same Today/Tomorrow/This week bucketing, same
@@ -1004,45 +1044,68 @@ export function BookingsView({
             <span>{filtered.length} booking{filtered.length !== 1 ? "s" : ""} shown</span>
             <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.refundedAt).reduce((s, b) => s + b.amount, 0))} total</span>
           </div>
-          <div className="space-y-5">
+          <div className="space-y-6">
             {pagedAgenda.map(([iso, { checkins, checkouts, occupied }]) => (
               <div key={iso}>
-                <h3 className="mb-2 text-[13.5px] font-extrabold tracking-tight">
-                  {fmtDate(iso, { month: "long", day: "numeric" })}
-                  <span className="ml-2 text-[12px] font-semibold text-[var(--gray)]">{new Date(iso).toLocaleDateString("en-PH", { weekday: "long", timeZone: "UTC" })}</span>
-                </h3>
-                <div className="card divide-y divide-[var(--line)] overflow-hidden">
-                  {checkouts.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 bg-blue/10 px-4 py-1.5 text-[10.5px] font-extrabold uppercase tracking-wide text-blue">
-                        <span className="h-2 w-2 rounded-full bg-blue" /> Check-out
-                      </div>
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--line)] pb-2">
+                  <h3 className="text-[16px] font-extrabold tracking-tight">
+                    {fmtDate(iso, { month: "long", day: "numeric", year: "numeric" })}
+                  </h3>
+                  <span className="text-[12px] font-semibold text-[var(--gray)]">
+                    {checkins.length + checkouts.length} booking{checkins.length + checkouts.length !== 1 ? "s" : ""}
+                    {checkouts.length > 0 && <> · Out: {checkouts.length}</>}
+                    {(checkins.length > 0 || occupied.length > 0) && <> · In+Occupied: {checkins.length + occupied.length}</>}
+                  </span>
+                </div>
+
+                {checkouts.length > 0 && (
+                  <div className="mb-4">
+                    <div className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-rausch">
+                      <span className="h-2 w-2 rounded-full bg-rausch" /> Check-out list ({checkouts.length})
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {checkouts.map((b) => (
-                        <BookingLine key={`out-${b.id}`} b={b} kind="checkout" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine
+                          key={`out-${b.id}`} b={b} kind="checkout"
+                          unitColor={unitBadgeColor(b.unitId, units)}
+                          isFirstBooking={firstBookingIds.has(b.id)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
+                          onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)}
+                        />
                       ))}
                     </div>
-                  )}
-                  {checkins.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 bg-green/10 px-4 py-1.5 text-[10.5px] font-extrabold uppercase tracking-wide text-green">
-                        <span className="h-2 w-2 rounded-full bg-green" /> Check-in
-                      </div>
+                  </div>
+                )}
+                {checkins.length > 0 && (
+                  <div className="mb-4">
+                    <div className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-green">
+                      <span className="h-2 w-2 rounded-full bg-green" /> Check-in list ({checkins.length})
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {checkins.map((b) => (
-                        <BookingLine key={`in-${b.id}`} b={b} kind="checkin" canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)} onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} />
+                        <BookingLine
+                          key={`in-${b.id}`} b={b} kind="checkin"
+                          unitColor={unitBadgeColor(b.unitId, units)}
+                          isFirstBooking={firstBookingIds.has(b.id)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
+                          onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)}
+                        />
                       ))}
                     </div>
-                  )}
-                  {occupied.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 bg-amber/10 px-4 py-1.5 text-[10.5px] font-extrabold uppercase tracking-wide text-amber">
-                        <span className="h-2 w-2 rounded-full bg-amber" /> Occupied guests <span className="normal-case text-[var(--gray)]">— not a new booking</span>
-                      </div>
+                  </div>
+                )}
+                {occupied.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-amber">
+                      <span className="h-2 w-2 rounded-full bg-amber" /> Occupied guests <span className="font-semibold text-[var(--gray)]">— not a new booking</span>
+                    </div>
+                    <div className="card divide-y divide-[var(--line)] overflow-hidden">
                       {occupied.map((b) => (
                         <OccupiedLine key={`occ-${b.id}`} b={b} />
                       ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1100,10 +1163,12 @@ function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed
 }
 
 function BookingLine({
-  b, kind, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete,
+  b, kind, unitColor, isFirstBooking, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
+  unitColor: { border: string; text: string };
+  isFirstBooking: boolean;
   canEdit: boolean;
   canDelete: boolean;
   onEdit: () => void;
@@ -1111,80 +1176,94 @@ function BookingLine({
   onRefund: () => void;
   onDelete: () => void;
 }) {
-  const time = fmtTimeStr(kind === "checkin" ? b.checkInTime : b.checkOutTime);
-  const accent = kind === "checkin" ? "var(--green)" : "var(--blue)";
   const pastDue = isPastDue(b);
   const { inIso, outIso } = effectiveRange(b);
-  const sameDay = inIso === outIso;
+  const totalFee = b.amount + (b.dpAmount ?? 0);
+  const canRefund = canEdit && !b.refundedAt && (b.paid || (b.dpAmount ?? 0) > 0);
   return (
     <div
-      className="flex items-start justify-between gap-3 border-t border-[var(--line)] px-4 py-4 first:border-0"
-      style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
+      className={cn(
+        "rounded-2xl border border-l-[5px] p-4",
+        b.cancelledAt ? "border-[var(--line)] border-l-[var(--gray)] opacity-70" : kind === "checkin" ? "border-[var(--line)] border-l-green" : "border-[var(--line)] border-l-rausch"
+      )}
     >
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="truncate text-[17px] font-extrabold leading-tight text-rausch">{formatUnitDisplay(b.unit.unitNumber)}</div>
-        <div className="truncate text-[16px] font-extrabold leading-tight">{b.guests.join(", ") || "Guest"}</div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5 text-[12.5px] text-[var(--gray)]">
-          <span>{b.contactNumber || "no contact"}</span>
-          <span>{time ?? "time not set"}</span>
-          {b.confirmationNumber && (
-            <span className="font-mono font-bold tracking-wide text-[var(--ink)]" title="Booking ID — guest uses this to sign in and unlock this unit's WiFi/door code">
-              🔑 {b.confirmationNumber}
-            </span>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate text-[16px] font-extrabold leading-tight">{b.guests.join(", ") || "Guest"}</span>
+          <span className={cn("flex flex-none items-center gap-1 rounded-lg border-2 px-2 py-0.5 text-[13px] font-extrabold", unitColor.border, unitColor.text)}>
+            <HomeIcon className="h-3.5 w-3.5" /> {b.unit.unitNumber}
+          </span>
+          <span className={cn("flex flex-none items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide", kind === "checkin" ? "bg-green/15 text-green" : "bg-rausch/15 text-rausch")}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", kind === "checkin" ? "bg-green" : "bg-rausch")} />
+            {kind === "checkin" ? "Check-in" : "Check-out"}
+          </span>
         </div>
-        <div className="text-[12px] text-[var(--gray)]">
-          Checkout {fmtDate(outIso, { month: "short", day: "numeric" })}
-          {b.checkOutTime && ` · ${fmtTimeStr(b.checkOutTime)}`}
+        <div className="flex flex-none items-center gap-1">
+          {b.cancelledAt ? (
+            <Tag variant="cancelled">Cancelled</Tag>
+          ) : pastDue ? (
+            <Tag variant="unpaid">Past due</Tag>
+          ) : b.paid ? (
+            <Tag variant="paid">Fully Paid</Tag>
+          ) : (
+            <Tag variant="unpaid">Unpaid</Tag>
+          )}
+          {canRefund && (
+            <button onClick={onRefund} title="Mark refunded" className="grid h-6 w-6 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-violet/10 hover:text-violet"><RefreshIcon className="h-3.5 w-3.5" /></button>
+          )}
         </div>
       </div>
 
-      <div className="flex flex-none flex-col items-end gap-1.5">
-        {sameDay && <Tag variant="day">↩️ Same-day checkout</Tag>}
-        {b.conflict && <Tag variant="unpaid">⚠️ Conflict</Tag>}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <Tag variant={b.platform.toLowerCase()}>{PLATFORM_LABEL[b.platform] ?? b.platform}</Tag>
+        {isFirstBooking && <Tag variant="paid">1st booking</Tag>}
         {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
-        {b.cancelledAt ? (
-          <Tag variant="cancelled">Cancelled</Tag>
-        ) : pastDue ? (
-          <Tag variant="unpaid">⏰ Past due</Tag>
-        ) : b.paid ? (
-          <Tag variant="paid">Paid</Tag>
-        ) : (
-          <Tag variant="unpaid">Unpaid</Tag>
-        )}
         {b.refundedAt && <Tag variant="refunded">Refunded</Tag>}
-        <div className="text-right text-[12.5px] font-bold">
-          <span className="text-[var(--gray)]">Balance </span>
-          <span className={b.paid ? "text-green" : "text-rausch"}>{peso(b.paid ? 0 : b.amount)}</span>
-        </div>
-        {b.notes && <div className="max-w-[200px] text-right text-[11px] text-[var(--gray)]">📝 {b.notes}</div>}
-        {b.cancelledAt && b.cancellationReason && (
-          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">Cancelled: &ldquo;{b.cancellationReason}&rdquo;</div>
-        )}
-        {b.refundedAt && b.refundReason && (
-          <div className="max-w-[200px] text-right text-[11px] italic text-[var(--gray)]">Refunded: &ldquo;{b.refundReason}&rdquo;</div>
-        )}
-        {(canEdit || canDelete) && (
-          <div className="flex gap-1">
-            {!b.cancelledAt && canEdit && (
-              <>
-                <button onClick={onEdit} title="Edit booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"><EditIcon className="h-4 w-4" /></button>
-                <button onClick={onCancel} title="Cancel booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-amber/10 hover:text-amber"><CloseIcon className="h-4 w-4" /></button>
-              </>
-            )}
-            {/* Refund is independent of cancellation — a booking can be
-                cancelled with the deposit kept (no refund) or refunded
-                without being cancelled at all. Only shown once money was
-                actually collected and hasn't already been marked refunded. */}
-            {canEdit && !b.refundedAt && (b.paid || (b.dpAmount ?? 0) > 0) && (
-              <button onClick={onRefund} title="Mark refunded" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-violet/10 hover:text-violet"><RefreshIcon className="h-4 w-4" /></button>
-            )}
-            {!b.cancelledAt && canDelete && (
-              <button onClick={onDelete} title="Delete booking" className="grid h-8 w-8 place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"><TrashIcon className="h-4 w-4" /></button>
-            )}
-          </div>
+        {b.confirmationNumber && (
+          <span className="font-mono text-[11px] font-bold text-[var(--gray)]" title="Booking ID — guest uses this to sign in and unlock this unit's WiFi/door code">
+            🔑 {b.confirmationNumber}
+          </span>
         )}
       </div>
+
+      <div className="mt-2 text-[12px] text-[var(--gray)]">From {fmtDate(inIso, { month: "short", day: "numeric", year: "numeric" })}</div>
+
+      <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12.5px]">
+        <div><span className="text-[var(--gray)]">Fee </span><span className="font-bold">{peso(totalFee)}</span></div>
+        <div>
+          <span className="text-[var(--gray)]">In </span>
+          <span className="font-bold">{fmtDate(inIso, { month: "short", day: "numeric" })}{b.checkInTime ? ` · ${fmtTimeStr(b.checkInTime)}` : ""}</span>
+        </div>
+        <div>
+          <span className="text-[var(--gray)]">Balance </span>
+          <span className={cn("font-bold", b.paid ? "text-green" : "text-rausch")}>{peso(b.paid ? 0 : b.amount)}</span>
+        </div>
+        <div>
+          <span className="text-[var(--gray)]">Out </span>
+          <span className="font-bold">{fmtDate(outIso, { month: "short", day: "numeric" })}{b.checkOutTime ? ` · ${fmtTimeStr(b.checkOutTime)}` : ""}</span>
+        </div>
+        {b.conflict && <div className="flex items-center gap-1 font-bold text-rausch"><span aria-hidden>⚠</span> Conflict</div>}
+        {b.dpReceivedBy && <div><span className="text-[var(--gray)]">DP To </span><span className="font-bold text-blue">{b.dpReceivedBy.name}</span></div>}
+        {b.receivedBy && <div><span className="text-[var(--gray)]">FP To </span><span className="font-bold text-blue">{b.receivedBy.name}</span></div>}
+      </div>
+
+      {b.notes && <div className="mt-2 text-[11px] text-[var(--gray)]">📝 {b.notes}</div>}
+      {b.cancelledAt && b.cancellationReason && <div className="mt-1 text-[11px] italic text-[var(--gray)]">Cancelled: &ldquo;{b.cancellationReason}&rdquo;</div>}
+      {b.refundedAt && b.refundReason && <div className="mt-1 text-[11px] italic text-[var(--gray)]">Refunded: &ldquo;{b.refundReason}&rdquo;</div>}
+
+      {(canEdit || canDelete) && (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {!b.cancelledAt && canEdit ? (
+            <button onClick={onEdit} className="btn-sm btn justify-center"><EditIcon className="h-3.5 w-3.5" /> Edit</button>
+          ) : <span />}
+          {!b.cancelledAt && canDelete ? (
+            <button onClick={onDelete} className="btn-sm flex items-center justify-center gap-1.5 rounded-xl border border-rausch/30 bg-rausch/5 px-3 py-2 text-[12.5px] font-bold text-rausch hover:bg-rausch/10"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
+          ) : <span />}
+          {!b.cancelledAt && canEdit ? (
+            <button onClick={onCancel} className="btn-sm btn justify-center"><CloseIcon className="h-3.5 w-3.5" /> Cancel</button>
+          ) : <span />}
+        </div>
+      )}
     </div>
   );
 }
