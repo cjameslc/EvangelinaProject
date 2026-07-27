@@ -7,13 +7,14 @@ import { Pill } from "@/components/ui/Pill";
 import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
 import { SyncHistory } from "@/components/calendar/SyncHistory";
+import { ExportToAirbnb } from "@/components/calendar/ExportToAirbnb";
 import { fmtDate, fmtTimeStr, formatUnitDisplay, peso } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { nightsFor } from "@/lib/stayRange";
 import { canManageUnits } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
-type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; icalImportUrl?: string | null; owners?: { user: { name: string } }[] };
+type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; icalImportUrl?: string | null; icalToken?: string | null; owners?: { user: { name: string } }[] };
 type BlockBooking = {
   platform: string; amount: number; paid: boolean; dpAmount: number | null;
   checkInTime: string | null; checkOutTime: string | null; pax: number | null; contactNumber: string;
@@ -422,10 +423,10 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
               onClick={syncAll}
               disabled={syncing}
               className="btn btn-sm disabled:opacity-60"
-              title={`Pull live Airbnb reservations for ${unitsWithAirbnbFeed.length} unit${unitsWithAirbnbFeed.length === 1 ? "" : "s"}`}
+              title={`Pull live Airbnb reservations into this app for ${unitsWithAirbnbFeed.length} unit${unitsWithAirbnbFeed.length === 1 ? "" : "s"} right now — this also runs automatically once a day. To keep Airbnb itself updated with bookings made here, see "Export to Airbnb" below.`}
             >
               <RefreshIcon className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
-              {syncing ? "Syncing…" : `Sync Airbnb (${unitsWithAirbnbFeed.length})`}
+              {syncing ? "Syncing…" : `Import from Airbnb (${unitsWithAirbnbFeed.length})`}
             </button>
           )}
         </div>
@@ -657,6 +658,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       </div>
 
       {canSync && <SyncHistory units={units} isSyncingNow={syncing} refreshSignal={historyRefresh} />}
+      {canSync && <ExportToAirbnb units={units} />}
 
       {selected && <BookingDetailModal block={selected} onClose={() => setSelected(null)} />}
     </div>
