@@ -106,15 +106,30 @@ export function drawAvailabilityGraphic(canvas: HTMLCanvasElement, input: Availa
   ctx.font = `700 ${W * 0.038}px Arial`;
   ctx.fillStyle = "#ffffff";
   const lineH = W * 0.058;
-  const maxLines = Math.floor((cardBottom - dy - W * 0.03) / lineH);
-  const shown = input.dateLines.slice(0, maxLines);
-  for (const d of shown) {
-    ctx.fillText("📅  " + d, pad + W * 0.04, dy);
-    dy += lineH;
+  const textIndent = pad + W * 0.04;
+  const innerWidth = W - pad - textIndent;
+  const bottomLimit = cardBottom - W * 0.03;
+
+  let hiddenCount = 0;
+  for (let i = 0; i < input.dateLines.length; i++) {
+    const d = input.dateLines[i];
+    // Callers pass lines already carrying their own leading emoji (e.g. a
+    // per-stay-type "☀️ Daycation: ..." breakdown) — only add the generic
+    // calendar emoji when a line doesn't already have one, so the two
+    // conventions don't stack into a doubled-up "📅 ☀️ Daycation" prefix.
+    const hasOwnEmoji = /^\p{Emoji}/u.test(d);
+    const prefixed = (hasOwnEmoji ? "" : "📅  ") + d;
+    // Wrapped per-entry — a long date-range list (many stay-type openings
+    // in a month) would otherwise run off the right edge of the canvas
+    // instead of staying inside the card, exactly the kind of thing that
+    // makes a "ready-to-post, no editing needed" image not actually so.
+    const wrapped = wrapText(ctx, prefixed, innerWidth);
+    if (dy + wrapped.length * lineH > bottomLimit) { hiddenCount = input.dateLines.length - i; break; }
+    for (const sub of wrapped) { ctx.fillText(sub, textIndent, dy); dy += lineH; }
   }
-  if (input.dateLines.length > shown.length) {
+  if (hiddenCount > 0) {
     ctx.font = `italic ${W * 0.03}px Arial`;
-    ctx.fillText(`+ ${input.dateLines.length - shown.length} more — message us for the full list`, pad + W * 0.04, dy);
+    ctx.fillText(`+ ${hiddenCount} more — message us for the full list`, textIndent, dy);
   }
 
   // CTA + location footer

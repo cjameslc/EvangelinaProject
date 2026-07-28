@@ -17,6 +17,7 @@ import type { RateTable } from "@/lib/pricing/rates";
 import { UnitOpportunityCard, type ViewMode } from "@/components/social/UnitOpportunityCard";
 import { ContentGeneratorPanel, type GeneratorUnitContext } from "@/components/social/ContentGeneratorPanel";
 import { CheatSheetTab } from "@/components/social/CheatSheetTab";
+import { QuickQuoteTool } from "@/components/social/QuickQuoteTool";
 import {
   CopyIcon, SparkleIcon, DownloadIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon,
   GridIcon, MenuIcon, CalendarIcon,
@@ -143,6 +144,24 @@ export function SocialMediaView({
   const partialCount = monthDays.filter((d) => d.status === "partial").length;
   const fullCount = monthDays.filter((d) => d.status === "full").length;
 
+  // Per-stay-type breakdown for the downloadable graphic — "available" on
+  // its own doesn't say whether it's a Daycation slot, a Night stay, or a
+  // 21-Hour stay still open, which is exactly what a promo post needs to
+  // call out by name. Computed independently of the stayTypeFilter select
+  // above (which only affects the on-screen calendar) so the downloaded
+  // image always shows all three, regardless of which single type is
+  // currently filtered on-screen.
+  const perStayTypeLines = useMemo(() => {
+    const labels: Record<string, string> = { Daycation: "☀️ Daycation", Night: "🌙 Night stay", Full: "🛏️ 21-Hour" };
+    return (["Daycation", "Night", "Full"] as const)
+      .map((st) => {
+        const stDays = computeMonthAvailability(scopedUnits, bookings, year, month0, st);
+        const lines = summarizeDates(stDays, unitFilter !== "all");
+        return lines.length ? `${labels[st]}: ${lines.join(", ")}` : null;
+      })
+      .filter((l): l is string => !!l);
+  }, [scopedUnits, bookings, year, month0, unitFilter]);
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   useEffect(() => { loadImage("/branding/logo.jpg").then(setLogoImg); }, []);
@@ -158,7 +177,7 @@ export function SocialMediaView({
     const headline = fullCount === monthDays.length ? `Fully booked this ${monthLabel(year, month0)}!` : `Available Dates for ${monthLabel(year, month0)}!`;
     drawAvailabilityGraphic(canvas, {
       headline,
-      dateLines: dateLines.length ? dateLines : ["Message us for the latest availability"],
+      dateLines: perStayTypeLines.length ? perStayTypeLines : ["Message us for the latest availability"],
       ctaLine: `Message us to book — ${contact}`,
       businessName,
       location,
@@ -334,7 +353,12 @@ export function SocialMediaView({
         />
       )}
 
-      {tab === "cheatsheet" && <CheatSheetTab units={units} toast={toast} />}
+      {tab === "cheatsheet" && (
+        <div className="space-y-5">
+          <QuickQuoteTool rates={rates} dpFee={dpFee} toast={toast} />
+          <CheatSheetTab units={units} toast={toast} />
+        </div>
+      )}
 
       <ContentGeneratorPanel
         open={!!generatorUnit}
