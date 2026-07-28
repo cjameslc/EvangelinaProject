@@ -18,11 +18,9 @@ export function canSeeHousekeeping(role: Role) {
 export function canSeeBookings(role: Role) {
   return role !== "AUDITOR";
 }
-// Social Media Center — marketing content (available-dates graphics,
-// captions, hashtags) is a Booker/Owner/Co-owner job, not Housekeeping's or
-// Auditor's.
-export function canSeeSocialMedia(role: Role) {
-  return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "BOOKER";
+// Social Media Center — open to every staff role.
+export function canSeeSocialMedia(_role: Role) {
+  return true;
 }
 export function canManageUnits(role: Role) {
   return role === "OWNER_ADMIN";

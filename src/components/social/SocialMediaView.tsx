@@ -10,17 +10,16 @@ import {
 } from "@/lib/socialContent";
 import { GRAPHIC_FORMATS, drawAvailabilityGraphic, loadImage, downloadCanvas } from "@/lib/socialGraphic";
 import { STAY_TYPES } from "@/lib/constants";
-import { formatUnitDisplay, peso } from "@/lib/format";
+import { formatUnitDisplay } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import type { RateTable } from "@/lib/pricing/rates";
-import { UnitOpportunityCard, type ViewMode } from "@/components/social/UnitOpportunityCard";
-import { ContentGeneratorPanel, type GeneratorUnitContext } from "@/components/social/ContentGeneratorPanel";
+import { ContentStudioWorkspace } from "@/components/social/ContentStudioWorkspace";
+import { ContentGeneratorPanel } from "@/components/social/ContentGeneratorPanel";
 import { CheatSheetTab } from "@/components/social/CheatSheetTab";
 import { QuickQuoteTool } from "@/components/social/QuickQuoteTool";
 import {
-  CopyIcon, SparkleIcon, DownloadIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon,
-  GridIcon, MenuIcon, CalendarIcon,
+  CopyIcon, SparkleIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon,
 } from "@/components/ui/Icons";
 
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; photoUrl: string | null; nightlyRate: number; wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null };
@@ -104,7 +103,6 @@ export function SocialMediaView({
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("week");
   const [customStart, setCustomStart] = useState(todayIso);
   const [customEnd, setCustomEnd] = useState(addDays(todayIso, 6));
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const range = quickFilterRange(quickFilter, todayIso, customStart, customEnd);
   const studioDates = useMemo(() => isoRange(range.start, range.end), [range.start, range.end]);
 
@@ -120,7 +118,6 @@ export function SocialMediaView({
     [opportunities, units, todayIso]
   );
 
-  const [generatorUnit, setGeneratorUnit] = useState<{ unit: Unit; opportunity: UnitOpportunity } | null>(null);
   const [genericGeneratorOpen, setGenericGeneratorOpen] = useState(false);
 
   // ---- Available Dates tab state (month calendar + exports) ----
@@ -152,7 +149,10 @@ export function SocialMediaView({
   // image always shows all three, regardless of which single type is
   // currently filtered on-screen.
   const perStayTypeLines = useMemo(() => {
-    const labels: Record<string, string> = { Daycation: "☀️ Daycation", Night: "🌙 Night stay", Full: "🛏️ 21-Hour" };
+    // No emoji — Canvas fillText's emoji support is unreliable
+    // cross-platform (see socialGraphic.ts), and these labels end up drawn
+    // into the exported graphic via drawAvailabilityGraphic.
+    const labels: Record<string, string> = { Daycation: "Daycation", Night: "Night stay", Full: "21-Hour" };
     return (["Daycation", "Night", "Full"] as const)
       .map((st) => {
         const stDays = computeMonthAvailability(scopedUnits, bookings, year, month0, st);
@@ -232,16 +232,7 @@ export function SocialMediaView({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-semibold text-[var(--gray)]">Showing opportunities for <span className="font-extrabold text-[var(--ink)]">{studioRangeSummary}</span></p>
-            <div className="inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
-              {([["grid", GridIcon, "Grid"], ["tile", MenuIcon, "Tile"], ["story", CalendarIcon, "Story"], ["carousel", ArrowRightIcon, "Carousel"]] as const).map(([key, Icon, label]) => (
-                <button key={key} onClick={() => setViewMode(key)} title={label} className={cn("grid h-8 w-8 place-items-center rounded-full transition", viewMode === key ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
-                  <Icon className="h-4 w-4" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="text-[13px] font-semibold text-[var(--gray)]">Showing opportunities for <span className="font-extrabold text-[var(--ink)]">{studioRangeSummary}</span></p>
 
           {suggestions.length > 0 && (
             <div className="rounded-2xl border border-violet/25 bg-violet/5 p-4">
@@ -252,22 +243,20 @@ export function SocialMediaView({
             </div>
           )}
 
-          <div className={cn(
-            viewMode === "carousel" ? "flex gap-3 overflow-x-auto pb-2" :
-            viewMode === "story" ? "grid grid-cols-1 gap-3 sm:grid-cols-3" :
-            "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-          )}>
-            {units.map((u, i) => (
-              <UnitOpportunityCard
-                key={u.id}
-                unit={u}
-                opportunity={opportunities[i]}
-                todayIso={todayIso}
-                mode={viewMode}
-                onOpenGenerator={() => setGeneratorUnit({ unit: u, opportunity: opportunities[i] })}
-              />
-            ))}
-          </div>
+          <ContentStudioWorkspace
+            units={units}
+            opportunities={opportunities}
+            todayIso={todayIso}
+            businessName={businessName}
+            location={location}
+            contact={contact}
+            amenities={amenities}
+            promoNote={promoNote}
+            bookingLink={bookingLink}
+            monthText={monthLabel(year, month0)}
+            propertyDateLines={dateLines}
+            toast={toast}
+          />
         </div>
       )}
 
@@ -361,20 +350,6 @@ export function SocialMediaView({
       )}
 
       <ContentGeneratorPanel
-        open={!!generatorUnit}
-        onClose={() => setGeneratorUnit(null)}
-        unitContext={generatorUnit ? unitToGeneratorContext(generatorUnit.unit, generatorUnit.opportunity) : null}
-        month={monthLabel(year, month0)}
-        availableDatesSummary={dateLines.length ? dateLines.join(", ") : "fully booked this month"}
-        businessName={businessName}
-        location={location}
-        contact={contact}
-        amenities={amenities}
-        promoNote={promoNote}
-        bookingLink={bookingLink}
-        toast={toast}
-      />
-      <ContentGeneratorPanel
         open={genericGeneratorOpen}
         onClose={() => setGenericGeneratorOpen(false)}
         unitContext={null}
@@ -390,17 +365,6 @@ export function SocialMediaView({
       />
     </div>
   );
-}
-
-function unitToGeneratorContext(unit: Unit, opportunity: UnitOpportunity): GeneratorUnitContext {
-  const openIsos = opportunity.days.filter((d) => d.openStayTypes.length > 0).map((d) => d.iso);
-  const cheapest = opportunity.days.flatMap((d) => Object.values(d.price)).filter((p): p is number => typeof p === "number");
-  return {
-    unitName: formatUnitDisplay(unit.unitNumber, unit.shortName),
-    price: cheapest.length ? `From ${peso(Math.min(...cheapest))}` : null,
-    dateLines: openIsos.map((iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })),
-    hasPhoto: !!unit.photoUrl,
-  };
 }
 
 function CaptionsTab({
