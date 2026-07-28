@@ -11,11 +11,19 @@ export async function GET(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
 
+  // Optional lower date bound — BookingsView's default load only needs a
+  // recent window (see src/app/bookings/page.tsx), and refresh() after a
+  // mutation re-requests exactly whatever window is already on screen. No
+  // `since` = today's original unbounded behavior, used by the explicit
+  // "Show older bookings" escape hatch.
+  const since = req.nextUrl.searchParams.get("since");
+  const sinceDate = since ? new Date(`${since}T00:00:00Z`) : null;
+
   // Explicit select — same fix as the initial page load (src/app/bookings/page.tsx):
   // this is what BookingsView's refresh() re-fetches after every create/edit/
   // delete, so leaving proofUrl/dpProofUrl out here matters just as much.
   const bookings = await prisma.booking.findMany({
-    where: unitWhere(user),
+    where: { ...unitWhere(user), ...(sinceDate ? { date: { gte: sinceDate } } : {}) },
     orderBy: { date: "desc" },
     select: {
       id: true, unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true,

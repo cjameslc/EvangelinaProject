@@ -90,15 +90,28 @@ function effectiveRange(b: Booking) {
 
 export function BookingsView({
   role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [], rates, dailyRevenueGoal = null,
-  currentUserId, initialConversations,
+  currentUserId, initialConversations, initialSinceIso, initialFirstBookingIds,
 }: {
   role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[]; rates: RateTable; dailyRevenueGoal?: number | null;
   currentUserId: string;
   initialConversations: ConversationSummary[];
+  /** The lower date bound the initial `initialBookings` load was scoped to
+   * (YYYY-MM-DD) — null once "Show older bookings" has been triggered and
+   * the full unbounded history is loaded. Threaded into refresh() so a
+   * post-mutation refetch doesn't silently re-narrow or re-widen whatever
+   * scope is currently on screen. */
+  initialSinceIso: string;
+  /** Every guest's true first-ever (non-cancelled) booking id, computed
+   * server-side across all-time data — see bookings/page.tsx — since that
+   * needs full history regardless of the date-bounded `bookings` state. */
+  initialFirstBookingIds: string[];
 }) {
   const toast = useToast();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
+  const [sinceIso, setSinceIso] = useState<string | null>(initialSinceIso);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const firstBookingIds = useMemo(() => new Set(initialFirstBookingIds), [initialFirstBookingIds]);
   const [editing, setEditing] = useState<Booking | null>(null);
   // fromBooking(editing) must NOT be called inline in the BookingForm's
   // `initial` prop — a fresh object every render (from any unrelated state
@@ -167,10 +180,29 @@ export function BookingsView({
   const readOnly = isReadOnlyFinancials(role as any);
 
   async function refresh() {
-    const res = await fetch("/api/bookings");
+    // Re-request whatever window is already on screen — sinceIso stays
+    // whatever it currently is (the original 90-day default, or null after
+    // "Show older bookings" widened it) so a refetch after a mutation never
+    // silently changes scope out from under the user.
+    const res = await fetch(sinceIso ? `/api/bookings?since=${sinceIso}` : "/api/bookings");
     if (res.ok) setBookings(await res.json());
     const eRes = await fetch("/api/employees");
     if (eRes.ok) setEmps(await eRes.json());
+  }
+
+  /** Explicit escape hatch for the rare case a search/tab needs a booking
+   * older than the default 90-day window — re-fetches the full unbounded
+   * history once and never re-narrows for the rest of the session. */
+  async function loadOlderBookings() {
+    if (!sinceIso || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch("/api/bookings");
+      if (res.ok) { setBookings(await res.json()); setSinceIso(null); }
+      else toast("Couldn't load older bookings — try again.", true);
+    } finally {
+      setLoadingOlder(false);
+    }
   }
 
   async function createBooking(v: BookingFormValue) {
@@ -320,29 +352,6 @@ export function BookingsView({
     () => (role === "BOOKER" && ownEmployeeId ? bookings.filter((b) => b.bookerId === ownEmployeeId) : bookings),
     [bookings, role, ownEmployeeId]
   );
-
-  // "1st booking" — a guest's very first (non-cancelled) stay at the
-  // property, across every unit/platform, computed off the full unfiltered
-  // `bookings` (not myBookings/tabScopedBookings) so it's accurate
-  // regardless of which booker/tab is viewing. Grouped by contact number
-  // when we have a real one; falls back to the guest name for
-  // walk-ins/Airbnb imports that never collected a phone number.
-  const firstBookingIds = useMemo(() => {
-    const byGuest = new Map<string, Booking[]>();
-    for (const b of bookings) {
-      if (b.cancelledAt) continue;
-      const contact = b.contactNumber?.trim();
-      const key = contact && contact.toLowerCase() !== "not provided" ? contact : (b.guests.join(",").toLowerCase() || b.id);
-      if (!byGuest.has(key)) byGuest.set(key, []);
-      byGuest.get(key)!.push(b);
-    }
-    const ids = new Set<string>();
-    for (const list of byGuest.values()) {
-      const earliest = list.reduce((a, c) => (new Date(c.date) < new Date(a.date) ? c : a));
-      ids.add(earliest.id);
-    }
-    return ids;
-  }, [bookings]);
 
   // Upcoming check-ins — the Bookings-tab mirror of Housekeeping's
   // "Cleaning schedule" (same Today/Tomorrow/This week bucketing, same
@@ -1040,6 +1049,15 @@ export function BookingsView({
           {units.map((u) => <option key={u.id} value={u.id}>{u.shortName}</option>)}
         </select>
       </div>
+
+      {sinceIso && (
+        <div className="mb-4 flex items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3.5 py-2.5 text-[12.5px] font-semibold text-[var(--gray)]">
+          <span>Showing bookings from the last 90 days. Search and filters above only match within that window.</span>
+          <button onClick={loadOlderBookings} disabled={loadingOlder} className="btn-sm btn-ghost flex-none disabled:opacity-60">
+            {loadingOlder ? "Loading…" : "Show older bookings"}
+          </button>
+        </div>
+      )}
 
       {scheduleView === "schedule" ? (
         <BookingScheduleGrid

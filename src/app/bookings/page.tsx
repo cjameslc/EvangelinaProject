@@ -17,7 +17,20 @@ export default async function BookingsPage() {
   await ensureDefaultConversations();
 
   const where = unitWhere(user);
-  const [units, employees, bookings, settings, ownEmployee, hkStates, conversations] = await Promise.all([
+
+  // Default window: recent + all future bookings, not the account's entire
+  // history — staff mostly work with what's upcoming/recent, and this is
+  // what keeps page load fast as the business logs more bookings over time
+  // (a real load test showed load time growing with total history size
+  // when unbounded). Nothing is hidden: BookingsView's "Show older
+  // bookings" trigger re-fetches unbounded on demand, and refresh() after
+  // a mutation re-requests whatever window is already loaded.
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90);
+  ninetyDaysAgo.setUTCHours(0, 0, 0, 0);
+  const sinceIso = ninetyDaysAgo.toISOString().slice(0, 10);
+
+  const [units, employees, bookings, settings, ownEmployee, hkStates, conversations, firstBookingRows] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     // Explicit select — BookingsView never reads proofUrl/dpProofUrl (the
@@ -27,7 +40,7 @@ export default async function BookingsPage() {
     // was 6MB+ for a business with a literal handful of bookings — same fix
     // already applied to the Dashboard and Admin's booking reads.
     prismaPool[2].booking.findMany({
-      where,
+      where: { ...where, date: { gte: ninetyDaysAgo } },
       orderBy: { date: "desc" },
       select: {
         id: true, unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true,
@@ -48,7 +61,29 @@ export default async function BookingsPage() {
     // already has canSeeBookings, no new RBAC surface needed for a read.
     prismaPool[5].housekeepingUnitState.findMany({ where, select: { unitId: true, status: true } }),
     listConversationsForUser(user.id),
+    // "1st booking" tag needs real all-time data (a guest's very first
+    // stay could easily be older than the 90-day window above), but only
+    // ever needs a Set of ids — a lean select over the full history is far
+    // cheaper than shipping every historical booking's full row just for
+    // this one badge. Computed here, not in BookingsView, so the client
+    // never holds more than a Set<string> of the answer.
+    prismaPool[6].booking.findMany({
+      where: { ...where, cancelledAt: null },
+      orderBy: { date: "asc" },
+      select: { id: true, date: true, contactNumber: true, guests: true },
+    }),
   ]);
+
+  const firstBookingIds = (() => {
+    const byGuest = new Map<string, { id: string; date: Date }>();
+    for (const b of firstBookingRows) {
+      const contact = b.contactNumber?.trim();
+      const key = contact && contact.toLowerCase() !== "not provided" ? contact : ((b.guests as string[]).join(",").toLowerCase() || b.id);
+      const existing = byGuest.get(key);
+      if (!existing || b.date < existing.date) byGuest.set(key, { id: b.id, date: b.date });
+    }
+    return Array.from(byGuest.values(), (v) => v.id);
+  })();
 
   return (
     <BookingsView
@@ -58,6 +93,8 @@ export default async function BookingsPage() {
       units={JSON.parse(JSON.stringify(units))}
       employees={JSON.parse(JSON.stringify(employees))}
       initialBookings={JSON.parse(JSON.stringify(bookings))}
+      initialSinceIso={sinceIso}
+      initialFirstBookingIds={firstBookingIds}
       defaultDpFee={settings.dpFee}
       ownEmployeeId={ownEmployee?.id ?? null}
       hkStates={JSON.parse(JSON.stringify(hkStates))}
