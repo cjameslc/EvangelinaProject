@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, unitIdWhere } from "@/lib/session";
 import { canSeeAuditor } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { prismaPool } from "@/lib/prisma";
 import { AuditorView } from "@/components/auditor/AuditorView";
 
 export default async function AuditorPage() {
@@ -15,10 +15,15 @@ export default async function AuditorPage() {
   const unitFilter = (unitWhereClause as any).id;
   const findingsWhere = unitFilter ? { OR: [{ unitId: unitFilter }, { unitId: null }] } : {};
 
+  // Separate pool clients, not the shared `prisma` singleton — the libSQL
+  // adapter serializes every query on one client behind an internal mutex
+  // (see prisma.ts), so these ran back-to-back over the network despite
+  // the Promise.all wrapper. Matches the pattern already used in
+  // bookings/page.tsx.
   const [units, employees, findings] = await Promise.all([
-    prisma.unit.findMany({ where: unitWhereClause, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, shortName: true, unitNumber: true } }),
-    prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
-    prisma.auditFinding.findMany({
+    prismaPool[0].unit.findMany({ where: unitWhereClause, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, shortName: true, unitNumber: true } }),
+    prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prismaPool[2].auditFinding.findMany({
       where: findingsWhere,
       orderBy: { createdAt: "desc" },
       take: 300,

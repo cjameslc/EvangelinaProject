@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeBookings } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { CalendarView } from "@/components/calendar/CalendarView";
 
@@ -14,9 +14,14 @@ export default async function CalendarPage() {
 
   const where = unitWhere(user);
 
+  // Two separate pool clients, not the shared `prisma` singleton — the
+  // libSQL adapter serializes every query on one client behind an internal
+  // mutex (see prisma.ts), so wrapping the same client's calls in
+  // Promise.all here didn't actually run them concurrently. Matches the
+  // pattern already used in bookings/page.tsx.
   const [units, blocks] = await Promise.all([
-    prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
-    prisma.calendarBlock.findMany({
+    prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
+    prismaPool[1].calendarBlock.findMany({
       where,
       orderBy: { date: "asc" },
       include: {
