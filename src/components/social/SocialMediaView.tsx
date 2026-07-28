@@ -16,12 +16,13 @@ import { cn } from "@/lib/utils";
 import type { RateTable } from "@/lib/pricing/rates";
 import { UnitOpportunityCard, type ViewMode } from "@/components/social/UnitOpportunityCard";
 import { ContentGeneratorPanel, type GeneratorUnitContext } from "@/components/social/ContentGeneratorPanel";
+import { CheatSheetTab } from "@/components/social/CheatSheetTab";
 import {
   CopyIcon, SparkleIcon, DownloadIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon,
   GridIcon, MenuIcon, CalendarIcon,
 } from "@/components/ui/Icons";
 
-type Unit = { id: string; name: string; unitNumber: string; shortName: string; photoUrl: string | null; nightlyRate: number };
+type Unit = { id: string; name: string; unitNumber: string; shortName: string; photoUrl: string | null; nightlyRate: number; wifiSsid: string | null; wifiPassword: string | null; doorCode: string | null };
 type Booking = { unitId: string; date: string; checkOutDate: string | null; stayType: string; checkInTime: string | null; checkOutTime: string | null };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -91,7 +92,7 @@ export function SocialMediaView({
   rates: RateTable; dpFee: number; amenities: string[];
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"dates" | "studio" | "captions">("studio");
+  const [tab, setTab] = useState<"dates" | "studio" | "captions" | "cheatsheet">("studio");
 
   const contact = contactPhone ? contactPhone : messengerUsername ? `m.me/${messengerUsername}` : "our page";
   const todayIso = useMemo(() => isoOf(new Date()), []);
@@ -191,6 +192,9 @@ export function SocialMediaView({
         </button>
         <button onClick={() => setTab("captions")} className={cn("rounded-full px-4 py-2 text-[13.5px] font-bold transition", tab === "captions" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
           Captions & Hashtags
+        </button>
+        <button onClick={() => setTab("cheatsheet")} className={cn("rounded-full px-4 py-2 text-[13.5px] font-bold transition", tab === "cheatsheet" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
+          Guest Reply Cheat Sheet
         </button>
       </div>
 
@@ -329,6 +333,8 @@ export function SocialMediaView({
           onOpenStudio={() => setGenericGeneratorOpen(true)}
         />
       )}
+
+      {tab === "cheatsheet" && <CheatSheetTab units={units} toast={toast} />}
 
       <ContentGeneratorPanel
         open={!!generatorUnit}

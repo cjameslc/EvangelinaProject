@@ -11,7 +11,12 @@ export default async function SocialMediaPage() {
   if (!canSeeSocialMedia(user.role)) redirect("/");
 
   const [units, bookings, settings] = await Promise.all([
-    prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, select: { id: true, name: true, unitNumber: true, shortName: true, photoUrl: true, nightlyRate: true } }),
+    // wifiSsid/wifiPassword/doorCode included here deliberately — unlike
+    // the guest-facing AI Concierge (which never reveals these, by design;
+    // see assistantService.ts), this page is staff-only (canSeeSocialMedia:
+    // Booker/Owner/Co-owner) and its Cheat Sheet tab exists specifically so
+    // staff can relay a guest's real access details quickly over Messenger.
+    prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, select: { id: true, name: true, unitNumber: true, shortName: true, photoUrl: true, nightlyRate: true, wifiSsid: true, wifiPassword: true, doorCode: true } }),
     // Lean select, no date bound — month navigation happens client-side
     // (same pattern as the Bookings Schedule grid) rather than refetching
     // on every prev/next click. At this property's real scale (a few
