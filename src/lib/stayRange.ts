@@ -49,31 +49,6 @@ export function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date
   return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
 }
 
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-// Same-day time-of-day window used only for real overlap checking against a
-// Flexible booking (Daycation/Night's own coexistence with each other stays
-// on the coarse "different type never conflicts" rule below, unchanged).
-// Falls back to each type's smart-schedule default when no explicit time was
-// recorded, so older rows without one still compare sensibly.
-function timeWindowMinutes(stayType: string, checkInTime: string | null | undefined, checkOutTime: string | null | undefined): { start: number; end: number } {
-  if (stayType === "Night") {
-    // Only the portion of the stay that falls on THIS shared day matters —
-    // it continues past midnight into its checkout day, handled separately
-    // by that day's own occupiedRange/rangesOverlap check.
-    return { start: checkInTime ? timeToMinutes(checkInTime) : 17 * 60, end: 24 * 60 };
-  }
-  // Daycation and Flexible both default to the same 8am-8pm smart-schedule
-  // suggestion when no explicit time was set.
-  return {
-    start: checkInTime ? timeToMinutes(checkInTime) : 8 * 60,
-    end: checkOutTime ? timeToMinutes(checkOutTime) : 20 * 60,
-  };
-}
-
 type BookingLike = { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null };
 
 function combineDateAndTime(day: Date, hhmm: string | null | undefined, fallbackHHMM: string): Date {
@@ -135,7 +110,12 @@ export function lastOccupiedDay(window: { end: Date }): Date {
  * Flexible is the one exception to that coarse "different type never
  * conflicts" assumption: since its whole point is an arbitrary same-day
  * time window, any pairing involving it (including two Flexible bookings)
- * is checked against the two bookings' actual time-of-day windows instead.
+ * is checked against the two bookings' actual real-timestamp occupied
+ * windows (getOccupiedWindow/windowsOverlap) instead of the day-level
+ * range — which also correctly handles a Flexible window that crosses
+ * midnight (e.g. two identical 6pm-5am Flexible bookings on the same unit
+ * must conflict, even though naive same-day minute comparison would miss
+ * it: a "5am" checkout is numerically earlier than an "6pm" check-in).
  *
  * The day-level range check above has a blind spot: it's an exclusive-end
  * range, so a booking checking out ON day D (any time) and a new booking
@@ -159,9 +139,7 @@ export function bookingsConflict(a: BookingLike, b: BookingLike): boolean {
     const bSingleDay = rb.end.getTime() - rb.start.getTime() <= 86400000;
     if (aSingleDay && bSingleDay) {
       if (a.stayType === "Flexible" || b.stayType === "Flexible") {
-        const aw = timeWindowMinutes(a.stayType, a.checkInTime, a.checkOutTime);
-        const bw = timeWindowMinutes(b.stayType, b.checkInTime, b.checkOutTime);
-        return aw.start < bw.end && bw.start < aw.end;
+        return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
       }
       if (a.stayType !== b.stayType) return false;
     }
