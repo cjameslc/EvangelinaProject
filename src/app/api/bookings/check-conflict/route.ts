@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   }
 
   const others = await prisma.booking.findMany({
-    where: { unitId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { unitId, cancelledAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
 

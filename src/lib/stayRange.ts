@@ -3,6 +3,8 @@
 // Prisma client for syncCalendarMirror and can't be bundled client-side).
 // calendarMirror.ts re-exports these for its existing server-side callers.
 
+import { STAY_TYPE_DEFAULT_TIMES } from "@/lib/constants";
+
 /**
  * Computes the `endDate` for a Booking's mirrored CalendarBlock.
  *
@@ -72,6 +74,56 @@ function timeWindowMinutes(stayType: string, checkInTime: string | null | undefi
   };
 }
 
+type BookingLike = { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null };
+
+function combineDateAndTime(day: Date, hhmm: string | null | undefined, fallbackHHMM: string): Date {
+  const [h, m] = (hhmm ?? fallbackHHMM).split(":").map(Number);
+  const d = new Date(day);
+  d.setUTCHours(h, m, 0, 0);
+  return d;
+}
+
+/**
+ * Real check-in/check-out timestamps for a booking — combines its calendar
+ * date(s) with checkInTime/checkOutTime (falling back to that stay type's
+ * smart-schedule default, STAY_TYPE_DEFAULT_TIMES, when a time wasn't
+ * recorded — e.g. Airbnb imports and legacy-migrated rows). If the computed
+ * end would land at or before the start (a checkout time earlier than the
+ * check-in time on the same nominal day — the classic "Flexible booking
+ * crosses midnight" case), the end rolls forward a day at a time until it's
+ * genuinely after the start.
+ */
+export function getOccupiedWindow(b: BookingLike): { start: Date; end: Date } {
+  const defaults = STAY_TYPE_DEFAULT_TIMES[b.stayType] ?? { checkInTime: "08:00", checkOutTime: "20:00", nextDay: false };
+  const start = combineDateAndTime(b.date, b.checkInTime, defaults.checkInTime);
+  let endDay = b.checkOutDate ?? b.date;
+  let end = combineDateAndTime(endDay, b.checkOutTime, defaults.checkOutTime);
+  while (end.getTime() <= start.getTime()) {
+    endDay = new Date(endDay);
+    endDay.setUTCDate(endDay.getUTCDate() + 1);
+    end = combineDateAndTime(endDay, b.checkOutTime, defaults.checkOutTime);
+  }
+  return { start, end };
+}
+
+/** Real-timestamp interval overlap between two occupied windows. */
+export function windowsOverlap(a: { start: Date; end: Date }, b: { start: Date; end: Date }): boolean {
+  return a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime();
+}
+
+/** Maps a real occupied-window end timestamp back to the inclusive last
+ * calendar day it actually occupies (a midnight end means the previous day
+ * was the last one touched; any later time-of-day means its own day is
+ * still occupied) — lets calendar/list/schedule views keep rendering
+ * date/endDate as an inclusive day range while getting correct data. */
+export function lastOccupiedDay(window: { end: Date }): Date {
+  const end = window.end;
+  const isMidnight = end.getUTCHours() === 0 && end.getUTCMinutes() === 0 && end.getUTCSeconds() === 0 && end.getUTCMilliseconds() === 0;
+  const day = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  if (isMidnight) day.setUTCDate(day.getUTCDate() - 1);
+  return day;
+}
+
 /**
  * Whether two bookings on the same unit actually conflict. A Full stay
  * blocks the whole day against anything. Two stays of the same type
@@ -84,24 +136,39 @@ function timeWindowMinutes(stayType: string, checkInTime: string | null | undefi
  * conflicts" assumption: since its whole point is an arbitrary same-day
  * time window, any pairing involving it (including two Flexible bookings)
  * is checked against the two bookings' actual time-of-day windows instead.
+ *
+ * The day-level range check above has a blind spot: it's an exclusive-end
+ * range, so a booking checking out ON day D (any time) and a new booking
+ * starting on day D never register as overlapping, even though the first
+ * booking may not have actually vacated yet (e.g. a Full stay checking out
+ * noon vs. a new booking starting 9am the same day) — the calendar itself
+ * renders date/endDate as an INCLUSIVE range (CalendarView.tsx), so it
+ * visually shows day D as occupied even though this exclusive-end guard
+ * doesn't. When the two bookings' day-ranges are exactly adjacent like
+ * this, fall back to a real-timestamp overlap check instead of the day-only
+ * one — this is strictly additive (it only catches cases the day-level
+ * check already said "no overlap" on) and never touches the same-day
+ * carve-outs above, since those only run when the day ranges DO overlap.
  */
-export function bookingsConflict(
-  a: { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null },
-  b: { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null }
-): boolean {
+export function bookingsConflict(a: BookingLike, b: BookingLike): boolean {
   const ra = occupiedRange(a.stayType, a.date, a.checkOutDate);
   const rb = occupiedRange(b.stayType, b.date, b.checkOutDate);
-  if (!rangesOverlap(ra.start, ra.end, rb.start, rb.end)) return false;
-  if (a.stayType === "Full" || b.stayType === "Full") return true;
-  const aSingleDay = ra.end.getTime() - ra.start.getTime() <= 86400000;
-  const bSingleDay = rb.end.getTime() - rb.start.getTime() <= 86400000;
-  if (aSingleDay && bSingleDay) {
-    if (a.stayType === "Flexible" || b.stayType === "Flexible") {
-      const aw = timeWindowMinutes(a.stayType, a.checkInTime, a.checkOutTime);
-      const bw = timeWindowMinutes(b.stayType, b.checkInTime, b.checkOutTime);
-      return aw.start < bw.end && bw.start < aw.end;
+  if (rangesOverlap(ra.start, ra.end, rb.start, rb.end)) {
+    if (a.stayType === "Full" || b.stayType === "Full") return true;
+    const aSingleDay = ra.end.getTime() - ra.start.getTime() <= 86400000;
+    const bSingleDay = rb.end.getTime() - rb.start.getTime() <= 86400000;
+    if (aSingleDay && bSingleDay) {
+      if (a.stayType === "Flexible" || b.stayType === "Flexible") {
+        const aw = timeWindowMinutes(a.stayType, a.checkInTime, a.checkOutTime);
+        const bw = timeWindowMinutes(b.stayType, b.checkInTime, b.checkOutTime);
+        return aw.start < bw.end && bw.start < aw.end;
+      }
+      if (a.stayType !== b.stayType) return false;
     }
-    if (a.stayType !== b.stayType) return false;
+    return true;
   }
-  return true;
+  if (ra.end.getTime() === rb.start.getTime() || rb.end.getTime() === ra.start.getTime()) {
+    return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
+  }
+  return false;
 }

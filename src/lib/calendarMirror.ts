@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { calendarBlockEndDate } from "@/lib/stayRange";
+import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
 
 // The pure date-range math lives in stayRange.ts (no Prisma import, so it's
 // safe for client components too) — re-exported here so existing server-side
 // imports of these names from "@/lib/calendarMirror" keep working unchanged.
-export { calendarBlockEndDate, occupiedRange, nightsFor, rangesOverlap, bookingsConflict } from "@/lib/stayRange";
+export {
+  calendarBlockEndDate, occupiedRange, nightsFor, rangesOverlap, bookingsConflict,
+  getOccupiedWindow, windowsOverlap, lastOccupiedDay,
+} from "@/lib/stayRange";
 
 type MirrorableBooking = {
   id: string;
@@ -12,12 +15,21 @@ type MirrorableBooking = {
   stayType: string;
   date: Date;
   checkOutDate: Date | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
   guests: string[];
 };
 
-/** Creates or updates the mirrored CalendarBlock for a Booking, so /calendar always reflects its current date(s) — used on create, edit, and import sync alike. */
+/** Creates or updates the mirrored CalendarBlock for a Booking, so /calendar always reflects its current date(s) — used on create, edit, and import sync alike.
+ * endDate is the INCLUSIVE last occupied calendar day, derived from the
+ * booking's real check-in/check-out timestamps (getOccupiedWindow) rather
+ * than trusting checkOutDate as-is — this is what lets a Flexible booking
+ * that crosses midnight (or any stay whose actual checkout time falls later
+ * in its checkout day) correctly show that day as occupied, matching what
+ * the real conflict guard (bookingsConflict) now also enforces. */
 export async function syncCalendarMirror(booking: MirrorableBooking) {
-  const endDate = calendarBlockEndDate(booking.stayType, booking.date, booking.checkOutDate);
+  const window = getOccupiedWindow(booking);
+  const endDate = lastOccupiedDay(window);
   const guest = booking.guests.join(", ") || "Guest";
   await prisma.calendarBlock.upsert({
     where: { bookingId: booking.id },

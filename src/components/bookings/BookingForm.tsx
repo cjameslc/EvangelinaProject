@@ -6,7 +6,7 @@ import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
-import { STAY_TYPES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 
 // Airbnb bookings only ever enter the system automatically (iCal import —
@@ -60,15 +60,14 @@ const EMPTY: BookingFormValue = {
  * the Airbnb-style "pick a type, get a sensible schedule" flow; the guest
  * can still freely edit every field afterward. */
 function smartSchedule(type: BookingFormValue["stayType"], checkInDate: string) {
-  if (type === "Daycation" || type === "Flexible") {
-    return { checkInTime: "08:00", checkOutTime: "20:00", checkOutDate: checkInDate };
+  const defaults = type ? STAY_TYPE_DEFAULT_TIMES[type] : undefined;
+  if (!defaults) return { checkInTime: "", checkOutTime: "", checkOutDate: "" };
+  if (!defaults.nextDay) {
+    return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: checkInDate };
   }
-  if (type === "Night" || type === "Full") {
-    const next = new Date(`${checkInDate}T00:00:00Z`);
-    next.setUTCDate(next.getUTCDate() + 1);
-    return { checkInTime: "14:00", checkOutTime: "12:00", checkOutDate: next.toISOString().slice(0, 10) };
-  }
-  return { checkInTime: "", checkOutTime: "", checkOutDate: "" };
+  const next = new Date(`${checkInDate}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: next.toISOString().slice(0, 10) };
 }
 
 /** Formats a guest name as Title Case (first letter of every space-separated

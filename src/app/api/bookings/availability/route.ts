@@ -36,6 +36,10 @@ export async function GET(req: NextRequest) {
   const dateIso = searchParams.get("date");
   const unitId = searchParams.get("unitId"); // omitted/"" = check every unit the caller can see
   const stayType = searchParams.get("stayType"); // omitted/"" = check every stay type
+  // Only meaningful for a Flexible request — Daycation/Night/Full ignore
+  // these and use their own smart-schedule default via getOccupiedWindow.
+  const checkInTime = searchParams.get("checkInTime");
+  const checkOutTime = searchParams.get("checkOutTime");
 
   const date = dateIso ? parseDate(dateIso) : null;
   if (!date) return NextResponse.json({ error: "A valid date (YYYY-MM-DD) is required." }, { status: 400 });
@@ -61,7 +65,7 @@ export async function GET(req: NextRequest) {
   // booking still shows here as an unavailable slot forever.
   const bookings = await prisma.booking.findMany({
     where: { ...unitWhere(user), unitId: { in: units.map((u) => u.id) }, date: { gte: windowStart, lt: windowEnd }, cancelledAt: null },
-    select: { unitId: true, stayType: true, date: true, checkOutDate: true },
+    select: { unitId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
   const bookingsByUnit = new Map<string, typeof bookings>();
   for (const b of bookings) {
@@ -71,7 +75,7 @@ export async function GET(req: NextRequest) {
 
   function isFree(uId: string, st: string, d: Date): boolean {
     const existing = bookingsByUnit.get(uId) ?? [];
-    return !existing.some((b) => bookingsConflict({ stayType: st, date: d, checkOutDate: null }, b));
+    return !existing.some((b) => bookingsConflict({ stayType: st, date: d, checkOutDate: null, checkInTime, checkOutTime }, b));
   }
 
   const stayTypesToCheck = stayType ? [stayType] : [...STAY_TYPE_KEYS];

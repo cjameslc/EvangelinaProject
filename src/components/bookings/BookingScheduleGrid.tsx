@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { manilaDayKey, manilaTodayISO } from "@/lib/manilaTime";
-import { occupiedRange } from "@/lib/stayRange";
+import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
 import { formatUnitDisplay } from "@/lib/format";
 import { ArrowLeftIcon, ArrowRightIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/utils";
@@ -10,12 +10,12 @@ import { cn } from "@/lib/utils";
 type Unit = { id: string; name: string; unitNumber: string; shortName: string };
 type Booking = {
   id: string; unitId: string; date: string; checkOutDate: string | null; stayType: string;
+  checkInTime?: string | null; checkOutTime?: string | null;
   guests: string[]; platform: string; paid: boolean; cancelledAt?: string | null; conflict?: boolean;
   source?: string; confirmationNumber?: string | null;
 };
 
 const WINDOW_DAYS = 14;
-const DAY_MS = 86400000;
 const LANE_H = 28;
 const ROW_PAD = 6;
 const LABEL_COL = 132;
@@ -63,8 +63,18 @@ export function BookingScheduleGrid({
       const unitBookings = bookings
         .filter((b) => b.unitId === unit.id)
         .map((b) => {
-          const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
-          return { b, startIsoKey: manilaDayKey(start), lastOccupiedIso: manilaDayKey(new Date(end.getTime() - DAY_MS)) };
+          // startIsoKey stays keyed off the plain check-in day (unaffected
+          // by time-of-day) — only the checkout-day mapping needed the real
+          // occupied-window engine, via lastOccupiedDay (always a clean
+          // UTC-midnight day marker, so it's still safe to run through
+          // manilaDayKey's Asia/Manila conversion here).
+          const start = new Date(b.date);
+          const window = getOccupiedWindow({
+            stayType: b.stayType, date: start,
+            checkOutDate: b.checkOutDate ? new Date(b.checkOutDate) : null,
+            checkInTime: b.checkInTime, checkOutTime: b.checkOutTime,
+          });
+          return { b, startIsoKey: manilaDayKey(start), lastOccupiedIso: manilaDayKey(lastOccupiedDay(window)) };
         })
         .filter((x) => x.lastOccupiedIso >= windowStart && x.startIsoKey <= windowEnd)
         .sort((a, b2) => a.startIsoKey.localeCompare(b2.startIsoKey));

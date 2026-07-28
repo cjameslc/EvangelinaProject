@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { parseICS } from "@/lib/ical";
-import { calendarBlockEndDate, syncCalendarMirror, rangesOverlap, nightsFor } from "@/lib/calendarMirror";
+import { occupiedRange, syncCalendarMirror, rangesOverlap, nightsFor } from "@/lib/calendarMirror";
 import { AIRBNB_NIGHTLY_RATE } from "@/lib/constants";
 
 /** Airbnb .ics events carry no price — revenue is nights x the fixed per-night rate. DTEND is exclusive, so this is exact. */
@@ -135,7 +135,7 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
 
   for (const ev of activeEvents) {
     const overlapsManual = others.some((o) =>
-      rangesOverlap(ev.start, ev.end, o.date, calendarBlockEndDate(o.stayType, o.date, o.checkOutDate) ?? new Date(o.date.getTime() + 86400000))
+      rangesOverlap(ev.start, ev.end, o.date, occupiedRange(o.stayType, o.date, o.checkOutDate).end)
     );
     const existing = existingImported.find((b) => b.externalUid === ev.uid);
 

@@ -59,6 +59,18 @@ export const STAY_TYPES = {
   Maintenance: { label: "Maintenance", short: "MAINT", hrs: "", color: "#C87D00" },
 } as const;
 
+// Default check-in/check-out clock times per stay type, used both by
+// BookingForm's smartSchedule() (the UI pre-fill) and by stayRange.ts's
+// getOccupiedWindow() (the fallback when a booking has no explicit
+// checkInTime/checkOutTime, e.g. Airbnb imports and legacy-migrated rows) —
+// one shared table so the two can never quietly drift apart.
+export const STAY_TYPE_DEFAULT_TIMES: Record<string, { checkInTime: string; checkOutTime: string; nextDay: boolean }> = {
+  Daycation: { checkInTime: "08:00", checkOutTime: "20:00", nextDay: false },
+  Flexible: { checkInTime: "08:00", checkOutTime: "20:00", nextDay: false },
+  Night: { checkInTime: "14:00", checkOutTime: "12:00", nextDay: true },
+  Full: { checkInTime: "14:00", checkOutTime: "12:00", nextDay: true },
+};
+
 export const PLATFORMS = ["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"] as const;
 export const PLATFORM_LABEL: Record<string, string> = { WalkIn: "Walk-in" };
 

@@ -26,6 +26,7 @@ import { OpportunityPanel } from "./OpportunityPanel";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
 import { manilaTodayISO } from "@/lib/manilaTime";
+import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate: number; owners?: { user: { name: string } }[] };
@@ -70,13 +71,21 @@ function unitBadgeColor(unitId: string, units: { id: string }[]) {
   return UNIT_BADGE_COLORS[(idx < 0 ? 0 : idx) % UNIT_BADGE_COLORS.length];
 }
 
-/** Effective check-in/check-out day for a booking: explicit checkOutDate if
- * set, else the same-day (Daycation) / next-day (Night, Full) default. */
+/** Effective check-in/check-out day for a booking — derived from the same
+ * real-timestamp occupancy engine (stayRange.ts's getOccupiedWindow +
+ * lastOccupiedDay) the Calendar page and Schedule grid use, so this List
+ * view can never show a different occupied range than what the actual
+ * conflict guard enforces. */
 function effectiveRange(b: Booking) {
   const inDate = new Date(b.date);
-  const outDate = b.checkOutDate ? new Date(b.checkOutDate) : new Date(inDate);
-  if (!b.checkOutDate && b.stayType !== "Daycation" && b.stayType !== "Flexible") outDate.setDate(outDate.getDate() + 1);
-  return { inIso: dayOf(inDate), outIso: dayOf(outDate) };
+  const window = getOccupiedWindow({
+    stayType: b.stayType,
+    date: inDate,
+    checkOutDate: b.checkOutDate ? new Date(b.checkOutDate) : null,
+    checkInTime: b.checkInTime,
+    checkOutTime: b.checkOutTime,
+  });
+  return { inIso: dayOf(inDate), outIso: dayOf(lastOccupiedDay(window)) };
 }
 
 export function BookingsView({

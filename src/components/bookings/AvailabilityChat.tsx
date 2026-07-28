@@ -5,9 +5,10 @@ import { fmtDate, manilaDayStart, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { CalendarIcon } from "@/components/ui/Icons";
+import { TimePicker } from "@/components/ui/TimePicker";
 
 type Unit = { id: string; unitNumber: string; shortName: string };
-const STAY_TYPE_KEYS = ["Daycation", "Night", "Full"] as const;
+const STAY_TYPE_KEYS = ["Daycation", "Night", "Full", "Flexible"] as const;
 
 export type Option = { unitId: string; unit: string; stayType: string; date: string; available: boolean };
 export type AvailabilityResult = {
@@ -18,7 +19,7 @@ export type AvailabilityResult = {
 };
 
 type Msg = { id: string; from: "bot" | "user"; content: React.ReactNode };
-type Step = "date" | "unit" | "stayType" | "checking" | "done";
+type Step = "date" | "unit" | "stayType" | "flexTime" | "checking" | "done";
 
 let msgSeq = 0;
 function nextId() {
@@ -54,6 +55,8 @@ export function AvailabilityChat({
   const [date, setDate] = useState(todayIso);
   const [unitId, setUnitId] = useState<string>(""); // "" = any/all units
   const [stayType, setStayType] = useState<string>("");
+  const [flexCheckInTime, setFlexCheckInTime] = useState("");
+  const [flexCheckOutTime, setFlexCheckOutTime] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -83,14 +86,17 @@ export function AvailabilityChat({
     setStep("stayType");
   }
 
-  async function submitStayType(st: string) {
-    setStayType(st);
-    push("user", STAY_TYPES[st as keyof typeof STAY_TYPES]?.label ?? st);
-    setStep("checking");
+  // Shared by the direct stayType path, the Flexible time-entry path, and
+  // "try a nearby date" retries — the ONE place that calls
+  // GET /api/bookings/availability, so every entry point stays in sync with
+  // whatever params that route actually supports (including the Flexible
+  // checkInTime/checkOutTime it now accepts).
+  async function runCheck(d: string, uId: string, st: string, checkInTime?: string, checkOutTime?: string) {
     push("bot", "Checking…");
-
-    const params = new URLSearchParams({ date, stayType: st });
-    if (unitId) params.set("unitId", unitId);
+    const params = new URLSearchParams({ date: d, stayType: st });
+    if (uId) params.set("unitId", uId);
+    if (checkInTime) params.set("checkInTime", checkInTime);
+    if (checkOutTime) params.set("checkOutTime", checkOutTime);
     const res = await fetch(`/api/bookings/availability?${params}`);
     setMessages((m) => m.slice(0, -1)); // drop the "Checking…" placeholder
     if (!res.ok) {
@@ -100,24 +106,42 @@ export function AvailabilityChat({
       return;
     }
     const data: AvailabilityResult = await res.json();
-    push("bot", <ResultBubble data={data} unitIdRequested={unitId} onPrefillBooking={onPrefillBooking} onRetryDate={(d) => { setDate(d); runFullCheck(d, unitId, st); }} />);
+    push(
+      "bot",
+      <ResultBubble
+        data={data}
+        unitIdRequested={uId}
+        onPrefillBooking={onPrefillBooking}
+        onRetryDate={(dd) => { setDate(dd); runFullCheck(dd, uId, st, checkInTime, checkOutTime); }}
+      />
+    );
     setStep("done");
-    onResult?.(data, unitLabel(unitId));
+    onResult?.(data, unitLabel(uId));
+  }
+
+  async function submitStayType(st: string) {
+    setStayType(st);
+    push("user", STAY_TYPES[st as keyof typeof STAY_TYPES]?.label ?? st);
+    if (st === "Flexible") {
+      push("bot", "What check-in and check-out time?");
+      setStep("flexTime");
+      return;
+    }
+    setStep("checking");
+    await runCheck(date, unitId, st);
+  }
+
+  async function submitFlexTime() {
+    push("user", `${flexCheckInTime} – ${flexCheckOutTime}`);
+    setStep("checking");
+    await runCheck(date, unitId, "Flexible", flexCheckInTime, flexCheckOutTime);
   }
 
   // Used when clicking a "nearby date" suggestion — re-runs the whole check
   // against that new date without needing to walk through the questions again.
-  async function runFullCheck(d: string, uId: string, st: string) {
+  async function runFullCheck(d: string, uId: string, st: string, checkInTime?: string, checkOutTime?: string) {
     push("user", `Try ${fmtDate(d, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} instead`);
-    push("bot", "Checking…");
-    const params = new URLSearchParams({ date: d, stayType: st });
-    if (uId) params.set("unitId", uId);
-    const res = await fetch(`/api/bookings/availability?${params}`);
-    setMessages((m) => m.slice(0, -1));
-    if (!res.ok) { push("bot", "Couldn't check that date — try again."); return; }
-    const data: AvailabilityResult = await res.json();
-    push("bot", <ResultBubble data={data} unitIdRequested={uId} onPrefillBooking={onPrefillBooking} onRetryDate={(dd) => { setDate(dd); runFullCheck(dd, uId, st); }} />);
-    onResult?.(data, unitLabel(uId));
+    await runCheck(d, uId, st, checkInTime, checkOutTime);
   }
 
   function startOver() {
@@ -125,6 +149,8 @@ export function AvailabilityChat({
     setStep("date");
     setUnitId("");
     setStayType("");
+    setFlexCheckInTime("");
+    setFlexCheckOutTime("");
   }
 
   return (
@@ -171,6 +197,20 @@ export function AvailabilityChat({
                 {STAY_TYPES[st].label} <span className="text-[10.5px] opacity-70">({STAY_TYPES[st].hrs})</span>
               </button>
             ))}
+          </div>
+        )}
+
+        {step === "flexTime" && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <TimePicker value={flexCheckInTime} onChange={setFlexCheckInTime} placeholder="Check-in" />
+            <TimePicker value={flexCheckOutTime} onChange={setFlexCheckOutTime} placeholder="Check-out" />
+            <button
+              onClick={submitFlexTime}
+              disabled={!flexCheckInTime || !flexCheckOutTime}
+              className="btn-primary btn-sm w-full disabled:opacity-50 sm:w-auto sm:flex-none"
+            >
+              Check
+            </button>
           </div>
         )}
 
