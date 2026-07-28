@@ -86,10 +86,12 @@ function quickFilterRange(key: QuickFilterKey, todayIso: string, customStart: st
 
 export function SocialMediaView({
   units, bookings, businessName, location, contactPhone, messengerUsername, rates, dpFee, amenities,
+  logoUrl, brandPrimaryColor, brandSecondaryColor,
 }: {
   units: Unit[]; bookings: Booking[]; businessName: string; location: string;
   contactPhone: string | null; messengerUsername: string | null;
   rates: RateTable; dpFee: number; amenities: string[];
+  logoUrl: string | null; brandPrimaryColor: string | null; brandSecondaryColor: string | null;
 }) {
   const toast = useToast();
   const [tab, setTab] = useState<"dates" | "studio" | "captions" | "cheatsheet">("studio");
@@ -164,7 +166,7 @@ export function SocialMediaView({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
-  useEffect(() => { loadImage("/branding/logo.jpg").then(setLogoImg); }, []);
+  useEffect(() => { loadImage(logoUrl ?? "/branding/logo.jpg").then(setLogoImg); }, [logoUrl]);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
 
   async function exportGraphic(formatKey: string) {
@@ -182,6 +184,8 @@ export function SocialMediaView({
       businessName,
       location,
       logoImage: logoImg,
+      primaryColor: brandPrimaryColor,
+      secondaryColor: brandSecondaryColor,
     });
     downloadCanvas(canvas, `${businessName.replace(/\s/g, "-").toLowerCase()}-${format.key}-${year}-${month0 + 1}.png`);
     setExportingKey(null);
@@ -256,6 +260,9 @@ export function SocialMediaView({
             monthText={monthLabel(year, month0)}
             propertyDateLines={dateLines}
             toast={toast}
+            logoUrl={logoUrl}
+            brandPrimaryColor={brandPrimaryColor}
+            brandSecondaryColor={brandSecondaryColor}
           />
         </div>
       )}

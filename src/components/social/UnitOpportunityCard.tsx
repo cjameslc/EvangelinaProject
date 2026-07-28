@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import { STAY_TYPES } from "@/lib/constants";
 import { formatUnitDisplay, peso } from "@/lib/format";
-import { groupOpenDatesByStayType, type UnitOpportunity } from "@/lib/socialOpportunity";
+import { groupOpenDatesByStayType, pricesByStayType, type UnitOpportunity } from "@/lib/socialOpportunity";
 import { SparkleIcon } from "@/components/ui/Icons";
 
 export type ViewMode = "grid" | "tile" | "story" | "carousel";
@@ -24,9 +24,19 @@ export function scarcityFor(opportunity: UnitOpportunity, todayIso: string) {
     null;
 }
 
-export function cheapestPriceFor(opportunity: UnitOpportunity): number | null {
-  const prices = opportunity.days.flatMap((d) => Object.values(d.price)).filter((p): p is number => typeof p === "number");
-  return prices.length ? Math.min(...prices) : null;
+/**
+ * One "Daycation from ₱1,499" line per open stay type — never a single
+ * blended cheapest-across-everything number, since that could silently
+ * surface a weekday-night-promo-discounted Night price under a generic
+ * "From" label with no indication it doesn't apply to Daycation/Full too
+ * (a real, confirmed source of confusion — quotePrice already computes
+ * each stay type's real rate correctly, this just stops mixing them).
+ */
+export function priceLinesFor(opportunity: UnitOpportunity): string[] {
+  const byType = pricesByStayType(opportunity.days);
+  return Object.entries(byType)
+    .filter((entry): entry is [keyof typeof STAY_TYPES, number] => entry[1] !== undefined)
+    .map(([stayType, price]) => `${STAY_TYPES[stayType]?.label ?? stayType} from ${peso(price)}`);
 }
 
 /**
@@ -37,18 +47,23 @@ export function cheapestPriceFor(opportunity: UnitOpportunity): number | null {
  * preview (ContentStudioWorkspace) instead of being duplicated.
  */
 export function UnitGraphicPreview({
-  unit, opportunity, todayIso, aspectClassName, scale = "normal",
+  unit, opportunity, todayIso, aspectClassName, scale = "normal", primaryColor, secondaryColor,
 }: {
   unit: { unitNumber: string; shortName: string; photoUrl: string | null };
   opportunity: UnitOpportunity;
   todayIso: string;
   aspectClassName: string;
   scale?: "normal" | "large";
+  /** Brand Kit colors — when unset, keeps the original rausch Tailwind
+   * classes rather than switching every card to an inline style. */
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
 }) {
   const byStayType = groupOpenDatesByStayType(opportunity.days);
   const totalOpenDays = opportunity.days.filter((d) => d.openStayTypes.length > 0).length;
   const scarcity = scarcityFor(opportunity, todayIso);
-  const cheapestPrice = cheapestPriceFor(opportunity);
+  const priceLines = priceLinesFor(opportunity);
+  const hasCustomColors = !!(primaryColor || secondaryColor);
 
   if (totalOpenDays === 0) {
     return (
@@ -64,13 +79,18 @@ export function UnitGraphicPreview({
       {unit.photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={unit.photoUrl} alt={unit.shortName} className="absolute inset-0 h-full w-full object-cover" />
+      ) : hasCustomColors ? (
+        <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom right, ${primaryColor || "#FF385C"}, ${secondaryColor || "#B0203A"})` }} />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-rausch to-[#B0203A]" />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
 
       {scarcity && (
-        <span className={cn("absolute left-3 top-3 rounded-full bg-rausch font-extrabold uppercase tracking-wide text-white", scale === "large" ? "px-3.5 py-1.5 text-[13px]" : "px-2.5 py-1 text-[10.5px]")}>
+        <span
+          className={cn("absolute left-3 top-3 rounded-full font-extrabold uppercase tracking-wide text-white", !hasCustomColors && "bg-rausch", scale === "large" ? "px-3.5 py-1.5 text-[13px]" : "px-2.5 py-1 text-[10.5px]")}
+          style={hasCustomColors ? { backgroundColor: primaryColor || "#FF385C" } : undefined}
+        >
           {scarcity}
         </span>
       )}
@@ -84,14 +104,20 @@ export function UnitGraphicPreview({
             </p>
           ))}
         </div>
-        {cheapestPrice && <p className={cn("font-extrabold", scale === "large" ? "mt-2.5 text-[18px]" : "mt-1.5 text-[13px]")}>From {peso(cheapestPrice)}</p>}
+        {priceLines.length > 0 && (
+          <div className={cn("space-y-0.5", scale === "large" ? "mt-2.5" : "mt-1.5")}>
+            {priceLines.map((line) => (
+              <p key={line} className={cn("font-extrabold", scale === "large" ? "text-[16px]" : "text-[12.5px]")}>{line}</p>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export function UnitOpportunityCard({
-  unit, opportunity, todayIso, mode, selected, onSelect,
+  unit, opportunity, todayIso, mode, selected, onSelect, primaryColor, secondaryColor,
 }: {
   unit: { id: string; unitNumber: string; shortName: string; photoUrl: string | null };
   opportunity: UnitOpportunity;
@@ -99,6 +125,8 @@ export function UnitOpportunityCard({
   mode: ViewMode;
   selected?: boolean;
   onSelect: () => void;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
 }) {
   const totalOpenDays = opportunity.days.filter((d) => d.openStayTypes.length > 0).length;
 
@@ -111,7 +139,7 @@ export function UnitOpportunityCard({
         selected && "ring-4 ring-rausch/40 rounded-2xl"
       )}
     >
-      <UnitGraphicPreview unit={unit} opportunity={opportunity} todayIso={todayIso} aspectClassName={MODE_ASPECT[mode]} />
+      <UnitGraphicPreview unit={unit} opportunity={opportunity} todayIso={todayIso} aspectClassName={MODE_ASPECT[mode]} primaryColor={primaryColor} secondaryColor={secondaryColor} />
       {totalOpenDays > 0 && (
         <span className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/20 text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
           <SparkleIcon className="h-4 w-4" />

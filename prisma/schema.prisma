@@ -827,6 +827,19 @@ model Settings {
   emergencyContactPhone String?
   messengerUsername     String? // the part after m.me/ — e.g. "EvangelinasStaycation"
 
+  // Brand Kit — Social Media Center export branding. Null until Admin sets
+  // them, matching the same "hide/fall back rather than fabricate" pattern
+  // as the host fields below — the Social Media Center falls back to the
+  // static /branding/logo.jpg and the original hardcoded rausch colors
+  // when these are unset, so nothing breaks for an admin who never opens
+  // the Brand Kit panel.
+  logoUrl             String? // Vercel Blob URL — see src/lib/blob.ts's uploadBrandLogo
+  brandPrimaryColor   String? // hex, e.g. "#FF385C"
+  brandSecondaryColor String? // hex, e.g. "#B0203A"
+  facebookPageUrl     String?
+  instagramHandle     String?
+  tiktokHandle        String?
+
   // Guest Experience module — Digital Guidebook content, shared across every
   // unit (nearby places/amenities/house rules don't vary per-unit; per-unit
   // specifics like WiFi/door code live on Unit instead). Same override

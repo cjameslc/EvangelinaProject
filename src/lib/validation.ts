@@ -295,6 +295,13 @@ export const settingsSchema = z.object({
   contactPhone: z.string().nullable().optional(),
   emergencyContactPhone: z.string().nullable().optional(),
   messengerUsername: z.string().nullable().optional(),
+  // Brand Kit — Social Media Center export branding.
+  logoUrl: z.string().nullable().optional(),
+  brandPrimaryColor: z.string().nullable().optional(),
+  brandSecondaryColor: z.string().nullable().optional(),
+  facebookPageUrl: z.string().nullable().optional(),
+  instagramHandle: z.string().nullable().optional(),
+  tiktokHandle: z.string().nullable().optional(),
   hostName: z.string().nullable().optional(),
   hostPhotoUrl: z.string().nullable().optional(),
   hostBio: z.string().nullable().optional(),

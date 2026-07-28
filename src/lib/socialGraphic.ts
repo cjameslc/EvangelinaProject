@@ -53,6 +53,11 @@ export type AvailabilityGraphicInput = {
   watermarkText?: string | null;
   contactLine?: string | null;
   qrImage?: HTMLImageElement | null;
+  /** Brand Kit colors — default to the original hardcoded rausch pink /
+   * deep maroon when not set, so every existing call site keeps working
+   * unchanged for an admin who hasn't configured a Brand Kit. */
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
 };
 
 /** Draws the branded "available dates" graphic onto `canvas` at its current width/height. */
@@ -62,12 +67,15 @@ export function drawAvailabilityGraphic(canvas: HTMLCanvasElement, input: Availa
   const W = canvas.width;
   const H = canvas.height;
   const pad = W * 0.08;
+  const primary = input.primaryColor || "#FF385C";
+  const secondary = input.secondaryColor || "#B0203A";
 
-  // Background — brand gradient (rausch -> deep maroon), matching the
-  // app's own accent color rather than a generic template look.
+  // Background — brand gradient (rausch -> deep maroon by default, or the
+  // admin's own Brand Kit colors), matching the app's own accent color
+  // rather than a generic template look.
   const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, "#FF385C");
-  grad.addColorStop(1, "#B0203A");
+  grad.addColorStop(0, primary);
+  grad.addColorStop(1, secondary);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
@@ -181,6 +189,10 @@ export type UnitGraphicInput = {
   watermarkText?: string | null;
   contactLine?: string | null;
   qrImage?: HTMLImageElement | null;
+  /** Brand Kit colors — default to the original hardcoded rausch pink /
+   * deep maroon when not set. */
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
 };
 
 /** Draws a photo-first hero (unit photo + dark gradient overlay for legible text) — falls back to a brand-color gradient when no unit photo is set. */
@@ -190,6 +202,8 @@ export function drawUnitGraphic(canvas: HTMLCanvasElement, input: UnitGraphicInp
   const W = canvas.width;
   const H = canvas.height;
   const pad = W * 0.08;
+  const primary = input.primaryColor || "#FF385C";
+  const secondary = input.secondaryColor || "#B0203A";
 
   if (input.unitPhoto) {
     // Cover-fit the photo, cropping to the canvas aspect ratio.
@@ -204,8 +218,8 @@ export function drawUnitGraphic(canvas: HTMLCanvasElement, input: UnitGraphicInp
     ctx.drawImage(input.unitPhoto, dx, dy, dw, dh);
   } else {
     const grad = ctx.createLinearGradient(0, 0, W, H);
-    grad.addColorStop(0, "#FF385C");
-    grad.addColorStop(1, "#B0203A");
+    grad.addColorStop(0, primary);
+    grad.addColorStop(1, secondary);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
   }
@@ -228,7 +242,7 @@ export function drawUnitGraphic(canvas: HTMLCanvasElement, input: UnitGraphicInp
   // Badge (top-left)
   ctx.font = `800 ${W * 0.036}px Arial`;
   const badgeW = ctx.measureText(input.badge).width + W * 0.06;
-  ctx.fillStyle = "#FF385C";
+  ctx.fillStyle = primary;
   const br = W * 0.02;
   const bx = pad, by = pad;
   ctx.beginPath();

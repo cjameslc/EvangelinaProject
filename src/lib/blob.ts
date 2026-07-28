@@ -39,3 +39,15 @@ export async function uploadChatImage(file: File, conversationId: string) {
   const blob = await put(key, file, { access: "public", addRandomSuffix: false });
   return blob.url;
 }
+
+// Brand Kit logo — one singleton logo, not per-entity, so no id segment in
+// the key. Real object storage, not base64-in-DB, same reasoning as every
+// other photo field above (and unlike Settings.hostPhotoUrl, which still
+// uses the older base64 pattern this app's own comments call out as an
+// anti-pattern to avoid for new image fields).
+export async function uploadBrandLogo(file: File) {
+  const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+  const key = `branding/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}

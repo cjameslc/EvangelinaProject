@@ -109,6 +109,26 @@ export function groupOpenDatesByStayType(days: DayOpportunity[]): Record<StayTyp
 }
 
 /**
+ * Cheapest real quoted price per stay type across a unit's open days, e.g.
+ * { Daycation: 1499, Night: 1349, Full: 1899 } — Night's own number already
+ * reflects the weekday-night promo when applicable (quotePrice bakes that
+ * in), it's just never blended across stay types. Previously the Content
+ * Studio card/export only showed ONE blended "From ₱X" (the minimum across
+ * every stay type AND day), which could surface a promo-discounted Night
+ * price under a generic "From" label with no indication it was Night-only
+ * — a real, confirmed source of confusion, not just a cosmetic nitpick.
+ */
+export function pricesByStayType(days: DayOpportunity[]): Partial<Record<StayType, number>> {
+  const result: Partial<Record<StayType, number>> = {};
+  for (const day of days) {
+    for (const [stayType, price] of Object.entries(day.price) as [StayType, number][]) {
+      if (result[stayType] === undefined || price < result[stayType]!) result[stayType] = price;
+    }
+  }
+  return result;
+}
+
+/**
  * Simple, deterministic rules over real numbers — not an AI call. Every
  * suggestion here is a direct readout of the actual computed opportunity
  * data (never a guess), matching the same "no invention" discipline the AI

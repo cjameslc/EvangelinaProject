@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { UnitsTab } from "./UnitsTab";
 import { UsersTab } from "./UsersTab";
 import { SettingsTab } from "./SettingsTab";
+import { BrandKitTab } from "./BrandKitTab";
 import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
 import { ImpersonationLogsTab, type ImpersonationLog } from "./ImpersonationLogsTab";
@@ -98,6 +99,9 @@ export function AdminView({
         <div>
           <Accordion title="Business & payroll rates">
             <SettingsTab initial={settings} onSaved={setSettings} />
+          </Accordion>
+          <Accordion title="Brand Kit" sub="Logo, colors, and social handles for exported graphics" defaultOpen={false}>
+            <BrandKitTab initial={settings} onSaved={setSettings} />
           </Accordion>
           <Accordion title="Coupons" defaultOpen={false}>
             <CouponsTab coupons={coupons} onCouponsChange={setCoupons} />

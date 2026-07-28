@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { STAY_TYPES } from "@/lib/constants";
-import { formatUnitDisplay, peso } from "@/lib/format";
+import { formatUnitDisplay } from "@/lib/format";
 import { groupOpenDatesByStayType, type UnitOpportunity } from "@/lib/socialOpportunity";
 import { drawUnitGraphic, loadImage, buildQrImage, type GraphicResult } from "@/lib/socialGraphic";
-import { UnitOpportunityCard, UnitGraphicPreview, scarcityFor, cheapestPriceFor, type ViewMode } from "@/components/social/UnitOpportunityCard";
+import { UnitOpportunityCard, UnitGraphicPreview, scarcityFor, priceLinesFor, type ViewMode } from "@/components/social/UnitOpportunityCard";
 import { CaptionEditor, type GeneratorUnitContext } from "@/components/social/CaptionEditor";
 import { ExportPanel, type ExportToggles } from "@/components/social/ExportPanel";
 import { DesignReviewChecklist } from "@/components/social/DesignReviewChecklist";
@@ -17,10 +17,13 @@ const DEFAULT_TOGGLES: ExportToggles = { includeLogo: true, includeWatermark: fa
 
 function unitContextFor(unit: Unit, opportunity: UnitOpportunity): GeneratorUnitContext {
   const openIsos = opportunity.days.filter((d) => d.openStayTypes.length > 0).map((d) => d.iso);
-  const cheapest = cheapestPriceFor(opportunity);
+  // Per-stay-type, never a single blended cheapest-across-everything number
+  // — that could hand the AI caption generator a promo-discounted Night
+  // price as if it were a general "From" rate covering Daycation/Full too.
+  const priceLines = priceLinesFor(opportunity);
   return {
     unitName: formatUnitDisplay(unit.unitNumber, unit.shortName),
-    price: cheapest ? `From ${peso(cheapest)}` : null,
+    price: priceLines.length ? priceLines.join(", ") : null,
     dateLines: openIsos.map((iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })),
     hasPhoto: !!unit.photoUrl,
   };
@@ -36,6 +39,7 @@ function unitContextFor(unit: Unit, opportunity: UnitOpportunity): GeneratorUnit
  */
 export function ContentStudioWorkspace({
   units, opportunities, todayIso, businessName, location, contact, amenities, promoNote, bookingLink, monthText, propertyDateLines, toast,
+  logoUrl, brandPrimaryColor, brandSecondaryColor,
 }: {
   units: Unit[];
   opportunities: UnitOpportunity[];
@@ -49,6 +53,9 @@ export function ContentStudioWorkspace({
   monthText: string;
   propertyDateLines: string[];
   toast: (msg: string, isError?: boolean) => void;
+  logoUrl: string | null;
+  brandPrimaryColor: string | null;
+  brandSecondaryColor: string | null;
 }) {
   const openUnits = units.map((u, i) => ({ unit: u, opportunity: opportunities[i] })).filter((x) => x.opportunity.days.some((d) => d.openStayTypes.length > 0));
   const [selectedId, setSelectedId] = useState<string | null>(openUnits[0]?.unit.id ?? units[0]?.id ?? null);
@@ -72,23 +79,27 @@ export function ContentStudioWorkspace({
     const byStayType = groupOpenDatesByStayType(selectedOpportunity.days);
     const dateLines = Object.entries(byStayType).filter(([, v]) => v.length).map(([k, v]) => `${STAY_TYPES[k as keyof typeof STAY_TYPES]?.label ?? k}: ${v.join(", ")}`);
     const scarcity = scarcityFor(selectedOpportunity, todayIso);
-    const cheapestPrice = cheapestPriceFor(selectedOpportunity);
+    // Per-stay-type — see priceLinesFor's own docs for why this must never
+    // collapse to one blended cheapest-across-everything number.
+    const priceLines = priceLinesFor(selectedOpportunity);
     const [photo, logo, qr] = await Promise.all([
       selected.photoUrl ? loadImage(selected.photoUrl) : Promise.resolve(null),
-      t.includeLogo ? loadImage("/branding/logo.jpg") : Promise.resolve(null),
+      t.includeLogo ? loadImage(logoUrl ?? "/branding/logo.jpg") : Promise.resolve(null),
       t.includeQr ? buildQrImage(bookingLink) : Promise.resolve(null),
     ]);
     return drawUnitGraphic(canvas, {
       unitName: formatUnitDisplay(selected.unitNumber, selected.shortName),
       badge: scarcity ?? "AVAILABLE",
       dateLines,
-      price: cheapestPrice ? `From ${peso(cheapestPrice)}` : null,
+      price: priceLines.length ? priceLines.join(" · ") : null,
       ctaLine: "Book Now — message us",
       unitPhoto: photo,
       logoImage: logo,
       watermarkText: t.includeWatermark ? businessName : null,
       contactLine: t.includeContact ? contact : null,
       qrImage: qr,
+      primaryColor: brandPrimaryColor,
+      secondaryColor: brandSecondaryColor,
     });
   }
 
@@ -105,6 +116,8 @@ export function ContentStudioWorkspace({
               mode="tile"
               selected={u.id === selected.id}
               onSelect={() => setSelectedId(u.id)}
+              primaryColor={brandPrimaryColor}
+              secondaryColor={brandSecondaryColor}
             />
             <p className="mt-1.5 truncate text-center text-[11.5px] font-bold text-[var(--gray)] lg:text-left">{formatUnitDisplay(u.unitNumber, u.shortName)}</p>
           </div>
@@ -113,7 +126,7 @@ export function ContentStudioWorkspace({
 
       {/* Center — large live preview + caption editor */}
       <div className="space-y-5">
-        <UnitGraphicPreview unit={selected} opportunity={selectedOpportunity} todayIso={todayIso} aspectClassName="aspect-[4/5] max-h-[560px]" scale="large" />
+        <UnitGraphicPreview unit={selected} opportunity={selectedOpportunity} todayIso={todayIso} aspectClassName="aspect-[4/5] max-h-[560px]" scale="large" primaryColor={brandPrimaryColor} secondaryColor={brandSecondaryColor} />
         <div className="card p-5">
           <h2 className="mb-3 text-[15px] font-extrabold">Caption</h2>
           <CaptionEditor
