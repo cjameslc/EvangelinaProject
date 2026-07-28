@@ -1,4 +1,4 @@
-import { askGeminiJSON, MODEL_LITE } from "@/lib/ai/geminiClient";
+import { askGeminiJSON } from "@/lib/ai/geminiClient";
 
 export type CaptionGenInput = {
   categoryLabel: string;
@@ -26,9 +26,9 @@ const SYSTEM_PROMPT = `You are a social media copywriter for a short-term stayca
 Use ONLY the real facts given in the JSON input — never invent a date, price, promo, or detail not present there. Respond with JSON matching exactly: { "headline": string, "caption": string, "cta": string, "hashtags": string[] }. headline is one short attention-grabbing line (may include an emoji). caption is 2-4 short sentences/lines. cta is one short call-to-action line ending with the given contact info. hashtags is 6-10 relevant hashtags (each starting with #, no spaces), mixing property/location tags with the content angle — do not repeat the same tag twice.`;
 
 export async function generateCaption(input: CaptionGenInput): Promise<CaptionGenResult> {
-  // Short marketing copy is well within the lite tier's ability — no need
-  // to pay the full model's latency/cost for this.
-  const result = await askGeminiJSON<CaptionGenResult>(SYSTEM_PROMPT, `REAL DATA (JSON):\n${JSON.stringify(input)}`, MODEL_LITE);
+  // No model override — geminiClient's default is already the cheapest
+  // model confirmed live on this account's key (see the comment there).
+  const result = await askGeminiJSON<CaptionGenResult>(SYSTEM_PROMPT, `REAL DATA (JSON):\n${JSON.stringify(input)}`);
   // Defensive normalization — Gemini's JSON mode is schema-obedient in
   // practice, but a caller displaying this straight into the UI shouldn't
   // crash on a missing/malformed field from an external API.

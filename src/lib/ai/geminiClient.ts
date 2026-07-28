@@ -1,19 +1,34 @@
-// Thin wrapper around Gemini's REST API. Uses the "-latest" alias rather
-// than a pinned version (gemini-2.5-flash, gemini-2.0-flash, and
-// gemini-1.5-flash were all confirmed unavailable — "no longer available
-// to new users" / zero free-tier quota — on this account's API key,
-// despite showing up in ListModels; gemini-flash-latest is what actually
-// works, and staying on an alias avoids this exact breakage recurring
-// whenever a pinned model gets retired).
-const MODEL = "gemini-flash-latest";
+// Thin wrapper around Gemini's REST API.
+//
+// Every call site in this app (dashboard/analytics insights, the guest
+// assistant, payment verification, place overview, social captions) does
+// the same shape of work — short prose/JSON generation off a system prompt
+// grounded in real pre-computed data, never tool-calling or multi-step
+// reasoning — so there's no feature here that actually needs a pricier
+// tier. Deliberately on the cheapest model confirmed live on this account's
+// key, checked directly against real pricing (per-1M-token, paid tier, as
+// of 2026-07-27):
+//   gemini-3.1-flash-lite   $0.25 in / $1.50 out  <- in use, cheapest live
+//   gemini-flash-lite-latest $0.30 in / $2.50 out (-> resolves to 3.5 Flash-Lite)
+//   gemini-flash-latest      $1.50 in / $7.50 out (-> resolves to 3.6 Flash)
+//   gemini-2.5-flash-lite    $0.10 in / $0.40 out — cheapest on paper, but
+//     404s "no longer available to new users" on this key despite showing
+//     up in ListModels — same trap gemini-2.5-flash/2.0-flash/1.5-flash
+//     already fell into. Confirmed dead, not a typo.
+//
+// This is a PINNED version, not a "-latest" alias — a deliberate trade of
+// the alias's silent-forward-compat guarantee for the lower price, made
+// explicitly on cost grounds. Pinned versions do eventually get retired
+// (see above) — if gemini-3.1-flash-lite ever 404s, fall back to
+// gemini-flash-lite-latest (MODEL_LITE below), which is confirmed to
+// always resolve to *some* live lite-tier model, just not necessarily the
+// cheapest one at any given moment.
+const MODEL = "gemini-3.1-flash-lite";
 
-// Same "-latest alias, never a pinned version" discipline as MODEL above —
-// confirmed live on this account's key: "gemini-2.5-flash-lite" (and every
-// other pinned lite/flash version tried) 404s with "no longer available to
-// new users" despite showing up in ListModels; gemini-flash-lite-latest is
-// the one that actually responds. Exported for callers that want the
-// cheaper/faster lite tier for a lighter task (e.g. short marketing copy)
-// without paying for the full model's latency/cost.
+// The safe fallback referenced above — the "-latest" alias, not the
+// cheapest-right-now pinned version, so a caller that imports this
+// explicitly instead of relying on the default MODEL keeps working even
+// after gemini-3.1-flash-lite eventually gets retired.
 export const MODEL_LITE = "gemini-flash-lite-latest";
 
 export async function askGemini(systemPrompt: string, userMessage: string): Promise<string> {
