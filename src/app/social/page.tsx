@@ -11,14 +11,17 @@ export default async function SocialMediaPage() {
   if (!canSeeSocialMedia(user.role)) redirect("/");
 
   const [units, bookings, settings] = await Promise.all([
-    prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, select: { id: true, name: true, unitNumber: true, shortName: true } }),
+    prisma.unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, select: { id: true, name: true, unitNumber: true, shortName: true, photoUrl: true, nightlyRate: true } }),
     // Lean select, no date bound — month navigation happens client-side
     // (same pattern as the Bookings Schedule grid) rather than refetching
     // on every prev/next click. At this property's real scale (a few
-    // hundred bookings, no image/blob fields) this is small.
+    // hundred bookings, no image/blob fields) this is small. checkInTime/
+    // checkOutTime included — the real per-stay-type opportunity calc
+    // (socialOpportunity.ts) needs them for Flexible-type overlap checks,
+    // same fields the live booking-conflict check itself reads.
     prisma.booking.findMany({
       where: { ...unitWhere(user), cancelledAt: null },
-      select: { unitId: true, date: true, checkOutDate: true, stayType: true },
+      select: { unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true },
     }),
     prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
   ]);
@@ -31,6 +34,15 @@ export default async function SocialMediaPage() {
       location={settings.address}
       contactPhone={settings.contactPhone}
       messengerUsername={settings.messengerUsername}
+      rates={{
+        weekdayRate12h: settings.weekdayRate12h,
+        weekdayRate21h: settings.weekdayRate21h,
+        weekendRate12h: settings.weekendRate12h,
+        weekendRate21h: settings.weekendRate21h,
+        weekdayNightPromoPct: settings.weekdayNightPromoPct,
+      }}
+      dpFee={settings.dpFee}
+      amenities={(settings.amenities as string[] | null) ?? []}
     />
   );
 }

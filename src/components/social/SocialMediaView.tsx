@@ -3,23 +3,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeMonthAvailability, type DayAvailability } from "@/lib/socialAvailability";
 import {
+  computeUnitOpportunities, computeMarketingSuggestions, isoRange, type UnitOpportunity,
+} from "@/lib/socialOpportunity";
+import {
   CAPTION_CATEGORIES, CAPTION_TEMPLATES, HASHTAG_BASE, buildHashtags, fillTemplate,
 } from "@/lib/socialContent";
 import { GRAPHIC_FORMATS, drawAvailabilityGraphic, loadImage, downloadCanvas } from "@/lib/socialGraphic";
 import { STAY_TYPES } from "@/lib/constants";
-import { formatUnitDisplay } from "@/lib/format";
+import { formatUnitDisplay, peso } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
-import { CopyIcon, SparkleIcon, DownloadIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon } from "@/components/ui/Icons";
+import type { RateTable } from "@/lib/pricing/rates";
+import { UnitOpportunityCard, type ViewMode } from "@/components/social/UnitOpportunityCard";
+import { ContentGeneratorPanel, type GeneratorUnitContext } from "@/components/social/ContentGeneratorPanel";
+import {
+  CopyIcon, SparkleIcon, DownloadIcon, FilePdfIcon, FileSpreadsheetIcon, ArrowLeftIcon, ArrowRightIcon, ImageIcon, MegaphoneIcon,
+  GridIcon, MenuIcon, CalendarIcon,
+} from "@/components/ui/Icons";
 
-type Unit = { id: string; name: string; unitNumber: string; shortName: string };
-type Booking = { unitId: string; date: string; checkOutDate: string | null; stayType: string };
+type Unit = { id: string; name: string; unitNumber: string; shortName: string; photoUrl: string | null; nightlyRate: number };
+type Booking = { unitId: string; date: string; checkOutDate: string | null; stayType: string; checkInTime: string | null; checkOutTime: string | null };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function monthLabel(year: number, month0: number) {
   return new Date(Date.UTC(year, month0, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 }
+function isoOf(d: Date) { return d.toISOString().slice(0, 10); }
+function addDays(iso: string, n: number) { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return isoOf(d); }
 
 /** Collapses a run of consecutive non-full days into human-friendly ranges, e.g. "Aug 3", "Aug 5-7". */
 function summarizeDates(days: DayAvailability[], includePartial: boolean): string[] {
@@ -42,18 +53,75 @@ function summarizeDates(days: DayAvailability[], includePartial: boolean): strin
   return out;
 }
 
+type QuickFilterKey = "today" | "tomorrow" | "weekend" | "week" | "nextWeek" | "month" | "custom";
+const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "weekend", label: "This Weekend" },
+  { key: "week", label: "This Week" },
+  { key: "nextWeek", label: "Next Week" },
+  { key: "month", label: "This Month" },
+  { key: "custom", label: "Custom Range" },
+];
+
+function quickFilterRange(key: QuickFilterKey, todayIso: string, customStart: string, customEnd: string): { start: string; end: string } {
+  const today = new Date(`${todayIso}T00:00:00Z`);
+  const dow = today.getUTCDay(); // 0=Sun..6=Sat
+  switch (key) {
+    case "today": return { start: todayIso, end: todayIso };
+    case "tomorrow": { const t = addDays(todayIso, 1); return { start: t, end: t }; }
+    case "weekend": {
+      const satOffset = (6 - dow + 7) % 7;
+      const sat = addDays(todayIso, dow === 6 ? 0 : satOffset);
+      const sun = addDays(sat, dow === 0 ? 0 : 1);
+      return dow === 0 ? { start: todayIso, end: todayIso } : { start: sat, end: sun };
+    }
+    case "week": { const satOffset = (6 - dow + 7) % 7; return { start: todayIso, end: addDays(todayIso, satOffset) }; }
+    case "nextWeek": { const satOffset = (6 - dow + 7) % 7; const nextSun = addDays(todayIso, satOffset + 1); return { start: nextSun, end: addDays(nextSun, 6) }; }
+    case "month": { const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)); return { start: todayIso, end: isoOf(end) }; }
+    case "custom": return { start: customStart || todayIso, end: customEnd || todayIso };
+  }
+}
+
 export function SocialMediaView({
-  units, bookings, businessName, location, contactPhone, messengerUsername,
+  units, bookings, businessName, location, contactPhone, messengerUsername, rates, dpFee, amenities,
 }: {
   units: Unit[]; bookings: Booking[]; businessName: string; location: string;
   contactPhone: string | null; messengerUsername: string | null;
+  rates: RateTable; dpFee: number; amenities: string[];
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"dates" | "captions">("dates");
+  const [tab, setTab] = useState<"dates" | "studio" | "captions">("studio");
 
   const contact = contactPhone ? contactPhone : messengerUsername ? `m.me/${messengerUsername}` : "our page";
+  const todayIso = useMemo(() => isoOf(new Date()), []);
+  const bookingLink = typeof window !== "undefined" ? `${window.location.origin}/book` : "/book";
+  const promoNote = rates.weekdayNightPromoPct > 0 ? `${rates.weekdayNightPromoPct}% off weekday night stays` : null;
 
-  // ---- Available Dates tab state ----
+  // ---- Content Studio tab state ----
+  const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("week");
+  const [customStart, setCustomStart] = useState(todayIso);
+  const [customEnd, setCustomEnd] = useState(addDays(todayIso, 6));
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const range = quickFilterRange(quickFilter, todayIso, customStart, customEnd);
+  const studioDates = useMemo(() => isoRange(range.start, range.end), [range.start, range.end]);
+
+  const opportunities: UnitOpportunity[] = useMemo(
+    () => units.map((u) => computeUnitOpportunities(u.id, bookings, studioDates, rates, dpFee)),
+    [units, bookings, studioDates, rates, dpFee]
+  );
+  const suggestions = useMemo(
+    () => computeMarketingSuggestions(
+      opportunities.map((o, i) => ({ unitId: o.unitId, unitLabel: formatUnitDisplay(units[i].unitNumber, units[i].shortName), days: o.days })),
+      todayIso
+    ),
+    [opportunities, units, todayIso]
+  );
+
+  const [generatorUnit, setGeneratorUnit] = useState<{ unit: Unit; opportunity: UnitOpportunity } | null>(null);
+  const [genericGeneratorOpen, setGenericGeneratorOpen] = useState(false);
+
+  // ---- Available Dates tab state (month calendar + exports) ----
   const today = useMemo(() => new Date(), []);
   const [monthOffset, setMonthOffset] = useState(0);
   const anchor = new Date(Date.UTC(today.getFullYear(), today.getMonth() + monthOffset, 1));
@@ -63,16 +131,16 @@ export function SocialMediaView({
   const [stayTypeFilter, setStayTypeFilter] = useState("all");
 
   const scopedUnits = unitFilter === "all" ? units : units.filter((u) => u.id === unitFilter);
-  const days = useMemo(
+  const monthDays = useMemo(
     () => computeMonthAvailability(scopedUnits, bookings, year, month0, stayTypeFilter),
     [scopedUnits, bookings, year, month0, stayTypeFilter]
   );
   const firstWeekday = new Date(Date.UTC(year, month0, 1)).getUTCDay();
 
-  const dateLines = useMemo(() => summarizeDates(days, unitFilter !== "all"), [days, unitFilter]);
-  const availableCount = days.filter((d) => d.status === "available").length;
-  const partialCount = days.filter((d) => d.status === "partial").length;
-  const fullCount = days.filter((d) => d.status === "full").length;
+  const dateLines = useMemo(() => summarizeDates(monthDays, unitFilter !== "all"), [monthDays, unitFilter]);
+  const availableCount = monthDays.filter((d) => d.status === "available").length;
+  const partialCount = monthDays.filter((d) => d.status === "partial").length;
+  const fullCount = monthDays.filter((d) => d.status === "full").length;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
@@ -86,7 +154,7 @@ export function SocialMediaView({
     const canvas = canvasRef.current ?? document.createElement("canvas");
     canvas.width = format.width;
     canvas.height = format.height;
-    const headline = fullCount === days.length ? `Fully booked this ${monthLabel(year, month0)}!` : `Available Dates for ${monthLabel(year, month0)}!`;
+    const headline = fullCount === monthDays.length ? `Fully booked this ${monthLabel(year, month0)}!` : `Available Dates for ${monthLabel(year, month0)}!`;
     drawAvailabilityGraphic(canvas, {
       headline,
       dateLines: dateLines.length ? dateLines : ["Message us for the latest availability"],
@@ -101,6 +169,10 @@ export function SocialMediaView({
 
   const exportQuery = `month=${year}-${String(month0 + 1).padStart(2, "0")}&unitId=${unitFilter}&stayType=${stayTypeFilter}`;
 
+  const studioRangeSummary = studioDates.length === 1
+    ? new Date(`${studioDates[0]}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    : `${new Date(`${studioDates[0]}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} – ${new Date(`${studioDates[studioDates.length - 1]}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
+
   return (
     <div className="mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
       <div className="mb-6">
@@ -110,7 +182,10 @@ export function SocialMediaView({
         <p className="mt-1 text-[15px] text-[var(--gray)]">Real availability, ready-to-post graphics, and captions — for {businessName}.</p>
       </div>
 
-      <div className="mb-5 inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
+      <div className="mb-5 inline-flex flex-wrap gap-1 rounded-full bg-[var(--bg-2)] p-1">
+        <button onClick={() => setTab("studio")} className={cn("rounded-full px-4 py-2 text-[13.5px] font-bold transition", tab === "studio" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
+          Content Studio
+        </button>
         <button onClick={() => setTab("dates")} className={cn("rounded-full px-4 py-2 text-[13.5px] font-bold transition", tab === "dates" ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
           Available Dates
         </button>
@@ -119,7 +194,61 @@ export function SocialMediaView({
         </button>
       </div>
 
-      {tab === "dates" ? (
+      {tab === "studio" && (
+        <div className="space-y-5">
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_FILTERS.map((f) => (
+              <button key={f.key} onClick={() => setQuickFilter(f.key)} className={cn("pill", quickFilter === f.key && "on")}>{f.label}</button>
+            ))}
+          </div>
+          {quickFilter === "custom" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="field-input w-auto" />
+              <span className="text-[13px] text-[var(--gray)]">to</span>
+              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="field-input w-auto" />
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold text-[var(--gray)]">Showing opportunities for <span className="font-extrabold text-[var(--ink)]">{studioRangeSummary}</span></p>
+            <div className="inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">
+              {([["grid", GridIcon, "Grid"], ["tile", MenuIcon, "Tile"], ["story", CalendarIcon, "Story"], ["carousel", ArrowRightIcon, "Carousel"]] as const).map(([key, Icon, label]) => (
+                <button key={key} onClick={() => setViewMode(key)} title={label} className={cn("grid h-8 w-8 place-items-center rounded-full transition", viewMode === key ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}>
+                  <Icon className="h-4 w-4" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {suggestions.length > 0 && (
+            <div className="rounded-2xl border border-violet/25 bg-violet/5 p-4">
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-violet"><SparkleIcon className="h-3.5 w-3.5" /> Marketing suggestions</p>
+              <ul className="space-y-1">
+                {suggestions.map((s, i) => <li key={i} className="text-[12.5px] text-[var(--ink)]">• {s}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className={cn(
+            viewMode === "carousel" ? "flex gap-3 overflow-x-auto pb-2" :
+            viewMode === "story" ? "grid grid-cols-1 gap-3 sm:grid-cols-3" :
+            "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          )}>
+            {units.map((u, i) => (
+              <UnitOpportunityCard
+                key={u.id}
+                unit={u}
+                opportunity={opportunities[i]}
+                todayIso={todayIso}
+                mode={viewMode}
+                onOpenGenerator={() => setGeneratorUnit({ unit: u, opportunity: opportunities[i] })}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "dates" && (
         <div className="space-y-5">
           <div className="card p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -150,7 +279,7 @@ export function SocialMediaView({
             <div className="grid grid-cols-7 gap-1.5 text-center">
               {WEEKDAY_LABELS.map((w) => <div key={w} className="py-1 text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{w}</div>)}
               {Array.from({ length: firstWeekday }).map((_, i) => <div key={`pad-${i}`} />)}
-              {days.map((d) => {
+              {monthDays.map((d) => {
                 const dayNum = Number(d.iso.slice(8, 10));
                 const isToday = d.iso === today.toISOString().slice(0, 10);
                 return (
@@ -187,7 +316,9 @@ export function SocialMediaView({
             <canvas ref={canvasRef} className="hidden" />
           </div>
         </div>
-      ) : (
+      )}
+
+      {tab === "captions" && (
         <CaptionsTab
           monthText={monthLabel(year, month0)}
           dateLines={dateLines}
@@ -195,23 +326,62 @@ export function SocialMediaView({
           location={location}
           contact={contact}
           toast={toast}
+          onOpenStudio={() => setGenericGeneratorOpen(true)}
         />
       )}
+
+      <ContentGeneratorPanel
+        open={!!generatorUnit}
+        onClose={() => setGeneratorUnit(null)}
+        unitContext={generatorUnit ? unitToGeneratorContext(generatorUnit.unit, generatorUnit.opportunity) : null}
+        month={monthLabel(year, month0)}
+        availableDatesSummary={dateLines.length ? dateLines.join(", ") : "fully booked this month"}
+        businessName={businessName}
+        location={location}
+        contact={contact}
+        amenities={amenities}
+        promoNote={promoNote}
+        bookingLink={bookingLink}
+        toast={toast}
+      />
+      <ContentGeneratorPanel
+        open={genericGeneratorOpen}
+        onClose={() => setGenericGeneratorOpen(false)}
+        unitContext={null}
+        month={monthLabel(year, month0)}
+        availableDatesSummary={dateLines.length ? dateLines.join(", ") : "fully booked this month"}
+        businessName={businessName}
+        location={location}
+        contact={contact}
+        amenities={amenities}
+        promoNote={promoNote}
+        bookingLink={bookingLink}
+        toast={toast}
+      />
     </div>
   );
 }
 
+function unitToGeneratorContext(unit: Unit, opportunity: UnitOpportunity): GeneratorUnitContext {
+  const openIsos = opportunity.days.filter((d) => d.openStayTypes.length > 0).map((d) => d.iso);
+  const cheapest = opportunity.days.flatMap((d) => Object.values(d.price)).filter((p): p is number => typeof p === "number");
+  return {
+    unitName: formatUnitDisplay(unit.unitNumber, unit.shortName),
+    price: cheapest.length ? `From ${peso(Math.min(...cheapest))}` : null,
+    dateLines: openIsos.map((iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })),
+    hasPhoto: !!unit.photoUrl,
+  };
+}
+
 function CaptionsTab({
-  monthText, dateLines, businessName, location, contact, toast,
+  monthText, dateLines, businessName, location, contact, toast, onOpenStudio,
 }: {
   monthText: string; dateLines: string[]; businessName: string; location: string; contact: string;
   toast: (msg: string, isError?: boolean) => void;
+  onOpenStudio: () => void;
 }) {
   const [category, setCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiResult, setAiResult] = useState<{ headline: string; caption: string; cta: string; hashtags: string[] } | null>(null);
 
   // "Available Dates" copy ("we've got open slots... 📅 {DATES}") only
   // makes sense when there's a real date to name — with nothing free this
@@ -240,30 +410,6 @@ function CaptionsTab({
     );
   }
 
-  async function generateWithAI() {
-    const cat = CAPTION_CATEGORIES.find((c) => c.id === (category === "all" ? "available_dates" : category))!;
-    setAiLoading(true);
-    setAiError(null);
-    setAiResult(null);
-    try {
-      const res = await fetch("/api/social/caption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoryLabel: cat.label, categoryDescription: cat.description, month: monthText,
-          availableDatesSummary: availabilitySummary, businessName, location, contact,
-        }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? "Couldn't generate a caption.");
-      setAiResult(j);
-    } catch (e: any) {
-      setAiError(e.message ?? "Couldn't generate a caption — try the template library below instead.");
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
   return (
     <div className="space-y-5">
       <div className="card p-5">
@@ -272,31 +418,16 @@ function CaptionsTab({
           <h2 className="text-[15px] font-extrabold">Generate with AI</h2>
         </div>
         <p className="mb-3 text-[13px] text-[var(--gray)]">
-          Writes a fresh caption using this month&rsquo;s real availability ({availabilitySummary}) for the category selected below.
+          Open the content generator for platform-specific tone, style, and an AI image prompt — grounded in this month&rsquo;s real availability ({availabilitySummary}).
         </p>
-        <button onClick={generateWithAI} disabled={aiLoading} className="btn-primary disabled:opacity-60">
-          <SparkleIcon className="h-4 w-4" /> {aiLoading ? "Writing…" : "Generate caption"}
+        <button onClick={onOpenStudio} className="btn-primary">
+          <SparkleIcon className="h-4 w-4" /> Open content generator
         </button>
-        {aiError && <p className="mt-3 text-[13px] font-semibold text-rausch">{aiError}</p>}
-        {aiResult && (
-          <div className="mt-4 rounded-2xl border border-violet/25 bg-violet/5 p-4">
-            <p className="font-extrabold">{aiResult.headline}</p>
-            <p className="mt-1.5 whitespace-pre-line text-[13.5px]">{aiResult.caption}</p>
-            <p className="mt-1.5 text-[13.5px] font-semibold">{aiResult.cta}</p>
-            <p className="mt-2 text-[12.5px] text-blue">{aiResult.hashtags.join(" ")}</p>
-            <button
-              onClick={() => copy(`${aiResult.headline}\n\n${aiResult.caption}\n\n${aiResult.cta}\n\n${aiResult.hashtags.join(" ")}`, "AI caption")}
-              className="btn-sm btn mt-3"
-            >
-              <CopyIcon className="h-3.5 w-3.5" /> Copy caption
-            </button>
-          </div>
-        )}
       </div>
 
       {noDatesAvailable && (
         <p className="rounded-xl bg-amber/10 px-3.5 py-2.5 text-[12.5px] font-semibold text-amber">
-          No date this month has every unit free at once — &ldquo;Available Dates&rdquo; captions are hidden since they&rsquo;d contradict themselves. Try &ldquo;Fully Booked&rdquo; or &ldquo;Last-Minute Availability&rdquo; below, or pick a specific unit on the Available Dates tab to see when that one opens up.
+          No date this month has every unit free at once — &ldquo;Available Dates&rdquo; captions are hidden since they&rsquo;d contradict themselves. Try &ldquo;Fully Booked&rdquo; or &ldquo;Last-Minute Availability&rdquo; below, or check the Content Studio tab for per-unit opportunities.
         </p>
       )}
 

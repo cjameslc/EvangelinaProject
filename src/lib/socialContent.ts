@@ -135,3 +135,18 @@ export function buildHashtags(categoryId: string, month: string, location: strin
   const monthTag = "#" + month.replace(/\s/g, "");
   return [...HASHTAG_BASE, ...(HASHTAG_BY_CATEGORY[categoryId] ?? []), locationTag, monthTag];
 }
+
+/**
+ * Purely formulaic — every value here is a real, already-known fact, so
+ * this is a template, not an AI call. Produces a prompt for pasting into
+ * whatever external AI image tool the user already has (Midjourney, Canva
+ * AI, etc.) alongside the unit's real photo — this app doesn't generate
+ * images itself, only the instructions for one that does.
+ */
+export function buildImagePrompt(opts: { unitName: string; dateLines: string[]; businessName: string; hasPhoto: boolean }): string {
+  const datesPart = opts.dateLines.length ? opts.dateLines.join(" & ") : "the open dates listed on the post";
+  const photoPart = opts.hasPhoto
+    ? `Use the actual ${opts.unitName} photo (attached) as the background`
+    : `Use a warm, realistic staycation-unit interior as the background (no real photo attached for this unit yet)`;
+  return `Create a premium Airbnb-style promotional image for ${opts.businessName}. ${photoPart}. Add elegant, legible typography with the title "Staycation Available", prominently display the available dates (${datesPart}) and the unit name "${opts.unitName}", use warm inviting lighting, a luxury-hospitality aesthetic, and include a subtle "Book Now" call-to-action in the corner.`;
+}
