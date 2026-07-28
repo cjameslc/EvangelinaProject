@@ -101,8 +101,13 @@ export function PlaceInsightRow({
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
           <span className={`truncate text-[14.5px] font-extrabold text-white drop-shadow ${closed ? "line-through opacity-70" : ""}`}>{name}</span>
+          {/* Fixed dark text below, not text-[var(--ink)] — this pill is
+              always a light background overlaid on a photo, regardless of
+              the page's own light/dark theme; --ink flips to near-white in
+              dark mode, which made this unreadable (white text on a white
+              pill). */}
           {insight?.rating != null && (
-            <span className="flex-none rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-extrabold text-[var(--ink)] shadow">★ {insight.rating.toFixed(1)}</span>
+            <span className="flex-none rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-extrabold text-[#1a1a1a] shadow">★ {insight.rating.toFixed(1)}</span>
           )}
         </div>
       </button>
