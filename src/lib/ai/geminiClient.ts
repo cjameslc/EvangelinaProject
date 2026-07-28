@@ -7,6 +7,15 @@
 // whenever a pinned model gets retired).
 const MODEL = "gemini-flash-latest";
 
+// Same "-latest alias, never a pinned version" discipline as MODEL above —
+// confirmed live on this account's key: "gemini-2.5-flash-lite" (and every
+// other pinned lite/flash version tried) 404s with "no longer available to
+// new users" despite showing up in ListModels; gemini-flash-lite-latest is
+// the one that actually responds. Exported for callers that want the
+// cheaper/faster lite tier for a lighter task (e.g. short marketing copy)
+// without paying for the full model's latency/cost.
+export const MODEL_LITE = "gemini-flash-lite-latest";
+
 export async function askGemini(systemPrompt: string, userMessage: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
@@ -40,11 +49,11 @@ export async function askGemini(systemPrompt: string, userMessage: string): Prom
  * this is the first one, kept as a thin sibling of askGemini rather than a
  * flag on it so every existing prose caller is untouched.
  */
-export async function askGeminiJSON<T>(systemPrompt: string, userMessage: string): Promise<T> {
+export async function askGeminiJSON<T>(systemPrompt: string, userMessage: string, model: string = MODEL): Promise<T> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
