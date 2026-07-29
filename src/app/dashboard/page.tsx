@@ -165,41 +165,47 @@ export default async function DashboardPage() {
 
   // Uncached, every request — a dismissal should disappear from "Needs your
   // attention" immediately, not wait out the dashboard-data cache's 45s
-  // window. Cheap: a handful of rows at most.
-  const dismissedAttentionKeys = await prisma.dismissedAttentionItem
-    .findMany({ select: { key: true } })
-    .then((rows) => rows.map((r) => r.key))
-    .catch(() => []);
+  // window. Cheap: a handful of rows at most. These three reads are fully
+  // independent of each other, so they're fanned out via Promise.all across
+  // separate pool clients instead of three sequential round trips — the
+  // libSQL adapter serializes queries on a single client behind a mutex, so
+  // running these one after another (or Promise.all-ing them on the same
+  // shared `prisma` client) got no real concurrency (see src/lib/prisma.ts).
+  const [dismissedAttentionKeys, airbnbHistoricalMonthly, pendingGuestRequests] = await Promise.all([
+    prismaPool[0].dismissedAttentionItem
+      .findMany({ select: { key: true } })
+      .then((rows) => rows.map((r) => r.key))
+      .catch(() => [] as string[]),
 
-  // Airbnb's own officially-reported monthly totals (Feb 2025 - Mar 2026,
-  // mostly pre-dating this app) — a record-keeping fallback for the
-  // Earnings card's Monthly view, folded in there instead of showing as a
-  // separate card (see DashboardView's airbnbHistoricalMonthly prop).
-  // Cheap, rarely-changing dataset — an uncached direct read, same as
-  // dismissedAttentionKeys/pendingGuestRequests below, is simplest.
-  const airbnbHistoricalMonthly = await prisma.airbnbEarningsMonth
-    .findMany({
-      where: { unitId: null, month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
-      select: { month: true, totalCentavos: true },
-    })
-    .then((rows) =>
-      Object.fromEntries(
-        rows.map((r) => [`${r.month.getUTCFullYear()}-${String(r.month.getUTCMonth() + 1).padStart(2, "0")}`, r.totalCentavos / 100])
+    // Airbnb's own officially-reported monthly totals (Feb 2025 - Mar 2026,
+    // mostly pre-dating this app) — a record-keeping fallback for the
+    // Earnings card's Monthly view, folded in there instead of showing as a
+    // separate card (see DashboardView's airbnbHistoricalMonthly prop).
+    // Cheap, rarely-changing dataset — an uncached direct read is simplest.
+    prismaPool[1].airbnbEarningsMonth
+      .findMany({
+        where: { unitId: null, month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
+        select: { month: true, totalCentavos: true },
+      })
+      .then((rows) =>
+        Object.fromEntries(
+          rows.map((r) => [`${r.month.getUTCFullYear()}-${String(r.month.getUTCMonth() + 1).padStart(2, "0")}`, r.totalCentavos / 100])
+        )
       )
-    )
-    .catch(() => ({}));
+      .catch(() => ({}) as Record<string, number>),
 
-  // Uncached, same reasoning as dismissedAttentionKeys above — a guest
-  // request from the Digital Guidebook should show up on the next load, not
-  // wait out the 45s dashboard-data cache. Feeds "Needs your attention".
-  const pendingGuestRequests = await prisma.guestRequest
-    .findMany({
-      where: { status: "pending" },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: { id: true, type: true, message: true, priority: true, photoUrl: true, createdAt: true, unit: { select: { shortName: true } }, guest: { select: { name: true, email: true } } },
-    })
-    .catch(() => []);
+    // Same reasoning as dismissedAttentionKeys above — a guest request from
+    // the Digital Guidebook should show up on the next load, not wait out
+    // the 45s dashboard-data cache. Feeds "Needs your attention".
+    prismaPool[2].guestRequest
+      .findMany({
+        where: { status: "pending" },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: { id: true, type: true, message: true, priority: true, photoUrl: true, createdAt: true, unit: { select: { shortName: true } }, guest: { select: { name: true, email: true } } },
+      })
+      .catch(() => [] as any[]),
+  ]);
 
   let units: any[] = [];
   let bookingsWeek: any[] = [];

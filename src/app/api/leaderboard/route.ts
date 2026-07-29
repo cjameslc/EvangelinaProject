@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
 import { isCommissionEligible } from "@/lib/bookingStatus";
@@ -34,9 +34,13 @@ const getRankedLeaderboard = unstable_cache(
     const monthStart = new Date(Date.UTC(y, m - 1, 1));
     const nextMonthStart = new Date(Date.UTC(y, m, 1));
 
+    // The upsert (a write) stays on `prisma`; the read alongside it moves
+    // to the pool — libSQL serializes queries on a single client behind a
+    // mutex, so Promise.all-ing reads on `prisma` alone gets no real
+    // concurrency (see src/lib/prisma.ts).
     const [settings, bookers] = await Promise.all([
       prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
-      prisma.employee.findMany({
+      prismaPool[0].employee.findMany({
         where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true },
         select: { id: true, name: true, userId: true, user: { select: { avatarColor: true } } },
       }),
@@ -49,11 +53,11 @@ const getRankedLeaderboard = unstable_cache(
       // commission-eligible (see isCommissionEligible), so it has to stay in
       // this set; completedThisMonth below explicitly excludes it instead,
       // to keep Elite Challenge ranking exactly as before.
-      prisma.booking.findMany({
+      prismaPool[1].booking.findMany({
         where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart } },
         select: { bookerId: true, date: true, checkOutDate: true, cancelledAt: true, paid: true, dpAmount: true, refundedAt: true },
       }),
-      prisma.eliteBookerAward.findMany({ where: { employeeId: { in: bookerIds }, month: monthStart } }),
+      prismaPool[2].eliteBookerAward.findMany({ where: { employeeId: { in: bookerIds }, month: monthStart } }),
     ]);
 
     return bookers

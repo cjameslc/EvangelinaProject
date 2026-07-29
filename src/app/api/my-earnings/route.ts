@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
@@ -100,20 +100,24 @@ export async function GET(req: NextRequest) {
   const isEliteChallengeEligible = (ELITE_CHALLENGE_ROLES as readonly string[]).includes(employee.role);
   if (isEliteChallengeEligible) await syncEliteBookerAwards();
 
+  // Spread across the read pool (not the single shared `prisma` client) —
+  // the libSQL adapter serializes queries on one client behind an internal
+  // mutex, so a Promise.all on `prisma` alone gets none of the real
+  // concurrency this pool exists to provide (see src/lib/prisma.ts).
   const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
     // No cancelledAt filter here — a cancelled booking can still be
     // commission-eligible (see isCommissionEligible: money kept, not
     // refunded), so cancelled bookings have to stay in this set. dpAmount +
     // refundedAt are selected because isCommissionEligible needs both.
-    prisma.booking.findMany({
+    prismaPool[0].booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
       select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
       orderBy: { date: "desc" },
     }),
-    prisma.cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
-    prisma.weeklyExpense.findMany({ where: { targetEmployeeId: employee.id }, orderBy: { date: "desc" }, take: 200 }),
-    prisma.eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
-    prisma.expenseRequest.findMany({
+    prismaPool[1].cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
+    prismaPool[2].weeklyExpense.findMany({ where: { targetEmployeeId: employee.id }, orderBy: { date: "desc" }, take: 200 }),
+    prismaPool[3].eliteBookerAward.findMany({ where: { employeeId: employee.id }, orderBy: { completedAt: "desc" } }),
+    prismaPool[4].expenseRequest.findMany({
       where: { employeeId: employee.id },
       orderBy: { createdAt: "desc" },
       take: 50,

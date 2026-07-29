@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { computeUnitGoal, type GoalBooking } from "@/lib/analytics/revenueGoals";
@@ -25,25 +25,30 @@ export async function GET() {
   const nextMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
   const prevMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 1, 1));
 
+  // Spread the pure reads across the pool (not the single shared `prisma`
+  // client) — the libSQL adapter serializes queries on one client behind an
+  // internal mutex, so a Promise.all on `prisma` alone gets none of the
+  // real concurrency the pool exists to provide (see src/lib/prisma.ts).
+  // The upsert stays on `prisma` — writes/transactions always do.
   const [employees, bookingsThisMonth, bookingsLastMonth, cleaningLogsThisMonth, units, settings] = await Promise.all([
-    prisma.employee.findMany({
+    prismaPool[0].employee.findMany({
       where: { active: true, role: { in: ["BOOKER", "HOUSEKEEPING", "OWNER_ADMIN", "CO_OWNER"] } },
       select: { id: true, name: true, role: true },
       orderBy: { name: "asc" },
     }),
-    prisma.booking.findMany({
+    prismaPool[1].booking.findMany({
       where: { date: { gte: monthStart, lt: nextMonthStart } },
       select: { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true },
     }),
-    prisma.booking.findMany({
+    prismaPool[2].booking.findMany({
       where: { date: { gte: prevMonthStart, lt: monthStart } },
       select: { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true },
     }),
-    prisma.cleaningLog.findMany({
+    prismaPool[3].cleaningLog.findMany({
       where: { startedAt: { gte: monthStart, lt: nextMonthStart }, endedAt: { not: null } },
       select: { employeeId: true },
     }),
-    prisma.unit.findMany({ select: { id: true, unitNumber: true, shortName: true, monthlyRevenueTargetOverride: true } }),
+    prismaPool[4].unit.findMany({ select: { id: true, unitNumber: true, shortName: true, monthlyRevenueTargetOverride: true } }),
     prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 }, select: { monthlyRevenueTargetPerUnit: true } }),
   ]);
 

@@ -271,6 +271,7 @@ model WeeklyExpense {
 
   @@index([date])
   @@index([category, date])
+  @@index([targetEmployeeId])
   @@map("weekly_expenses")
 }
 
@@ -302,6 +303,7 @@ model ExpenseRequest {
 
   @@index([status])
   @@index([employeeId])
+  @@index([date])
   @@map("expense_requests")
 }
 

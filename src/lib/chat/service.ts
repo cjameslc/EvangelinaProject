@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { getAvatarIdSet, avatarUrlFor } from "@/lib/chat/avatars";
 
 export type ChatRole = "OWNER_ADMIN" | "CO_OWNER" | "BOOKER" | "HOUSEKEEPING" | "AUDITOR" | string;
@@ -132,16 +132,23 @@ export async function listConversationsForUser(userId: string) {
     typingUserIdsByConv.set(t.typingInConversationId!, arr);
   }
 
+  // One client per conversation, round-robin across the read pool — libSQL
+  // serializes queries on a single client behind a mutex, so running every
+  // conversation's pair of reads on the same shared `prisma` client got no
+  // real concurrency despite already being batched via Promise.all (see
+  // src/lib/prisma.ts). This runs on every Bookings/Chat page load, once
+  // per conversation the viewer is a member of.
   const results = await Promise.all(
-    memberships.map(async (m) => {
+    memberships.map(async (m, i) => {
       const conv = m.conversation;
+      const client = prismaPool[i % prismaPool.length];
       const [lastMessage, unreadCount] = await Promise.all([
-        prisma.chatMessage.findFirst({
+        client.chatMessage.findFirst({
           where: { conversationId: conv.id, deletedAt: null },
           orderBy: { createdAt: "desc" },
           select: { id: true, body: true, createdAt: true, senderId: true, sender: { select: { name: true } } },
         }),
-        prisma.chatMessage.count({
+        client.chatMessage.count({
           where: {
             conversationId: conv.id,
             deletedAt: null,
