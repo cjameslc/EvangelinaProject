@@ -66,14 +66,3 @@ export async function getPlaceInsightsByNames(names: string[]) {
   const rows = await prisma.placeInsight.findMany({ where: { name: { in: names } } });
   return new Map(rows.map((r) => [r.name, r]));
 }
-
-/** Every distinct category key that has at least one cached row — powers
- * the Admin refresh panel's "last refreshed" summary per category. */
-export async function getCategoryRefreshSummary() {
-  const rows = await prisma.placeInsight.groupBy({
-    by: ["category"],
-    _count: { _all: true },
-    _max: { lastFetchedAt: true },
-  });
-  return new Map(rows.map((r) => [r.category, { count: r._count._all, lastFetchedAt: r._max.lastFetchedAt }]));
-}

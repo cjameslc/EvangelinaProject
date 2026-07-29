@@ -16,7 +16,6 @@ export const LIKED_TAGS = [
   { key: "amenities", label: "Amenities" },
   { key: "overall_experience", label: "Overall Experience" },
 ] as const;
-export type LikedTagKey = (typeof LIKED_TAGS)[number]["key"];
 
 export const REWARD_OPTIONS = [
   { key: "discount", icon: "🎟️", label: "₱100 OFF on your next stay", note: null as string | null },

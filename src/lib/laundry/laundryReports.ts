@@ -72,8 +72,6 @@ export function computeLaundryDashboard(orders: LaundryOrderView[]) {
   };
 }
 
-export type LaundryReportRange = "daily" | "weekly" | "monthly";
-
 export function computeLaundryReports(orders: LaundryOrderView[]) {
   const activeOrders = orders.filter((o) => o.status !== "Cancelled");
   const totalRevenue = activeOrders.flatMap((o) => o.payments).reduce((sum, p) => sum + p.amount, 0);

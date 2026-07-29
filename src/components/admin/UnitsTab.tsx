@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
-import { peso, formatUnitDisplay } from "@/lib/format";
+import { peso, formatUnitDisplay, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { fileToDataUrl } from "@/lib/file";
 import { cn } from "@/lib/utils";
@@ -402,7 +402,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
                 )}
                 {lockState.ttlockBatteryReplacedAt && (
                   <p className="mt-1 text-[11.5px] text-[var(--gray)]">
-                    Battery last replaced {new Date(lockState.ttlockBatteryReplacedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" })}
+                    Battery last replaced {fmtDate(lockState.ttlockBatteryReplacedAt)}
                   </p>
                 )}
                 {lockState.ttlockSyncError && <p className="mt-1.5 text-[11.5px] font-semibold text-rausch">{lockState.ttlockSyncError}</p>}
