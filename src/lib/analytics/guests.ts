@@ -1,8 +1,32 @@
 import { collectedAmountCentavos } from "@/lib/finance";
 
+// Legacy-migrated bookings (scripts/migrate-legacy-bookings.ts) stamp a
+// literal "Not provided" into contactNumber when the old system had no
+// phone number on file — the migration script's own dedup logic already
+// knows to treat that as "no real contact" (see its contactMatch check),
+// but every guest-identity function below independently re-derives its own
+// key, and this one wasn't taught the same exclusion. Since "Not provided"
+// is a non-empty string, treating it as a real phone number merged every
+// one of the ~258 bookings missing a real contact into a single fake
+// "guest" — whoever's name happened to be attached to the first such
+// booking encountered absorbed every other no-contact booking's count and
+// revenue (surfaced as e.g. one guest showing 255 lifetime bookings). Same
+// fallback bookings/page.tsx's firstBookingIds already uses for this exact
+// problem: fall back to the guest name(s) on the booking instead of a fake
+// shared phone key.
+const NO_REAL_CONTACT = new Set(["", "not provided"]);
+function identityKey(guestId: string | null, contactNumber: string, guests: string[]): string | null {
+  if (guestId) return guestId;
+  const phone = contactNumber?.trim() ?? "";
+  if (!NO_REAL_CONTACT.has(phone.toLowerCase())) return `phone:${phone}`;
+  const names = guests?.filter((g) => g?.trim()).join(",").toLowerCase();
+  return names ? `names:${names}` : null;
+}
+
 export type GuestBooking = {
   guestId: string | null;
   contactNumber: string;
+  guests: string[];
   cancelledAt?: string | Date | null;
 };
 
@@ -27,7 +51,7 @@ export function guestRepeatRate(bookings: GuestBooking[]): GuestRepeatRateResult
   const active = bookings.filter((b) => !b.cancelledAt);
   const countByKey = new Map<string, number>();
   for (const b of active) {
-    const key = b.guestId ?? (b.contactNumber?.trim() ? `phone:${b.contactNumber.trim()}` : null);
+    const key = identityKey(b.guestId, b.contactNumber, b.guests);
     if (!key) continue;
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
   }
@@ -56,7 +80,7 @@ export type GuestValueBooking = {
 export type GuestValueRow = { key: string; name: string; totalCentavos: number; bookingCount: number };
 
 function guestKeyAndName(b: GuestValueBooking): { key: string; name: string } | null {
-  const key = b.guestId ?? (b.contactNumber?.trim() ? `phone:${b.contactNumber.trim()}` : null);
+  const key = identityKey(b.guestId, b.contactNumber, b.guests);
   if (!key) return null;
   return { key, name: b.guests?.[0] || b.contactNumber || "Guest" };
 }

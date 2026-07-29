@@ -23,7 +23,7 @@ export type AnalyticsFilters = {
 
 const kpiBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, stayType: true, amount: true, paid: true,
-  dpAmount: true, cancelledAt: true, guestId: true, contactNumber: true,
+  dpAmount: true, cancelledAt: true, guestId: true, contactNumber: true, guests: true,
 } as const;
 
 /**
