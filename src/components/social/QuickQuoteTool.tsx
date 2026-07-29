@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { quotePrice, type RateTable } from "@/lib/pricing/rates";
-import { peso, fmtDate } from "@/lib/format";
+import { peso, fmtDate, fmtTimeStr } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { CopyIcon } from "@/components/ui/Icons";
+import { TimePicker } from "@/components/ui/TimePicker";
 import { cn } from "@/lib/utils";
 
 const STATIC_SNIPPETS = [
@@ -32,7 +33,9 @@ export function QuickQuoteTool({ rates, dpFee, toast }: { rates: RateTable; dpFe
   const [checkOut, setCheckOut] = useState("");
   const [pax, setPax] = useState("2");
   const [firstName, setFirstName] = useState("");
-  const [stayType, setStayType] = useState<"Daycation" | "Night" | "Full">("Full");
+  const [stayType, setStayType] = useState<"Daycation" | "Night" | "Full" | "Flexible">("Full");
+  const [checkInTime, setCheckInTime] = useState("");
+  const [checkOutTime, setCheckOutTime] = useState("");
 
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
@@ -41,13 +44,23 @@ export function QuickQuoteTool({ rates, dpFee, toast }: { rates: RateTable; dpFe
     );
   }
 
-  const canQuote = !!checkIn;
+  // Flexible's price depends on whether the picked window reads as
+  // day-like or night-like (the weekday-night promo eligibility check in
+  // quotePrice) — unlike Daycation/Night/Full, there's no safe default to
+  // quote against without both real times, so it's required rather than
+  // silently guessed.
+  const needsFlexTimes = stayType === "Flexible";
+  const canQuote = !!checkIn && (!needsFlexTimes || (!!checkInTime && !!checkOutTime));
   const quote = canQuote
-    ? quotePrice(stayType, new Date(`${checkIn}T00:00:00Z`), checkOut ? new Date(`${checkOut}T00:00:00Z`) : null, rates, dpFee)
+    ? quotePrice(stayType, new Date(`${checkIn}T00:00:00Z`), checkOut ? new Date(`${checkOut}T00:00:00Z`) : null, rates, dpFee, checkInTime || null)
     : null;
 
+  const checkInLabel = `${fmtDate(checkIn, { month: "long", day: "numeric", timeZone: "UTC" })}${checkInTime ? ` · ${fmtTimeStr(checkInTime)}` : ""}`;
+  const checkOutLabel = checkOut
+    ? `${fmtDate(checkOut, { month: "long", day: "numeric", timeZone: "UTC" })}${checkOutTime ? ` · ${fmtTimeStr(checkOutTime)}` : ""}`
+    : checkOutTime ? fmtTimeStr(checkOutTime) : null;
   const quoteMessage = quote
-    ? `Hi po${firstName ? ` ${firstName}` : ""}! Your total for ${fmtDate(checkIn, { month: "long", day: "numeric", timeZone: "UTC" })}${checkOut ? ` – ${fmtDate(checkOut, { month: "long", day: "numeric", timeZone: "UTC" })}` : ""} (${pax} pax) is ${peso(quote.total)}. The reservation fee is ${peso(quote.dpAmount)} (deductible), and the remaining ${peso(quote.balanceDue)} will be paid upon check-in.\n\nCheck-in: ${fmtDate(checkIn, { month: "long", day: "numeric", timeZone: "UTC" })}${checkOut ? ` | Check-out: ${fmtDate(checkOut, { month: "long", day: "numeric", timeZone: "UTC" })}` : ""} | Guests: ${pax}\n\nMaaaring mag-iba po ang rates during holidays or peak season. If these details are correct po, kindly reply "Yes" and wait lang po while we check the availability. 😊`
+    ? `Hi po${firstName ? ` ${firstName}` : ""}! Your total for ${checkInLabel}${checkOutLabel ? ` – ${checkOutLabel}` : ""} (${pax} pax) is ${peso(quote.total)}. The reservation fee is ${peso(quote.dpAmount)} (deductible), and the remaining ${peso(quote.balanceDue)} will be paid upon check-in.\n\nCheck-in: ${checkInLabel}${checkOutLabel ? ` | Check-out: ${checkOutLabel}` : ""} | Guests: ${pax}\n\nMaaaring mag-iba po ang rates during holidays or peak season. If these details are correct po, kindly reply "Yes" and wait lang po while we check the availability. 😊`
     : null;
 
   return (
@@ -77,10 +90,23 @@ export function QuickQuoteTool({ rates, dpFee, toast }: { rates: RateTable; dpFe
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-1.5">
-        {(["Daycation", "Night", "Full"] as const).map((k) => (
+        {(["Daycation", "Night", "Full", "Flexible"] as const).map((k) => (
           <button key={k} onClick={() => setStayType(k)} className={cn("pill", stayType === k && "on")}>{STAY_TYPES[k].label}</button>
         ))}
       </div>
+
+      {needsFlexTimes && (
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:w-1/2">
+          <div>
+            <label className="field-label">Check-in time <span className="text-rausch">*</span></label>
+            <TimePicker value={checkInTime} onChange={setCheckInTime} />
+          </div>
+          <div>
+            <label className="field-label">Check-out time <span className="text-rausch">*</span></label>
+            <TimePicker value={checkOutTime} onChange={setCheckOutTime} />
+          </div>
+        </div>
+      )}
 
       {quote && quoteMessage && (
         <div className="mt-4 rounded-2xl border border-green/25 bg-green/5 p-4">
@@ -91,7 +117,11 @@ export function QuickQuoteTool({ rates, dpFee, toast }: { rates: RateTable; dpFe
           <button onClick={() => copy(quoteMessage, "quote reply")} className="btn-sm btn mt-3"><CopyIcon className="h-3.5 w-3.5" /> Copy reply</button>
         </div>
       )}
-      {!canQuote && <p className="mt-3 text-[12.5px] text-[var(--gray)]">Enter a check-in date to compute a real quote.</p>}
+      {!canQuote && (
+        <p className="mt-3 text-[12.5px] text-[var(--gray)]">
+          {needsFlexTimes && checkIn ? "Pick both a check-in and check-out time to compute a Flexible quote." : "Enter a check-in date to compute a real quote."}
+        </p>
+      )}
 
       <div className="mt-4 border-t border-[var(--line)] pt-4">
         <p className="mb-2 text-[12px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Quick openers</p>
