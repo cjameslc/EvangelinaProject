@@ -85,10 +85,6 @@ export const GUIDE_SECTIONS: GuideSection[] = [
   },
 ];
 
-/** Flat list — kept for anything that just needs "every tile" (e.g. a
- * future search index) without caring about section grouping. */
-export const GUIDE_TILES: GuideTile[] = GUIDE_SECTIONS.flatMap((s) => s.tiles);
-
 export type NearbySlug = "food" | "coffee" | "grocery" | "transportation" | "hospitals" | "schools" | "nightlife" | "concert";
 
 export const NEARBY_SLUGS: Record<NearbySlug, { label: string; icon: string; categoryKeys: string[]; image?: string; art?: TileArt }> = {

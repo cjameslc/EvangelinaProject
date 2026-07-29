@@ -71,5 +71,3 @@ export const UNSPLASH_CATEGORIES: UnsplashCategoryDef[] = [
   { key: "team-housekeeping", query: "clean hotel room fresh linens luxury bedroom", count: 2 },
   { key: "team-operations", query: "building maintenance technician property management", count: 2 },
 ];
-
-export const UNSPLASH_CATEGORY_KEYS = UNSPLASH_CATEGORIES.map((c) => c.key);

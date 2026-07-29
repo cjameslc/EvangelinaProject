@@ -14,7 +14,7 @@ import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdf
 import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
 import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos, collectedAmountPesos } from "@/lib/finance";
-import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
+import { periodRangeFor } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 import { computeUnitGoal, computePortfolioGoal, computeMilestones, computeLeaderboard, computeBookerContribution } from "@/lib/analytics/revenueGoals";
 import { RevenueGoalsPanel } from "@/components/shared/RevenueGoalsPanel";
