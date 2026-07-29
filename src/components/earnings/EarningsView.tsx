@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
@@ -13,10 +14,21 @@ import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/c
 import { Trophy, Medal, Award, type LucideIcon } from "lucide-react";
 import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
-import { WorldMapProgress, EliteBadgeButton, AchievementBadgeCard } from "@/components/earnings/WorldMapProgress";
 import { TeamsSection } from "@/components/earnings/TeamsSection";
 import { playFanfare, playPop } from "@/lib/sound";
 import type { UnsplashImage } from "@/lib/unsplash/types";
+
+// WorldMapProgress/EliteBadgeButton/AchievementBadgeCard pull in
+// framer-motion (the single largest contributor to /earnings' bundle —
+// nearly double every other page's own-route JS). Same lazy-loading
+// pattern already used for recharts in Analytics (see
+// RevenueSectionClient.tsx) — ssr:false keeps it out of the server bundle,
+// and the dynamic import keeps it out of every other page's client bundle
+// too, deferred until this page actually mounts on the client instead of
+// blocking initial load for a gamification visual.
+const WorldMapProgress = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.WorldMapProgress), { ssr: false, loading: () => <div className="h-[320px] animate-pulse rounded-2xl bg-[var(--bg-2)]" /> });
+const EliteBadgeButton = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.EliteBadgeButton), { ssr: false, loading: () => <div className="h-[88px] animate-pulse rounded-xl bg-[var(--bg-2)]" /> });
+const AchievementBadgeCard = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.AchievementBadgeCard), { ssr: false, loading: () => <div className="h-[72px] animate-pulse rounded-xl bg-[var(--bg-2)]" /> });
 
 // Festive top-3 treatment for the Leaderboard — gold/silver/bronze medal
 // badge, a matching soft gradient wash, and a glow ring, so the top spots
