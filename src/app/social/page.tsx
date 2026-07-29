@@ -53,6 +53,7 @@ export default async function SocialMediaPage() {
         weekendRate12h: settings.weekendRate12h,
         weekendRate21h: settings.weekendRate21h,
         weekdayNightPromoPct: settings.weekdayNightPromoPct,
+        flexibleTimeFee: settings.flexibleTimeFee,
       }}
       dpFee={settings.dpFee}
       amenities={(settings.amenities as string[] | null) ?? []}

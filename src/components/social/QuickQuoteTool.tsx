@@ -111,7 +111,7 @@ export function QuickQuoteTool({ rates, dpFee, toast }: { rates: RateTable; dpFe
       {quote && quoteMessage && (
         <div className="mt-4 rounded-2xl border border-green/25 bg-green/5 p-4">
           <p className="mb-1.5 text-[12px] font-bold text-[var(--gray)]">
-            {quote.nights} night{quote.nights !== 1 ? "s" : ""} · {peso(quote.standardTotal)}{quote.discountAmount > 0 ? ` − ${peso(quote.discountAmount)} promo` : ""} = {peso(quote.total)} total
+            {quote.nights} night{quote.nights !== 1 ? "s" : ""} · {peso(quote.standardTotal)}{quote.discountAmount > 0 ? ` − ${peso(quote.discountAmount)} promo` : ""}{quote.flexibleFeeAmount > 0 ? ` + ${peso(quote.flexibleFeeAmount)} Flexible fee` : ""} = {peso(quote.total)} total
           </p>
           <p className="whitespace-pre-line text-[13.5px]">{quoteMessage}</p>
           <button onClick={() => copy(quoteMessage, "quote reply")} className="btn-sm btn mt-3"><CopyIcon className="h-3.5 w-3.5" /> Copy reply</button>

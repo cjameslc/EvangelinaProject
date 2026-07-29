@@ -5,6 +5,7 @@ export function RateBreakdown({
   standardTotal,
   discountPct,
   discountAmount,
+  flexibleFeeAmount,
   couponCode,
   couponDiscountAmount,
   total,
@@ -13,6 +14,7 @@ export function RateBreakdown({
   standardTotal: number;
   discountPct: number;
   discountAmount: number;
+  flexibleFeeAmount?: number | null;
   couponCode?: string | null;
   couponDiscountAmount?: number | null;
   total: number;
@@ -28,6 +30,12 @@ export function RateBreakdown({
         <div className="flex justify-between text-teal">
           <span>Weekday night promo (−{discountPct}%)</span>
           <span>−{peso(discountAmount)}</span>
+        </div>
+      )}
+      {!!flexibleFeeAmount && (
+        <div className="flex justify-between">
+          <span className="text-[var(--gray)]">Flexible-time fee</span>
+          <span>+{peso(flexibleFeeAmount)}</span>
         </div>
       )}
       {!!couponCode && !!couponDiscountAmount && (

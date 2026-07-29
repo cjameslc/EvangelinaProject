@@ -8,6 +8,13 @@ export type RateTable = {
   weekendRate12h: number;
   weekendRate21h: number;
   weekdayNightPromoPct: number;
+  // Flat, once-per-booking (not per-night) surcharge for a Flexible stay —
+  // Settings.flexibleTimeFee, default ₱150. Previously configured in Admin
+  // and shown to guests on the house-manual guide page, but never actually
+  // added to any computed price anywhere — a real, confirmed gap between
+  // what the guide told a guest to expect and what a Flexible booking
+  // actually charged.
+  flexibleTimeFee: number;
 };
 
 export type PriceQuote = {
@@ -18,7 +25,12 @@ export type PriceQuote = {
   // The promo % actually applied (0 if no night in the stay qualified).
   discountPct: number;
   discountAmount: number;
-  // standardTotal - discountAmount — what the guest owes in total.
+  // The flat Flexible-stay surcharge actually applied (0 for every other
+  // stay type) — kept as its own line, same reasoning as discountAmount
+  // above, so the UI can show it distinctly rather than folding it into
+  // an unexplained total.
+  flexibleFeeAmount: number;
+  // standardTotal - discountAmount + flexibleFeeAmount — what the guest owes in total.
   total: number;
   dpAmount: number;
   balanceDue: number;
@@ -81,7 +93,8 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  const total = standardTotal - discountAmount;
+  const flexibleFeeAmount = stayType === "Flexible" ? Math.max(0, rates.flexibleTimeFee || 0) : 0;
+  const total = standardTotal - discountAmount + flexibleFeeAmount;
   const { dpAmount, balanceDue } = splitDownPayment(total, dpFee);
 
   return {
@@ -90,6 +103,7 @@ export function quotePrice(stayType: StayType, date: Date, checkOutDate: Date | 
     standardTotal,
     discountPct: discountAmount > 0 ? rates.weekdayNightPromoPct : 0,
     discountAmount,
+    flexibleFeeAmount,
     total,
     dpAmount,
     balanceDue,

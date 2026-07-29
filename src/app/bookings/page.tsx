@@ -104,6 +104,7 @@ export default async function BookingsPage() {
         weekendRate12h: settings.weekendRate12h,
         weekendRate21h: settings.weekendRate21h,
         weekdayNightPromoPct: settings.weekdayNightPromoPct,
+        flexibleTimeFee: settings.flexibleTimeFee,
       }}
       dailyRevenueGoal={settings.dailyRevenueGoal}
     />
