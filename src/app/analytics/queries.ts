@@ -4,6 +4,7 @@ import { dashboardUnitIdWhere } from "@/lib/session";
 import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, occupancyCalendarGrid, OCCUPANCY_CALENDAR_MAX_DAYS, type CalendarCell } from "@/lib/analytics/occupancy";
 import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
+import { collectedAmountPesos } from "@/lib/finance";
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
 import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
@@ -23,7 +24,7 @@ export type AnalyticsFilters = {
 
 const kpiBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, stayType: true, amount: true, paid: true,
-  dpAmount: true, cancelledAt: true, guestId: true, contactNumber: true, guests: true,
+  dpAmount: true, cancelledAt: true, refundedAt: true, guestId: true, contactNumber: true, guests: true,
 } as const;
 
 /**
@@ -91,7 +92,7 @@ async function fetchKpiData(
     prismaPool[10].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
     prismaPool[11].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true, status: true } }),
     ...trailingMonths.map((range, i) =>
-      prismaPool[(12 + i) % 13].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true } })
+      prismaPool[(12 + i) % 13].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } })
     ),
   ]);
 
@@ -293,7 +294,7 @@ async function fetchFinancialData(
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
   const [bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests] = await Promise.all([
-    prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true } }),
+    prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } }),
     prismaPool[1].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     // Pending bills are a "right now" figure, not period-scoped — an unpaid
     // bill doesn't really belong to "last quarter" in a meaningful sense
@@ -729,7 +730,7 @@ async function fetchUnitPerformanceData(
 
   const [units, bookings, bills, blocks] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, unitNumber: true, rating: true } }),
-    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true } }),
+    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } }),
     prismaPool[2].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { unitId: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     prismaPool[3].calendarBlock.findMany({
       where: { ...bookingUnitWhere, type: { in: ["Maintenance", "Cleaning"] }, date: { lt: current.end }, OR: [{ endDate: null }, { endDate: { gt: current.start } }] },
@@ -831,7 +832,7 @@ async function fetchAirbnbEarningsComparison(role: string, ownedUnitIds: string[
     prismaPool[1].unit.findMany({ where: unitIdWhere, select: { id: true, unitNumber: true, shortName: true } }),
     prismaPool[2].booking.findMany({
       where: { ...bookingUnitWhere, platform: "Airbnb", cancelledAt: null },
-      select: { unitId: true, date: true, amount: true, dpAmount: true, paid: true },
+      select: { unitId: true, date: true, amount: true, dpAmount: true, paid: true, refundedAt: true },
     }),
   ]);
   const scopedUnitIds = new Set(units.map((u) => u.id));
@@ -839,7 +840,7 @@ async function fetchAirbnbEarningsComparison(role: string, ownedUnitIds: string[
   const appRevenueByMonth = new Map<string, number>();
   for (const b of airbnbBookings) {
     const key = new Date(Date.UTC(b.date.getUTCFullYear(), b.date.getUTCMonth(), 1)).toISOString();
-    const collected = (b.paid ? b.amount : 0) + (b.dpAmount ?? 0);
+    const collected = collectedAmountPesos(b);
     appRevenueByMonth.set(key, (appRevenueByMonth.get(key) ?? 0) + collected);
   }
 
