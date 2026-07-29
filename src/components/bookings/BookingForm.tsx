@@ -451,9 +451,9 @@ export function BookingForm({
                   );
                 }}
                 title="Copy Booking ID"
-                className="grid h-5 w-5 flex-none place-items-center rounded text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"
+                className="grid h-8 w-8 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch active:bg-rausch/15"
               >
-                <CopyIcon className="h-3.5 w-3.5" />
+                <CopyIcon className="h-4 w-4" />
               </button>
             </span>
           </div>

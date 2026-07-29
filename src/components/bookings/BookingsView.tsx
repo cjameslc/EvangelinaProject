@@ -1349,9 +1349,9 @@ function BookingLine({
                 );
               }}
               title="Copy Booking ID"
-              className="grid h-4 w-4 flex-none place-items-center rounded text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"
+              className="grid h-6 w-6 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch active:bg-rausch/15"
             >
-              <CopyIcon className="h-3 w-3" />
+              <CopyIcon className="h-3.5 w-3.5" />
             </button>
           </span>
         )}
