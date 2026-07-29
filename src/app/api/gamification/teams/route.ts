@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/session";
 import { manilaMonthStart } from "@/lib/format";
 import { computeUnitGoal, type GoalBooking } from "@/lib/analytics/revenueGoals";
 import { formatUnitDisplay } from "@/lib/format";
+import { collectedAmountPesos } from "@/lib/finance";
 
 /**
  * Powers the "Teams" section of the gamification module (My Earnings) — a
@@ -46,7 +47,7 @@ export async function GET() {
     prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 }, select: { monthlyRevenueTargetPerUnit: true } }),
   ]);
 
-  const collected = (bs: GoalBooking[]) => bs.reduce((sum, b) => (b.refundedAt ? sum : sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0)), 0);
+  const collected = (bs: GoalBooking[]) => bs.reduce((sum, b) => sum + collectedAmountPesos(b), 0);
   const toGoalBooking = (b: { unitId: string; date: Date; amount: number; paid: boolean; dpAmount: number | null; refundedAt: Date | null; bookerId: string | null }): GoalBooking => ({
     unitId: b.unitId, date: b.date.toISOString(), amount: b.amount, paid: b.paid, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null, bookerId: b.bookerId,
   });

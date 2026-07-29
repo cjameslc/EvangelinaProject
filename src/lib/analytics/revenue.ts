@@ -1,28 +1,24 @@
 import { manilaDayKey } from "@/lib/analytics/period";
 import { PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { occupiedRange } from "@/lib/stayRange";
+import { totalCollectedCentavos, collectedAmountCentavos, type CollectibleBooking } from "@/lib/finance";
 
-export type RevenueBooking = {
-  amount: number;
-  paid: boolean;
-  dpAmount: number | null;
+export type RevenueBooking = CollectibleBooking & {
   cancelledAt?: string | Date | null;
 };
 
 /**
- * Collected-or-committed revenue, in centavos — same recognition rule
- * already used across this app (Dashboard's `income`/`periodIncome`):
- * the full amount once paid, plus any downpayment on file regardless of
- * paid status. Excludes cancelled bookings (a cancelled stay was never
- * really revenue, whatever was collected on it becomes a refund concern,
- * not income — see the Refunds exclusion note in the module's open
- * decisions).
+ * Collected-or-committed revenue, in centavos — delegates to
+ * totalCollectedCentavos (@/lib/finance.ts), the app's one real source of
+ * truth for this formula. Previously hand-rolled here with a stricter
+ * cancelled-exclusion rule that zeroed out a cancelled-but-kept-deposit
+ * booking entirely — see collectedAmountPesos's doc comment for why that
+ * was a real, confirmed inconsistency against Dashboard's own revenue
+ * figures for the same bookings, not the deliberate choice this
+ * function's own (now-removed) comment claimed it was.
  */
 export function collectedRevenueCentavos(bookings: RevenueBooking[]): number {
-  return bookings.reduce((sum, b) => {
-    if (b.cancelledAt) return sum;
-    return sum + ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
-  }, 0);
+  return totalCollectedCentavos(bookings);
 }
 
 /**
@@ -43,6 +39,7 @@ export type SeriesBooking = {
   paid: boolean;
   dpAmount: number | null;
   cancelledAt?: string | Date | null;
+  refundedAt?: string | Date | null;
 };
 
 export type RevenuePoint = { bucket: string; grossCentavos: number; collectedCentavos: number; bookingId?: never };
@@ -86,12 +83,25 @@ export function revenueSeries(
   const keyFor = granularity === "day" ? (d: Date) => manilaDayKey(d) : granularity === "week" ? weekKey : monthKey;
   const buckets = new Map<string, { grossCentavos: number; collectedCentavos: number }>();
   for (const b of bookings) {
-    if (b.cancelledAt) continue;
+    // Gross and Collected have two genuinely different exclusion rules,
+    // not the one shared "skip if cancelled" condition this loop used to
+    // have: Gross excludes cancelled bookings entirely regardless of
+    // refund (matches the established grossRevenueCentavos convention —
+    // the sale happened, a later refund doesn't undo that it was gross
+    // revenue at the time). Collected is money actually kept — zeroed by
+    // a refund, but NOT by a bare cancellation with a kept deposit. The
+    // old code's single `if (cancelledAt) continue` meant a
+    // cancelled-but-kept-deposit booking's real collected money never
+    // appeared in this trend chart at all, AND a refunded-but-not-
+    // cancelled booking's already-given-back money was wrongly still
+    // counted as collected (refundedAt was never even checked here).
+    const collectedTotal = collectedAmountCentavos(b);
+    if (b.cancelledAt && collectedTotal === 0) continue; // genuinely nothing to spread
     const checkOutDate = b.checkOutDate ? new Date(b.checkOutDate) : null;
     const { start, end } = occupiedRange(b.stayType, new Date(b.date), checkOutDate);
     const totalNights = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
-    const grossPerNight = (b.amount * 100) / totalNights;
-    const collectedPerNight = (((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100) / totalNights;
+    const grossPerNight = b.cancelledAt ? 0 : (b.amount * 100) / totalNights;
+    const collectedPerNight = collectedTotal / totalNights;
     const clipStart = start.getTime() > periodStart.getTime() ? start : periodStart;
     const clipEnd = end.getTime() < periodEnd.getTime() ? end : periodEnd;
     for (let t = clipStart.getTime(); t < clipEnd.getTime(); t += 86400000) {
@@ -113,6 +123,7 @@ export type DimensionBooking = {
   paid: boolean;
   dpAmount: number | null;
   cancelledAt?: string | Date | null;
+  refundedAt?: string | Date | null;
   platform: string;
   stayType: string;
   method: string | null;
@@ -149,12 +160,21 @@ export function revenueByDimension(
   };
   const rows = new Map<string, RevenueDimensionRow>();
   for (const b of bookings) {
-    if (b.cancelledAt) continue;
+    // Same Gross-vs-Collected distinction as revenueSeries above: Gross
+    // (and count) exclude cancelled bookings entirely, Collected only
+    // excludes a refund. The old single `if (cancelledAt) continue` hid a
+    // cancelled-but-kept-deposit booking's real collected money from
+    // every one of these breakdowns (Revenue by unit/source/stay
+    // type/payment method), and never accounted for refundedAt at all.
+    const collectedTotal = collectedAmountCentavos(b);
+    if (b.cancelledAt && collectedTotal === 0) continue;
     const { key, label } = keyFor(b);
     const row = rows.get(key) ?? { key, label, grossCentavos: 0, collectedCentavos: 0, count: 0 };
-    row.grossCentavos += b.amount * 100;
-    row.collectedCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
-    row.count += 1;
+    row.collectedCentavos += collectedTotal;
+    if (!b.cancelledAt) {
+      row.grossCentavos += b.amount * 100;
+      row.count += 1;
+    }
     rows.set(key, row);
   }
   return [...rows.values()].sort((a, b) => b.collectedCentavos - a.collectedCentavos);

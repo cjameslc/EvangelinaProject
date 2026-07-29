@@ -68,3 +68,39 @@ export function cashFlowCentavos(params: { revenueCentavos: number; paidExpenses
 export function paidExpensesCentavosForUnit(expenses: (ExpenseLike & { unitId: string | null })[], unitId: string): number {
   return paidExpensesCentavos(expenses.filter((e) => e.unitId === unitId));
 }
+
+export type CollectibleBooking = { amount: number; paid: boolean; dpAmount: number | null; refundedAt?: string | Date | null };
+
+/**
+ * Money actually in hand for one booking, in whole pesos — the full amount
+ * once paid, plus any downpayment on file, minus anything given back via a
+ * refund. A cancelled booking's kept deposit still counts (same "money
+ * kept, not refunded" rule isCommissionEligible uses in bookingStatus.ts)
+ * — only a refund zeroes it out, a bare cancellation on its own never
+ * does. The single source of truth this formula should have always had:
+ * before this, it was hand-rolled independently in six places (Dashboard,
+ * BookingsView ×2, revenueGoals.ts, the gamification Teams API, and
+ * Analytics' revenue.ts/guests.ts) — two of those six (Analytics'
+ * collectedRevenueCentavos and guestLifetimeValue) used a *different*,
+ * stricter rule that zeroed out a cancelled-but-kept-deposit booking
+ * entirely, rather than only on an actual refund. That meant Analytics'
+ * Total Revenue and Top/Frequent Guests could read lower than Dashboard's
+ * own Income figures for the exact same real bookings — a real,
+ * confirmed inconsistency, not a rounding nuance. Both of collected-
+ * revenue.ts's/guests.ts's own comments claimed to already match this
+ * formula; they didn't.
+ */
+export function collectedAmountPesos(b: CollectibleBooking): number {
+  if (b.refundedAt) return 0;
+  return (b.paid ? b.amount : 0) + (b.dpAmount || 0);
+}
+
+/** Same as collectedAmountPesos, in centavos — for callers already working in centavos throughout (Analytics). */
+export function collectedAmountCentavos(b: CollectibleBooking): number {
+  return collectedAmountPesos(b) * 100;
+}
+
+/** Sum of collectedAmountCentavos across a list of bookings. */
+export function totalCollectedCentavos(bookings: CollectibleBooking[]): number {
+  return bookings.reduce((sum, b) => sum + collectedAmountCentavos(b), 0);
+}

@@ -13,7 +13,7 @@ export function KpiRow({ kpis }: { kpis: ExecutiveKPIs }) {
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <StatCard
         label="Total Revenue" value={pesoCentavos(kpis.totalRevenueCentavos)} sub={growthSub(kpis.revenueGrowthPct, "period")}
-        info="Collected + downpayments on file for the selected period, excluding cancelled bookings."
+        info="Collected + downpayments on file for the selected period — a cancelled booking's kept deposit still counts, only a refund zeroes it out."
       />
       <StatCard
         label="Net Profit" value={pesoCentavos(kpis.netProfitCentavos)} warn={kpis.netProfitCentavos < 0} tone="caution"

@@ -3,6 +3,8 @@
 // entirely from bookings both pages already fetch for the current/previous
 // calendar month. No new database round trips for either page.
 
+import { collectedAmountPesos } from "@/lib/finance";
+
 export type GoalBooking = {
   unitId: string;
   date: string; // ISO — used only for the "first to reach ₱50K" crossing-date milestone
@@ -13,15 +15,10 @@ export type GoalBooking = {
   bookerId?: string | null;
 };
 
-/** Money actually in hand — same formula as every other revenue figure in
- * this app (Dashboard's collectedAmount, Analytics' collectedRevenueCentavos):
- * the full amount once paid, plus any downpayment on file, never a refunded
- * booking. */
+/** Money actually in hand — delegates to collectedAmountPesos (@/lib/finance.ts),
+ * the app's one real source of truth for this formula. */
 function collected(bookings: GoalBooking[]): number {
-  return bookings.reduce((sum, b) => {
-    if (b.refundedAt) return sum;
-    return sum + (b.paid ? b.amount : 0) + (b.dpAmount || 0);
-  }, 0);
+  return bookings.reduce((sum, b) => sum + collectedAmountPesos(b), 0);
 }
 
 export type GoalStatus = "achieved" | "ahead" | "on_track" | "behind" | "at_risk";

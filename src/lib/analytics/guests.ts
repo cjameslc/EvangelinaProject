@@ -1,3 +1,5 @@
+import { collectedAmountCentavos } from "@/lib/finance";
+
 export type GuestBooking = {
   guestId: string | null;
   contactNumber: string;
@@ -48,6 +50,7 @@ export type GuestValueBooking = {
   paid: boolean;
   dpAmount: number | null;
   cancelledAt?: string | Date | null;
+  refundedAt?: string | Date | null;
 };
 
 export type GuestValueRow = { key: string; name: string; totalCentavos: number; bookingCount: number };
@@ -68,11 +71,12 @@ function guestKeyAndName(b: GuestValueBooking): { key: string; name: string } | 
 export function guestLifetimeValue(bookings: GuestValueBooking[]): GuestValueRow[] {
   const rows = new Map<string, GuestValueRow>();
   for (const b of bookings) {
-    if (b.cancelledAt) continue;
+    const collectedTotal = collectedAmountCentavos(b);
+    if (b.cancelledAt && collectedTotal === 0) continue;
     const id = guestKeyAndName(b);
     if (!id) continue;
     const row = rows.get(id.key) ?? { key: id.key, name: id.name, totalCentavos: 0, bookingCount: 0 };
-    row.totalCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
+    row.totalCentavos += collectedTotal;
     row.bookingCount += 1;
     rows.set(id.key, row);
   }

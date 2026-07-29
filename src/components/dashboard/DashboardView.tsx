@@ -6,14 +6,14 @@ import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { Pill } from "@/components/ui/Pill";
-import { peso, fmtDate, pesoCentavos, billCentavos, billPaidCentavos, formatUnitDisplay } from "@/lib/format";
+import { peso, fmtDate, pesoCentavos, billCentavos, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES, BILL_TYPES, LOW_STOCK_THRESHOLD, PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
 import { attentionKey } from "@/lib/attentionKey";
 import { cn } from "@/lib/utils";
 import { ArrowRightIcon, ArrowLeftIcon, FilterIcon, FileSpreadsheetIcon, FilePdfIcon, ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { nightsFor } from "@/lib/stayRange";
 import { totalSalaryPayroll, type DashboardPeriodType, type SalaryHistoryEntry } from "@/lib/payroll";
-import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos } from "@/lib/finance";
+import { paidExpensesCentavos, pendingExpensesCentavos, netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos, collectedAmountPesos } from "@/lib/finance";
 import { periodRangeFor, previousPeriodRangeFor } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 import { computeUnitGoal, computePortfolioGoal, computeMilestones, computeLeaderboard, computeBookerContribution } from "@/lib/analytics/revenueGoals";
@@ -45,16 +45,12 @@ type Stock = { id: string; unitId: string; name: string; count: number };
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
-// Money actually in hand right now for this booking — the full amount once
-// paid, plus any downpayment on file, minus anything since given back. A
-// cancelled booking's kept deposit still counts (same "money kept, not
-// refunded" rule the commission engine uses — see isCommissionEligible in
-// @/lib/bookingStatus); only a refund zeroes it out. Single source of truth
-// for every revenue figure below instead of repeating this formula per card.
-function collectedAmount(b: Booking): number {
-  if (b.refundedAt) return 0;
-  return (b.paid ? b.amount : 0) + (b.dpAmount || 0);
-}
+// Money actually in hand right now for this booking — delegates to
+// collectedAmountPesos (@/lib/finance.ts), the app's one real source of
+// truth for this formula (shared with Analytics/Bookings, not reimplemented
+// per page). See that function's doc comment for the bug history this fix
+// closed out.
+const collectedAmount = (b: Booking): number => collectedAmountPesos(b);
 
 type RangeType = DashboardPeriodType;
 type StatusFilter = "all" | "occupied" | "reserved" | "cleaning" | "available";

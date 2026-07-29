@@ -27,6 +27,7 @@ import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
 import { manilaTodayISO } from "@/lib/manilaTime";
 import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
+import { collectedAmountPesos } from "@/lib/finance";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate: number; owners?: { user: { name: string } }[] };
@@ -340,7 +341,7 @@ export function BookingsView({
     [units, bookings, opportunitiesDate, rates, defaultDpFee]
   );
   const realizedToday = useMemo(
-    () => bookings.filter((b) => b.date.slice(0, 10) === opportunitiesDate && !b.cancelledAt).reduce((s, b) => s + (b.refundedAt ? 0 : (b.paid ? b.amount : 0) + (b.dpAmount ?? 0)), 0),
+    () => bookings.filter((b) => b.date.slice(0, 10) === opportunitiesDate && !b.cancelledAt).reduce((s, b) => s + collectedAmountPesos(b), 0),
     [bookings, opportunitiesDate]
   );
 
@@ -437,7 +438,7 @@ export function BookingsView({
 
   const stats = useMemo(() => {
     const total = weekBookings.length;
-    const collected = weekBookings.reduce((s, b) => s + (b.refundedAt ? 0 : (b.paid ? b.amount : 0) + (b.dpAmount ?? 0)), 0);
+    const collected = weekBookings.reduce((s, b) => s + collectedAmountPesos(b), 0);
     // "Unpaid, needs follow-up" only makes sense for a still-active booking —
     // a cancelled-and-never-paid booking has no guest coming to chase payment
     // from.

@@ -210,7 +210,7 @@ function granularityForPeriod(start: Date, end: Date): "day" | "week" | "month" 
 }
 
 const revenueBookingSelect = {
-  id: true, unitId: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, platform: true, stayType: true, method: true,
+  id: true, unitId: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, platform: true, stayType: true, method: true,
 } as const;
 
 async function fetchRevenueData(
@@ -547,7 +547,7 @@ async function fetchGuestData(
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
-  const guestSelect = { guestId: true, contactNumber: true, guests: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, pax: true } as const;
+  const guestSelect = { guestId: true, contactNumber: true, guests: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, pax: true } as const;
   const [periodBookings, allTimeBookings] = await Promise.all([
     prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: guestSelect }),
     // Lifetime Value is, by definition, not scoped to the selected period —
