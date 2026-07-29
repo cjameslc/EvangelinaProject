@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
@@ -8,6 +8,7 @@ import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
+import { quotePrice, type RateTable } from "@/lib/pricing/rates";
 
 // Airbnb bookings only ever enter the system automatically (iCal import —
 // see syncCalendarMirror), never manually, so it's excluded from what staff
@@ -107,7 +108,7 @@ function paymentEligibleEmployees(employees: Employee[], method: string, current
 }
 
 export function BookingForm({
-  units, employees, initial, defaultDpFee, bookingId, confirmationNumber, confirmationOverrideUntil,
+  units, employees, initial, defaultDpFee, rates, bookingId, confirmationNumber, confirmationOverrideUntil,
   confirmationDate, confirmationCheckOutDate, confirmationCancelled,
   onReactivateConfirmation, onRegenerateConfirmation,
   onSubmit, onCancel, submitLabel = "Add booking", ownEmployeeId = null, role,
@@ -116,6 +117,15 @@ export function BookingForm({
   employees: Employee[];
   initial?: Partial<BookingFormValue>;
   defaultDpFee?: number;
+  /** The real property-wide rate card (Admin → Settings) — when present,
+   * powers a live "suggested price" from quotePrice() as soon as stay
+   * type + date are picked, instead of the booker having to already know
+   * the rate card by heart (a real, reported source of confusion for
+   * newer bookers — they'd type a flat/wrong number, or have to tab away
+   * to look the rate up). Optional so this degrades gracefully to today's
+   * plain manual-entry behavior wherever a caller doesn't have Settings
+   * loaded. */
+  rates?: RateTable;
   /** The booking being edited, if any — excluded from its own conflict check. */
   bookingId?: string;
   /** Read-only — auto-generated at creation (see confirmationNumber.ts),
@@ -195,12 +205,28 @@ export function BookingForm({
   // Once the guest hand-edits the checkout date/time, stop auto-suggesting
   // it on every check-in date/type change — their edit wins from then on.
   const [checkOutTouched, setCheckOutTouched] = useState(!!initial?.checkOutDate);
+  // Same pattern for Total Amount — once staff type their own number
+  // (a manual override, a discount, a walk-in negotiated rate), the live
+  // rate-card suggestion stops silently overwriting it. They can still tap
+  // "Use suggested" to opt back in after changing stay type/dates.
+  const [totalTouched, setTotalTouched] = useState(!!initial?.totalAmount);
+  // Flexible always arrives with *some* check-in/check-out time already
+  // filled in — selectStayType() below runs smartSchedule() same as every
+  // other stay type, and STAY_TYPE_DEFAULT_TIMES.Flexible defaults to a
+  // plain 8am–8pm day-like guess. So an empty-string check on
+  // checkInTime/checkOutTime can never actually detect "times not picked
+  // yet" for Flexible (confirmed live: switching to Flexible immediately
+  // produced a quote off the untouched 8am-8pm default, with no warning
+  // shown) — the real signal needed is "did staff actually look at/adjust
+  // the time pickers," tracked here explicitly.
+  const [flexTimesConfirmed, setFlexTimesConfirmed] = useState(!!(initial?.checkInTime && initial?.checkOutTime));
   const [conflict, setConflict] = useState(false);
   const [checkingConflict, setCheckingConflict] = useState(false);
 
   useEffect(() => {
     setV(makeInitialValue(initial));
     setCheckOutTouched(!!initial?.checkOutDate);
+    setFlexTimesConfirmed(!!(initial?.checkInTime && initial?.checkOutTime));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, defaultDpFee]);
 
@@ -208,6 +234,7 @@ export function BookingForm({
     const suggestion = smartSchedule(type, v.date || EMPTY.date);
     setV((s) => ({ ...s, stayType: type, ...suggestion }));
     setCheckOutTouched(false);
+    setFlexTimesConfirmed(false);
   }
 
   // Airbnb has no day-use product — every Airbnb booking is a full 21-hour
@@ -283,6 +310,32 @@ export function BookingForm({
     const remaining = Math.max(0, v.totalAmount - (v.dpAmount ?? 0));
     setV((s) => (s.amount === remaining ? s : { ...s, amount: remaining }));
   }, [v.totalAmount, v.dpAmount]);
+
+  // Real rate-card price, live, as soon as stay type + date are picked —
+  // the actual fix for newer bookers not knowing the rate card and typing
+  // a guessed/flat number. Rates are property-wide (not per-unit), so this
+  // doesn't need a unit selected either. Flexible additionally needs both
+  // times before a real quote is possible — its promo eligibility depends
+  // on whether the picked window reads as day-like or night-like
+  // (isNightLikeTime in pricing/rates.ts), so a Flexible quote without
+  // times would either be silently wrong or need a guess; neither is
+  // acceptable for a number staff might just accept at face value.
+  const suggestedQuote = useMemo(() => {
+    if (!rates || !v.stayType || !v.date) return null;
+    if (v.stayType === "Flexible" && !flexTimesConfirmed) return null;
+    const checkOutDate = v.checkOutDate ? new Date(`${v.checkOutDate}T00:00:00Z`) : null;
+    return quotePrice(v.stayType, new Date(`${v.date}T00:00:00Z`), checkOutDate, rates, defaultDpFee ?? 0, v.checkInTime || null);
+  }, [rates, v.stayType, v.date, v.checkOutDate, v.checkInTime, defaultDpFee, flexTimesConfirmed]);
+
+  // Auto-fills Total Amount the moment a real quote becomes available —
+  // same "suggest but never clobber a manual entry" contract as the old
+  // per-unit nightlyRate fallback this replaces, just backed by the real
+  // rate card (stay type + weekday/weekend + promo) instead of one flat
+  // number that ignored all of that.
+  useEffect(() => {
+    if (totalTouched || !suggestedQuote) return;
+    setV((s) => (s.totalAmount === suggestedQuote.total ? s : { ...s, totalAmount: suggestedQuote.total }));
+  }, [suggestedQuote, totalTouched]);
 
   function set<K extends keyof BookingFormValue>(key: K, val: BookingFormValue[K]) {
     setV((s) => ({ ...s, [key]: val }));
@@ -447,13 +500,7 @@ export function BookingForm({
           <label className="field-label">Unit <span className="text-rausch">*</span></label>
           <select
             value={v.unitId}
-            onChange={(e) => {
-              const unitId = e.target.value;
-              const unit = units.find((u) => u.id === unitId);
-              // Suggest the unit's own rate (set in Admin → Units) as the total,
-              // but never clobber a value staff already typed in.
-              setV((s) => ({ ...s, unitId, totalAmount: s.totalAmount == null && unit?.nightlyRate ? unit.nightlyRate : s.totalAmount }));
-            }}
+            onChange={(e) => set("unitId", e.target.value)}
             className={cn("field-input mt-1.5", (conflict || errors.unitId) && "border-rausch ring-4 ring-rausch/15")}
           >
             <option value="">— Select unit —</option>
@@ -517,13 +564,13 @@ export function BookingForm({
         <div>
           <label className="field-label">Check-in time</label>
           <div className="mt-1.5">
-            <TimePicker value={v.checkInTime} onChange={(t) => set("checkInTime", t)} />
+            <TimePicker value={v.checkInTime} onChange={(t) => { setFlexTimesConfirmed(true); set("checkInTime", t); }} />
           </div>
         </div>
         <div>
           <label className="field-label">Check-out time</label>
           <div className="mt-1.5">
-            <TimePicker value={v.checkOutTime} onChange={(t) => set("checkOutTime", t)} />
+            <TimePicker value={v.checkOutTime} onChange={(t) => { setFlexTimesConfirmed(true); set("checkOutTime", t); }} />
           </div>
         </div>
 
@@ -620,11 +667,32 @@ export function BookingForm({
         <input
           type="number"
           value={v.totalAmount ?? ""}
-          onChange={(e) => set("totalAmount", e.target.value ? +e.target.value : null)}
+          onChange={(e) => { setTotalTouched(true); set("totalAmount", e.target.value ? +e.target.value : null); }}
           className="field-input mt-1.5 text-[16px] font-extrabold"
           placeholder="1,799"
         />
         <p className="mt-1.5 text-[12px] text-[var(--gray)]">The full price of the stay. The downpayment below is subtracted automatically to work out the remaining balance.</p>
+        {suggestedQuote && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-[var(--card)] px-3 py-2 text-[12.5px]">
+            <span className="text-[var(--gray)]">Rate card suggests</span>
+            <span className="font-extrabold text-rausch">{peso(suggestedQuote.total)}</span>
+            {suggestedQuote.discountPct > 0 && (
+              <span className="rounded-full bg-teal/10 px-2 py-0.5 text-[10.5px] font-extrabold text-teal">{suggestedQuote.discountPct}% weekday-night promo applied</span>
+            )}
+            {v.totalAmount !== suggestedQuote.total && (
+              <button
+                type="button"
+                onClick={() => { setTotalTouched(false); set("totalAmount", suggestedQuote.total); }}
+                className="font-extrabold text-rausch underline underline-offset-2"
+              >
+                Use this
+              </button>
+            )}
+          </div>
+        )}
+        {rates && v.stayType === "Flexible" && !flexTimesConfirmed && (
+          <p className="mt-2 text-[12px] font-semibold text-amber">Confirm the check-in and check-out time above to see the rate-card price for a Flexible stay — it depends on whether the window reads as day-like or night-like.</p>
+        )}
         {err("totalAmount")}
       </div>
 

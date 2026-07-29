@@ -981,7 +981,7 @@ export function BookingsView({
           </div>
           <Accordion key={logAccordionKey} title="Log new booking" sub="tap to expand" defaultOpen={!!bookingPrefill || forceLogOpen}>
             <div id="log-new-booking-anchor" />
-            <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} onSubmit={createBooking} initial={bookingPrefill ?? undefined} ownEmployeeId={ownEmployeeId} />
+            <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} rates={rates} onSubmit={createBooking} initial={bookingPrefill ?? undefined} ownEmployeeId={ownEmployeeId} />
           </Accordion>
         </>
       )}
@@ -1151,6 +1151,7 @@ export function BookingsView({
           <BookingForm
             units={units}
             employees={emps}
+            rates={rates}
             submitLabel="Save changes"
             initial={editingInitial}
             bookingId={editing.id}
