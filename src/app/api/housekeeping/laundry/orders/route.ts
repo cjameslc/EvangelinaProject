@@ -12,7 +12,11 @@ export async function GET() {
   if (error) return error;
   if (!canSeeHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
 
-  const rows = await listLaundryOrdersForUser(user);
+  // Bounded — this is the interactive list panel, not an export/report
+  // (those call listLaundryOrdersForUser with no take and must see every
+  // row). 1000 is generous enough to never truncate real current usage
+  // while still capping the same unbounded-growth risk /bookings had.
+  const rows = await listLaundryOrdersForUser(user, { take: 1000 });
   return NextResponse.json(rows.map(withDerived));
 }
 

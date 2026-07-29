@@ -145,22 +145,32 @@ export async function getLaundryOrder(id: string) {
   });
 }
 
-export async function listLaundryOrders() {
-  return prisma.laundryOrder.findMany({ orderBy: { createdAt: "desc" }, select: laundryOrderSelect });
+export async function listLaundryOrders(opts: { take?: number } = {}) {
+  return prisma.laundryOrder.findMany({ orderBy: { createdAt: "desc" }, select: laundryOrderSelect, ...(opts.take ? { take: opts.take } : {}) });
 }
 
 /** Every list-shaped laundry endpoint (order list, dashboard, reports) needs
  * the same Co-owner scoping — a walk-in laundry order (unitId null) is
  * always visible to everyone with Housekeeping access; a unit-linked one
  * is scoped like every other unit-bearing query in the app. One place, so
- * the three callers can't drift on the null-unitId edge case. */
-export async function listLaundryOrdersForUser(user: { role: string; ownedUnitIds: string[] }) {
+ * the three callers can't drift on the null-unitId edge case.
+ *
+ * `opts.take` is opt-in and only meant for the interactive orders-list
+ * panel (LaundryOrdersList.tsx already only shows PAGE_SIZE=15 at a time
+ * client-side anyway) — the dashboard/export/reports callers deliberately
+ * leave it unset, since an export or report silently truncating to "most
+ * recent N" instead of the real full history would be a correctness bug,
+ * not a performance win. Same unbounded-growth shape this session already
+ * fixed for /bookings (see docs/Performance.md), applied narrowly here
+ * rather than as a blanket change to every caller. */
+export async function listLaundryOrdersForUser(user: { role: string; ownedUnitIds: string[] }, opts: { take?: number } = {}) {
   const scope = unitScope(user.role as any, user.ownedUnitIds);
-  if (scope === "all") return listLaundryOrders();
+  if (scope === "all") return listLaundryOrders(opts);
   return prisma.laundryOrder.findMany({
     where: { OR: [{ unitId: null }, { unitId: { in: scope } }] },
     orderBy: { createdAt: "desc" },
     select: laundryOrderSelect,
+    ...(opts.take ? { take: opts.take } : {}),
   });
 }
 
