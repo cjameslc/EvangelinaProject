@@ -31,9 +31,15 @@ export default async function BookingDetailPage({ params }: { params: { id: stri
   const heroImage = pickStable(heroImages, booking.id);
 
   // Neither the door code nor the WiFi password reach the client here —
-  // only whether each exists — so re-entering the booking ID (see
-  // SecureDoorCodeCard/SecureWifiCard, /api/guest/door-code, /api/guest/wifi)
-  // is a real gate, not just something hidden in the DOM.
+  // only whether each exists. The real reveal gate is now session +
+  // isConfirmationValid() at /api/guest/door-code and /api/guest/wifi
+  // (see SecureDoorCodeCard/SecureWifiCard) — a signed-in guest's session
+  // alone unlocks both with no re-entry step; a past version of this app
+  // required re-typing the booking ID even when already signed in, but
+  // that was deliberately removed (see "Guest dashboard: single auth
+  // unlocks everything" in git log) in favor of one sign-in unlocking the
+  // whole dashboard. Documented as a real trade-off in
+  // docs/Security.md#known-gaps, not silently stale.
   const sanitizedBooking = {
     ...booking,
     unit: {

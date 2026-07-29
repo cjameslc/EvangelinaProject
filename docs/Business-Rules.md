@@ -47,7 +47,7 @@ Source: `src/lib/constants.ts` (`STAY_TYPES`), `src/lib/pricing/rates.ts`.
 | **Daycation** | 12 hrs | ✅ | Uses the 12h rate tier |
 | **Night** | 12 hrs | ✅ | Uses the 12h rate tier; the only type eligible for the weekday-night promo |
 | **Full** | 21 hrs | ✅ | Uses the 21h rate tier; never discounted |
-| **Flexible** | Same day, guest/staff-chosen check-in/out time | Staff-only (not offered in guest self-service) | Priced at the 12h tier; counts as "Night-like" for promo purposes only if its chosen check-in time is 5:00 PM or later |
+| **Flexible** | Same day, guest/staff-chosen check-in/out time | ✅ — guest-selectable in `BookFlowView.tsx`, not staff-only | Priced at the 12h tier; counts as "Night-like" for promo purposes only if its chosen check-in time is 5:00 PM or later. Also carries a flat, once-per-booking **Flexible-time fee** (`Settings.flexibleTimeFee`, default ₱150) added on top of the tier rate — see [quotePrice()](../src/lib/pricing/rates.ts) |
 | **Cleaning** / **Maintenance** | — | Internal only | Calendar-block types, not real bookings |
 
 ## Pricing & the weekday-night promo

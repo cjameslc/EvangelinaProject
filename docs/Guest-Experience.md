@@ -32,13 +32,10 @@ The four "Explore the neighborhood" tiles that have real refreshed Google Places
 
 ## WiFi & door code (secure reveal)
 
-The single most security-sensitive piece of guest content, and the one place this app's normal "signed-in guest sees their own data" pattern is deliberately **not** enough on its own:
-
 - The server **never sends the raw WiFi password or door code** to the client on page load — not even to a signed-in guest with a confirmed active booking. The page only knows (and shows) *whether* one exists.
-- To actually reveal it, the guest re-enters their **booking confirmation number** into a small form (`SecureWifiCard`/`SecureDoorCodeCard` in `src/components/guest/SecureGuideCards.tsx`), which POSTs to `/api/guest/wifi` or `/api/guest/door-code`. Only on a match does the server return the real value.
-- The property has 5 units, each with its own code — this doubles as a "confirm which stay you mean" step, not just friction for its own sake.
-- The **AI Concierge is bound by the same rule** — it's told only whether a code exists, never the value, and is instructed to point the guest at these same pages (see [AI Concierge](#ai-concierge); this was tightened during the writing of this documentation set — see [Changelog.md](Changelog.md)).
-- The reveal is further gated by [confirmation-number validity](Business-Rules.md#booking-id-confirmation-number-validity) — an expired code doesn't work even if it's typed correctly, unless an OWNER_ADMIN has reactivated it.
+- To actually reveal it, `SecureWifiCard`/`SecureDoorCodeCard` (`src/components/guest/SecureGuideCards.tsx`) call `/api/guest/wifi`/`/api/guest/door-code`, which return the real value once the guest's session and `isConfirmationValid()` both check out. **As of "Guest dashboard: single auth unlocks everything" (see git log), this no longer requires re-typing the booking confirmation number** — signing in once unlocks WiFi/door-code reveal for the rest of that session, the same as every other guest-portal page. An earlier version of this app required re-entering the confirmation number at the exact moment of reveal, even for an already-signed-in guest, specifically to defend against a guest's own signed-in session being reused by someone else on a shared/public device; that extra step was deliberately traded away for a simpler "sign in once" flow. Not documented elsewhere as an accepted risk — see [Security.md](Security.md#known-gaps).
+- The reveal is still gated by [confirmation-number validity](Business-Rules.md#booking-id-confirmation-number-validity) — an expired or cancelled booking's session can't reveal WiFi/door-code even without re-entry, unless an OWNER_ADMIN has reactivated it.
+- The **AI Concierge is bound by the same "never state the value" rule** — it's told only whether a code exists, never the value, and is instructed to point the guest at these same pages (see [AI Concierge](#ai-concierge)).
 
 Full technical detail in [Security.md](Security.md#wifidoor-code-reveal-gate).
 
