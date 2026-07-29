@@ -86,9 +86,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // this guard was scoped to only the fields it's actually protecting.
   const conflictRelevantFieldsChanged = ["unitId", "date", "checkOutDate", "stayType", "checkInTime", "checkOutTime", "platform"].some((k) => k in body);
 
+  // Whether this specific request is the one that actually flipped paid
+  // false→true — read fresh from inside the same transaction as the
+  // update below, not the `existing` snapshot taken at the top of this
+  // handler. Two concurrent PATCH requests marking the same booking paid
+  // (a double-click) can both read that early snapshot as paid=false
+  // before either commits, so both would fire a duplicate
+  // payment.received notification for one real event otherwise. Relies
+  // on the same guarantee the conflict-relevant branch below already
+  // leans on for its own race prevention: the libSQL adapter serializes
+  // every query on the shared `prisma` client behind one mutex (see
+  // src/lib/prisma.ts), so two concurrent $transaction calls here fully
+  // serialize — the second one's fresh read only runs after the first's
+  // update has already committed.
+  let paidBeforeThisUpdate = existing.paid;
+
   let booking: Awaited<ReturnType<typeof prisma.booking.update>>;
   if (!conflictRelevantFieldsChanged) {
-    booking = await prisma.booking.update({ where: { id: params.id }, data });
+    booking = await prisma.$transaction(async (tx) => {
+      const fresh = await tx.booking.findUnique({ where: { id: params.id }, select: { paid: true } });
+      paidBeforeThisUpdate = fresh?.paid ?? existing.paid;
+      return tx.booking.update({ where: { id: params.id }, data });
+    });
   } else {
     const nextUnitId = data.unitId ?? existing.unitId;
     const nextDate = data.date ?? existing.date;
@@ -110,6 +129,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           { excludeBookingId: params.id, client: tx }
         );
         if (!available) throw new BookingConflictError();
+        const fresh = await tx.booking.findUnique({ where: { id: params.id }, select: { paid: true } });
+        paidBeforeThisUpdate = fresh?.paid ?? existing.paid;
         return tx.booking.update({ where: { id: params.id }, data });
       });
     } catch (e) {
@@ -128,7 +149,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // A staff member marking a guest-portal booking paid is exactly the
   // "payment received" event a guest wants to see — fired alongside (not
   // instead of) the general booking.updated event.
-  if (!existing.paid && booking.paid) {
+  if (!paidBeforeThisUpdate && booking.paid) {
     await notify({ type: "payment.received", bookingId: booking.id });
   }
   await notify({ type: "booking.updated", bookingId: booking.id });
