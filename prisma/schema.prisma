@@ -532,6 +532,11 @@ model Booking {
   @@unique([unitId, externalUid])
   @@index([unitId, date])
   @@index([date])
+  // checkAvailability's windowed conflict query (availabilityService.ts)
+  // needs to find a unit's still-checked-in bookings that started before
+  // its search window — filtered on checkOutDate, not covered by the
+  // [unitId, date] index above.
+  @@index([unitId, checkOutDate])
   // Commission/payroll queries (my-earnings, leaderboard, Analytics Staff)
   // filter directly on these — neither is covered by the [unitId, date] or
   // [date] indexes above.

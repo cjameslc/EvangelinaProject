@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { bookingsConflict } from "@/lib/stayRange";
+import { bookingsConflict, occupiedRange } from "@/lib/stayRange";
 
 // The extended `prisma` client's own $transaction callback parameter type —
 // derived structurally instead of Prisma's generic Prisma.TransactionClient,
@@ -17,6 +17,47 @@ export type AvailabilityQuery = {
   checkInTime?: string | null;
   checkOutTime?: string | null;
 };
+
+/**
+ * A provably-safe superset of "every booking that could possibly conflict
+ * with this request," used to bound the findMany below instead of fetching
+ * a unit's entire booking history. Built from the exact same occupiedRange()
+ * bookingsConflict() itself calls internally, so the SQL bound and the
+ * in-memory conflict decision can never disagree about what a stay type
+ * occupies — only the SQL bound narrows *how many* rows get that decision
+ * applied to them, it never decides a conflict itself.
+ *
+ * Two branches, both anchored on the request's own occupied range
+ * [reqStart, reqEnd):
+ *  1. Existing booking's `date` falls in/near that range — the direct-
+ *     overlap case (padded ±1 day, see below).
+ *  2. Existing booking's `date` is earlier, but its `checkOutDate` reaches
+ *     into the range — a longer-running stay that started before the
+ *     window but hasn't checked out yet. No cap on how far back `date` can
+ *     be here: a booking can legitimately (or via typo/guest-submitted far-
+ *     future checkout) span weeks or months, so this branch is deliberately
+ *     NOT bounded on the low end of `date` — only `checkOutDate` matters
+ *     for it. Same shape as the existing "is this booking still active"
+ *     query in guestService.ts's getActiveGuideBooking.
+ *
+ * The ±1 day pad on branch 1's window exists because bookingsConflict has
+ * an exact-adjacency fallback (stayRange.ts: two bookings whose day-ranges
+ * merely touch — one's checkout day is the other's check-in day — still
+ * get a real-timestamp overlap check). Without the pad, a booking starting
+ * exactly on reqEnd (or ending exactly on reqStart) would be excluded from
+ * the candidate set before that fallback ever gets a chance to run.
+ */
+function conflictCandidateWhere(stayType: StayType, date: Date, checkOutDate: Date | null) {
+  const { start: reqStart, end: reqEnd } = occupiedRange(stayType, date, checkOutDate);
+  const winStart = new Date(reqStart.getTime() - 86400000);
+  const winEnd = new Date(reqEnd.getTime() + 86400000);
+  return {
+    OR: [
+      { date: { gte: winStart, lt: winEnd } },
+      { date: { lt: winStart }, checkOutDate: { gte: winStart } },
+    ],
+  };
+}
 
 /**
  * The single availability check for the whole app — same conflict math
@@ -40,7 +81,15 @@ export async function checkAvailability(
   const unitBookings = await db.booking.findMany({
     // A guest-cancelled booking (cancelledAt set) must not keep blocking the
     // unit — otherwise a cancelled date range is stuck unbookable forever.
-    where: { unitId: query.unitId, cancelledAt: null, ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}) },
+    // The OR clause bounds this to a safe superset of possibly-conflicting
+    // bookings instead of the unit's entire history — see
+    // conflictCandidateWhere's doc comment for why it's safe.
+    where: {
+      unitId: query.unitId,
+      cancelledAt: null,
+      ...conflictCandidateWhere(query.stayType, date, checkOutDate),
+      ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}),
+    },
     select: { stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
   const conflict = unitBookings.some((b) => bookingsConflict({ stayType: query.stayType, date, checkOutDate, checkInTime: query.checkInTime, checkOutTime: query.checkOutTime }, b));
@@ -55,7 +104,11 @@ export async function checkAvailabilityForUnits(
   const date = new Date(range.date);
   const checkOutDate = range.checkOutDate ? new Date(range.checkOutDate) : null;
   const allBookings = await prisma.booking.findMany({
-    where: { unitId: { in: unitIds }, cancelledAt: null },
+    where: {
+      unitId: { in: unitIds },
+      cancelledAt: null,
+      ...conflictCandidateWhere(range.stayType, date, checkOutDate),
+    },
     select: { unitId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true },
   });
   const byUnit = new Map<string, typeof allBookings>();
