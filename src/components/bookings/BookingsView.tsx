@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, CalendarIcon, MenuIcon, HomeIcon, AlertIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, CalendarIcon, MenuIcon, HomeIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -1104,6 +1104,7 @@ export function BookingsView({
                           isFirstBooking={firstBookingIds.has(b.id)}
                           canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
                           onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
+                          toast={toast}
                         />
                       ))}
                     </div>
@@ -1122,6 +1123,7 @@ export function BookingsView({
                           isFirstBooking={firstBookingIds.has(b.id)}
                           canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
                           onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
+                          toast={toast}
                         />
                       ))}
                     </div>
@@ -1274,7 +1276,7 @@ function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed
 }
 
 function BookingLine({
-  b, kind, unitColor, isFirstBooking, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete, onRemove,
+  b, kind, unitColor, isFirstBooking, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete, onRemove, toast,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
@@ -1287,6 +1289,7 @@ function BookingLine({
   onRefund: () => void;
   onDelete: () => void;
   onRemove: () => void;
+  toast: (msg: string, isError?: boolean) => void;
 }) {
   const pastDue = isPastDue(b);
   const { inIso, outIso } = effectiveRange(b);
@@ -1335,8 +1338,21 @@ function BookingLine({
         {b.source === "AIRBNB" && <Tag variant="airbnb">Airbnb import</Tag>}
         {b.refundedAt && <Tag variant="refunded">Refunded</Tag>}
         {b.confirmationNumber && (
-          <span className="font-mono text-[11px] font-bold text-[var(--gray)]" title="Booking ID — guest uses this to sign in and unlock this unit's WiFi/door code">
+          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-[var(--gray)]" title="Booking ID — guest uses this to sign in and unlock this unit's WiFi/door code">
             🔑 {b.confirmationNumber}
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(b.confirmationNumber!).then(
+                  () => toast("Booking ID copied ✓"),
+                  () => toast("Couldn't copy — select and copy manually.", true)
+                );
+              }}
+              title="Copy Booking ID"
+              className="grid h-4 w-4 flex-none place-items-center rounded text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"
+            >
+              <CopyIcon className="h-3 w-3" />
+            </button>
           </span>
         )}
       </div>

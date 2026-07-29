@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
-import { CloseIcon, AlertIcon } from "@/components/ui/Icons";
+import { CloseIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
+import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
@@ -161,6 +162,7 @@ export function BookingForm({
    * Every other role can still reassign the booker when editing. */
   role?: string;
 }) {
+  const toast = useToast();
   const isCreate = !bookingId;
   const lockBooker = !!ownEmployeeId && (isCreate || role === "BOOKER");
 
@@ -438,7 +440,22 @@ export function BookingForm({
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[12.5px] font-semibold text-[var(--gray)]">Booking ID — the guest&rsquo;s sign-in / WiFi &amp; door code</span>
-            <span className="font-mono text-[14px] font-extrabold tracking-wide">{confirmationNumber}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-mono text-[14px] font-extrabold tracking-wide">{confirmationNumber}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(confirmationNumber).then(
+                    () => toast("Booking ID copied ✓"),
+                    () => toast("Couldn't copy — select and copy manually.", true)
+                  );
+                }}
+                title="Copy Booking ID"
+                className="grid h-5 w-5 flex-none place-items-center rounded text-[var(--gray)] hover:bg-rausch/10 hover:text-rausch"
+              >
+                <CopyIcon className="h-3.5 w-3.5" />
+              </button>
+            </span>
           </div>
           {confirmationDate && (
             <div className="mt-1.5 flex items-center justify-between gap-2">
@@ -678,6 +695,9 @@ export function BookingForm({
             <span className="font-extrabold text-rausch">{peso(suggestedQuote.total)}</span>
             {suggestedQuote.discountPct > 0 && (
               <span className="rounded-full bg-teal/10 px-2 py-0.5 text-[10.5px] font-extrabold text-teal">{suggestedQuote.discountPct}% weekday-night promo applied</span>
+            )}
+            {suggestedQuote.flexibleFeeAmount > 0 && (
+              <span className="rounded-full bg-amber/10 px-2 py-0.5 text-[10.5px] font-extrabold text-amber">+{peso(suggestedQuote.flexibleFeeAmount)} Flexible-time fee included</span>
             )}
             {v.totalAmount !== suggestedQuote.total && (
               <button
