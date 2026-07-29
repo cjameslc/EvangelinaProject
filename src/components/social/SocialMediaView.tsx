@@ -8,7 +8,7 @@ import {
 import {
   CAPTION_CATEGORIES, CAPTION_TEMPLATES, HASHTAG_BASE, buildHashtags, fillTemplate,
 } from "@/lib/socialContent";
-import { GRAPHIC_FORMATS, drawAvailabilityGraphic, loadImage, downloadCanvas } from "@/lib/socialGraphic";
+import { GRAPHIC_FORMATS, drawAvailabilityGraphic, loadImage, downloadCanvas, ensureGraphicFonts, type AvailabilityDateSection } from "@/lib/socialGraphic";
 import { STAY_TYPES } from "@/lib/constants";
 import { formatUnitDisplay } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
@@ -80,7 +80,15 @@ function quickFilterRange(key: QuickFilterKey, todayIso: string, customStart: st
     case "week": { const satOffset = (6 - dow + 7) % 7; return { start: todayIso, end: addDays(todayIso, satOffset) }; }
     case "nextWeek": { const satOffset = (6 - dow + 7) % 7; const nextSun = addDays(todayIso, satOffset + 1); return { start: nextSun, end: addDays(nextSun, 6) }; }
     case "month": { const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)); return { start: todayIso, end: isoOf(end) }; }
-    case "custom": return { start: customStart || todayIso, end: customEnd || todayIso };
+    case "custom": {
+      // Floor both ends at today regardless of what's in the raw input
+      // state — the date picker's min attribute is a UI hint a user can
+      // still type past, so this is the real guarantee that a promo
+      // graphic can never be generated for an already-elapsed date.
+      const start = customStart && customStart > todayIso ? customStart : todayIso;
+      const end = customEnd && customEnd > start ? customEnd : start;
+      return { start, end };
+    }
   }
 }
 
@@ -97,6 +105,13 @@ export function SocialMediaView({
   const [tab, setTab] = useState<"dates" | "studio" | "captions" | "cheatsheet">("studio");
 
   const contact = contactPhone ? contactPhone : messengerUsername ? `m.me/${messengerUsername}` : "our page";
+  // "our page" only reads correctly embedded in a sentence ("Message us to
+  // book — our page"). Drawn on its own as a standalone contactLine (the
+  // Content Studio's "Contact details" toggle), it showed up as an
+  // orphaned, meaningless fragment floating above the CTA in the exported
+  // graphic (confirmed via a real export) — so that toggle needs to know
+  // whether `contact` is real contact info or just the fallback phrase.
+  const hasDirectContact = !!(contactPhone || messengerUsername);
   const todayIso = useMemo(() => isoOf(new Date()), []);
   const bookingLink = typeof window !== "undefined" ? `${window.location.origin}/book` : "/book";
   const promoNote = rates.weekdayNightPromoPct > 0 ? `${rates.weekdayNightPromoPct}% off weekday night stays` : null;
@@ -138,10 +153,16 @@ export function SocialMediaView({
   );
   const firstWeekday = new Date(Date.UTC(year, month0, 1)).getUTCDay();
 
-  const dateLines = useMemo(() => summarizeDates(monthDays, unitFilter !== "all"), [monthDays, unitFilter]);
-  const availableCount = monthDays.filter((d) => d.status === "available").length;
-  const partialCount = monthDays.filter((d) => d.status === "partial").length;
-  const fullCount = monthDays.filter((d) => d.status === "full").length;
+  // Elapsed days of the current month are still part of the grid (needed
+  // for weekday alignment below) but must never feed the promo copy or
+  // counts — a post advertising "available Jul 3" reads as broken the
+  // moment it goes out on Jul 29. futureMonthDays is the one source both
+  // the stats and the exported graphic's date lines read from.
+  const futureMonthDays = useMemo(() => monthDays.filter((d) => d.iso >= todayIso), [monthDays, todayIso]);
+  const dateLines = useMemo(() => summarizeDates(futureMonthDays, unitFilter !== "all"), [futureMonthDays, unitFilter]);
+  const availableCount = futureMonthDays.filter((d) => d.status === "available").length;
+  const partialCount = futureMonthDays.filter((d) => d.status === "partial").length;
+  const fullCount = futureMonthDays.filter((d) => d.status === "full").length;
 
   // Per-stay-type breakdown for the downloadable graphic — "available" on
   // its own doesn't say whether it's a Daycation slot, a Night stay, or a
@@ -149,20 +170,38 @@ export function SocialMediaView({
   // call out by name. Computed independently of the stayTypeFilter select
   // above (which only affects the on-screen calendar) so the downloaded
   // image always shows all three, regardless of which single type is
-  // currently filtered on-screen.
-  const perStayTypeLines = useMemo(() => {
-    // No emoji — Canvas fillText's emoji support is unreliable
-    // cross-platform (see socialGraphic.ts), and these labels end up drawn
-    // into the exported graphic via drawAvailabilityGraphic.
-    const labels: Record<string, string> = { Daycation: "Daycation", Night: "Night stay", Full: "21-Hour" };
+  // currently filtered on-screen. Each section also carries a real (not
+  // AI-invented) marketing blurb and an icon, matching the redesigned
+  // drawAvailabilityGraphic layout.
+  const dateSections: AvailabilityDateSection[] = useMemo(() => {
+    const labels: Record<string, string> = { Daycation: "Daycation", Night: "Night Stay", Full: "21-Hour Stay" };
+    const icons: Record<string, AvailabilityDateSection["icon"]> = { Daycation: "sun", Night: "moon", Full: "clock" };
+    const blurbs: Record<string, string> = {
+      Daycation: "Perfect for daytime relaxation, celebrations, or a quick getaway.",
+      Night: "A cozy overnight stay to rest, unwind, and recharge.",
+      Full: "The complete staycation — a full day and night to enjoy.",
+    };
     return (["Daycation", "Night", "Full"] as const)
       .map((st) => {
-        const stDays = computeMonthAvailability(scopedUnits, bookings, year, month0, st);
+        const stDays = computeMonthAvailability(scopedUnits, bookings, year, month0, st).filter((d) => d.iso >= todayIso);
         const lines = summarizeDates(stDays, unitFilter !== "all");
-        return lines.length ? `${labels[st]}: ${lines.join(", ")}` : null;
+        return lines.length ? { label: labels[st], icon: icons[st], dates: lines.join(", "), blurb: blurbs[st] } : null;
       })
-      .filter((l): l is string => !!l);
-  }, [scopedUnits, bookings, year, month0, unitFilter]);
+      .filter((s): s is AvailabilityDateSection => !!s);
+  }, [scopedUnits, bookings, year, month0, unitFilter, todayIso]);
+
+  // The unit with the most open future days this month — a real existing
+  // photo for the export's hero image, never a stock/invented one, and a
+  // sensible, non-arbitrary pick (the property's best current opportunity).
+  const heroUnit = useMemo(() => {
+    let best: Unit | null = null;
+    let bestCount = -1;
+    for (const u of scopedUnits) {
+      const count = futureMonthDays.filter((d) => d.availableUnitIds.includes(u.id)).length;
+      if (count > bestCount) { bestCount = count; best = u; }
+    }
+    return (best?.photoUrl ? best : units.find((u) => u.photoUrl)) ?? null;
+  }, [scopedUnits, futureMonthDays, units]);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
@@ -173,17 +212,28 @@ export function SocialMediaView({
     const format = GRAPHIC_FORMATS.find((f) => f.key === formatKey);
     if (!format) return;
     setExportingKey(formatKey);
+    const [, heroPhoto] = await Promise.all([
+      ensureGraphicFonts(),
+      heroUnit?.photoUrl ? loadImage(heroUnit.photoUrl) : Promise.resolve(null),
+    ]);
     const canvas = canvasRef.current ?? document.createElement("canvas");
     canvas.width = format.width;
     canvas.height = format.height;
-    const headline = fullCount === monthDays.length ? `Fully booked this ${monthLabel(year, month0)}!` : `Available Dates for ${monthLabel(year, month0)}!`;
+    const isFullyBooked = fullCount === futureMonthDays.length && futureMonthDays.length > 0;
+    const shortMonth = monthLabel(year, month0).replace(/ \d{4}$/, "");
     drawAvailabilityGraphic(canvas, {
-      headline,
-      dateLines: perStayTypeLines.length ? perStayTypeLines : ["Message us for the latest availability"],
+      headline: isFullyBooked ? "Fully Booked" : "Available Dates",
+      subheadline: `for ${monthLabel(year, month0)}`,
+      intro: isFullyBooked
+        ? `We're fully booked this ${shortMonth} — message us and we'll notify you the moment a date opens up.`
+        : `Plan your stay with us! Here are our open dates this ${shortMonth}.`,
+      sections: dateSections,
       ctaLine: `Message us to book — ${contact}`,
       businessName,
       location,
       logoImage: logoImg,
+      heroPhoto,
+      heroLabel: heroUnit ? formatUnitDisplay(heroUnit.unitNumber, heroUnit.shortName) : null,
       primaryColor: brandPrimaryColor,
       secondaryColor: brandSecondaryColor,
     });
@@ -230,9 +280,9 @@ export function SocialMediaView({
           </div>
           {quickFilter === "custom" && (
             <div className="flex flex-wrap items-center gap-2">
-              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="field-input w-auto" />
+              <input type="date" min={todayIso} value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="field-input w-auto" />
               <span className="text-[13px] text-[var(--gray)]">to</span>
-              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="field-input w-auto" />
+              <input type="date" min={customStart || todayIso} value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="field-input w-auto" />
             </div>
           )}
 
@@ -254,6 +304,7 @@ export function SocialMediaView({
             businessName={businessName}
             location={location}
             contact={contact}
+            hasDirectContact={hasDirectContact}
             amenities={amenities}
             promoNote={promoNote}
             bookingLink={bookingLink}
@@ -272,7 +323,7 @@ export function SocialMediaView({
           <div className="card p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5">
-                <button onClick={() => setMonthOffset((o) => o - 1)} className="btn-icon !h-9 !w-9" aria-label="Previous month"><ArrowLeftIcon className="h-4 w-4" /></button>
+                <button onClick={() => setMonthOffset((o) => o - 1)} disabled={monthOffset <= 0} className="btn-icon !h-9 !w-9 disabled:opacity-30" aria-label="Previous month"><ArrowLeftIcon className="h-4 w-4" /></button>
                 <span className="min-w-[150px] text-center text-[16px] font-extrabold">{monthLabel(year, month0)}</span>
                 <button onClick={() => setMonthOffset((o) => o + 1)} className="btn-icon !h-9 !w-9" aria-label="Next month"><ArrowRightIcon className="h-4 w-4" /></button>
                 {monthOffset !== 0 && <button onClick={() => setMonthOffset(0)} className="btn-sm btn-ghost ml-1">This month</button>}
@@ -300,14 +351,17 @@ export function SocialMediaView({
               {Array.from({ length: firstWeekday }).map((_, i) => <div key={`pad-${i}`} />)}
               {monthDays.map((d) => {
                 const dayNum = Number(d.iso.slice(8, 10));
-                const isToday = d.iso === today.toISOString().slice(0, 10);
+                const isToday = d.iso === todayIso;
+                const isPast = d.iso < todayIso;
                 return (
                   <div
                     key={d.iso}
-                    title={`${d.availableUnitIds.length} of ${scopedUnits.length} unit${scopedUnits.length === 1 ? "" : "s"} open`}
+                    title={isPast ? "Already past — excluded from graphics/counts" : `${d.availableUnitIds.length} of ${scopedUnits.length} unit${scopedUnits.length === 1 ? "" : "s"} open`}
                     className={cn(
                       "flex aspect-square flex-col items-center justify-center rounded-lg text-[13px] font-bold",
-                      d.status === "available" ? "bg-green/15 text-green" : d.status === "partial" ? "bg-amber/15 text-amber" : "bg-rausch/15 text-rausch",
+                      isPast
+                        ? "bg-[var(--bg-2)] text-[var(--gray)] opacity-40"
+                        : d.status === "available" ? "bg-green/15 text-green" : d.status === "partial" ? "bg-amber/15 text-amber" : "bg-rausch/15 text-rausch",
                       isToday && "ring-2 ring-[var(--ink)]"
                     )}
                   >

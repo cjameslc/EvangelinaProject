@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { STAY_TYPES } from "@/lib/constants";
 import { formatUnitDisplay } from "@/lib/format";
 import { groupOpenDatesByStayType, type UnitOpportunity } from "@/lib/socialOpportunity";
-import { drawUnitGraphic, loadImage, buildQrImage, type GraphicResult } from "@/lib/socialGraphic";
+import { drawUnitGraphic, loadImage, buildQrImage, ensureGraphicFonts, type GraphicResult } from "@/lib/socialGraphic";
 import { UnitOpportunityCard, UnitGraphicPreview, scarcityFor, priceLinesFor, type ViewMode } from "@/components/social/UnitOpportunityCard";
 import { CaptionEditor, type GeneratorUnitContext } from "@/components/social/CaptionEditor";
 import { ExportPanel, type ExportToggles } from "@/components/social/ExportPanel";
@@ -38,7 +38,7 @@ function unitContextFor(unit: Unit, opportunity: UnitOpportunity): GeneratorUnit
  * hidden-canvas download button" layout.
  */
 export function ContentStudioWorkspace({
-  units, opportunities, todayIso, businessName, location, contact, amenities, promoNote, bookingLink, monthText, propertyDateLines, toast,
+  units, opportunities, todayIso, businessName, location, contact, hasDirectContact, amenities, promoNote, bookingLink, monthText, propertyDateLines, toast,
   logoUrl, brandPrimaryColor, brandSecondaryColor,
 }: {
   units: Unit[];
@@ -47,6 +47,11 @@ export function ContentStudioWorkspace({
   businessName: string;
   location: string;
   contact: string;
+  /** Whether `contact` is real contact info (a phone number or messenger
+   * handle) vs. the generic "our page" fallback — the fallback reads fine
+   * embedded in a sentence (the CTA line) but not drawn as its own
+   * standalone line (see renderSelectedUnit's contactLine below). */
+  hasDirectContact: boolean;
   amenities: string[];
   promoNote: string | null;
   bookingLink: string;
@@ -82,7 +87,8 @@ export function ContentStudioWorkspace({
     // Per-stay-type — see priceLinesFor's own docs for why this must never
     // collapse to one blended cheapest-across-everything number.
     const priceLines = priceLinesFor(selectedOpportunity);
-    const [photo, logo, qr] = await Promise.all([
+    const [, photo, logo, qr] = await Promise.all([
+      ensureGraphicFonts(),
       selected.photoUrl ? loadImage(selected.photoUrl) : Promise.resolve(null),
       t.includeLogo ? loadImage(logoUrl ?? "/branding/logo.jpg") : Promise.resolve(null),
       t.includeQr ? buildQrImage(bookingLink) : Promise.resolve(null),
@@ -96,7 +102,7 @@ export function ContentStudioWorkspace({
       unitPhoto: photo,
       logoImage: logo,
       watermarkText: t.includeWatermark ? businessName : null,
-      contactLine: t.includeContact ? contact : null,
+      contactLine: t.includeContact && hasDirectContact ? contact : null,
       qrImage: qr,
       primaryColor: brandPrimaryColor,
       secondaryColor: brandSecondaryColor,

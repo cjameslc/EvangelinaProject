@@ -95,21 +95,39 @@ export function UnitGraphicPreview({
         </span>
       )}
 
-      <div className={cn("absolute inset-x-0 bottom-0 text-white", scale === "large" ? "p-7" : "p-4")}>
-        <p className={cn("font-black leading-none tracking-tight", scale === "large" ? "text-[32px]" : "text-[20px]")}>{formatUnitDisplay(unit.unitNumber, unit.shortName)}</p>
-        <div className={cn("space-y-0.5", scale === "large" ? "mt-3" : "mt-2")}>
-          {Object.entries(byStayType).filter(([, v]) => v.length).map(([stayType, dates]) => (
-            <p key={stayType} className={scale === "large" ? "text-[15px] font-semibold" : "text-[12px] font-semibold"}>
-              <span className="opacity-80">{STAY_TYPES[stayType as keyof typeof STAY_TYPES]?.label ?? stayType}:</span> {dates.join(", ")}
-            </p>
-          ))}
-        </div>
-        {priceLines.length > 0 && (
-          <div className={cn("space-y-0.5", scale === "large" ? "mt-2.5" : "mt-1.5")}>
-            {priceLines.map((line) => (
-              <p key={line} className={cn("font-extrabold", scale === "large" ? "text-[16px]" : "text-[12.5px]")}>{line}</p>
-            ))}
-          </div>
+      <div className={cn("absolute inset-x-0 bottom-0 text-white", scale === "large" ? "p-7" : "p-3")}>
+        <p className={cn(
+          "font-black tracking-tight",
+          scale === "large" ? "leading-none text-[32px]" : "line-clamp-2 text-[15px] leading-tight"
+        )}>
+          {formatUnitDisplay(unit.unitNumber, unit.shortName)}
+        </p>
+        {/* Full date/price breakdown only in the large hero preview — the
+            small rail tile's job is just "identify + pick a unit," and
+            showing the same full content stack here at a smaller font was
+            what let it grow tall enough to collide with the badge pinned
+            at top-3 (confirmed via a real screenshot: "Unit 1558..."
+            overlapping "AVAILABLE TODAY" on a compact tile). */}
+        {scale === "large" && (
+          <>
+            <div className="mt-3 space-y-0.5">
+              {Object.entries(byStayType).filter(([, v]) => v.length).map(([stayType, dates]) => (
+                <p key={stayType} className="text-[15px] font-semibold">
+                  <span className="opacity-80">{STAY_TYPES[stayType as keyof typeof STAY_TYPES]?.label ?? stayType}:</span> {dates.join(", ")}
+                </p>
+              ))}
+            </div>
+            {priceLines.length > 0 && (
+              <div className="mt-2.5 space-y-0.5">
+                {priceLines.map((line) => (
+                  <p key={line} className="text-[16px] font-extrabold">{line}</p>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {scale === "normal" && priceLines.length > 0 && (
+          <p className="mt-1 text-[12px] font-bold opacity-90">{priceLines[0]}</p>
         )}
       </div>
     </div>
