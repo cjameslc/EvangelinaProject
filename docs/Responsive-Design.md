@@ -32,7 +32,7 @@ Several UI patterns (Guest tips, "Personalize your guide" recommendation cards) 
 ## General conventions
 
 - **Modals** (`components/ui/Modal.tsx`) are full-screen on mobile, centered dialogs on larger screens.
-- **Tables** on data-heavy staff pages (Bookings, Analytics) generally collapse to a card/list layout below `md`, rather than a horizontally-scrolling table.
+- **Tables/lists** on data-heavy staff pages: Bookings is cards at every breakpoint (no `<table>` — redesigned into per-booking cards in a responsive grid, `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`, not a below-`md` collapse from a wider table); Analytics/other staff pages generally do collapse a real table to a card/list layout below `md`.
 - **Forms** (`BookingForm`, `BookFlowView`) stack to a single column below `sm:`, `grid-cols-2` at `sm:` and above.
 - **Line-clamping** (`line-clamp-2`, etc.) is used on tile titles/descriptions rather than allowing text to overflow a fixed-height card.
 - **Touch targets**: interactive elements in guest-facing mobile UI generally target a minimum ~36–44px tap area (buttons/pills sized with `py-2`/`py-2.5` or larger).
