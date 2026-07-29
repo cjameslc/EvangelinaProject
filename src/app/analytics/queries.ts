@@ -7,7 +7,7 @@ import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDim
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
 import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
-import { netProfitCentavos, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos } from "@/lib/analytics/financials";
+import { netProfitCentavos, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos, accruedOperationalCostsCentavos } from "@/lib/analytics/financials";
 import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot } from "@/lib/analytics/housekeeping";
 import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
@@ -65,7 +65,11 @@ async function fetchKpiData(
   // Year elsewhere on the page.
   const trailingMonths = [3, 2, 1].map((n) => periodRangeFor("monthly", -n));
 
-  const [units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills, ...trailingMonthBookings] = await Promise.all([
+  const [
+    units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
+    employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
+    ...trailingMonthBookings
+  ] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true } }),
     prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: kpiBookingSelect }),
     prismaPool[2].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: previous.start, lt: previous.end } }, select: kpiBookingSelect }),
@@ -75,12 +79,27 @@ async function fetchKpiData(
     }),
     prismaPool[4].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     prismaPool[5].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: previous.start, lt: previous.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
+    // Accrued payroll + operational costs — see accruedOperationalCostsCentavos
+    // in analytics/financials.ts. Not unit-scoped (payroll/ads are property-
+    // wide, same as Dashboard's own version), and salaryHistory is fetched
+    // whole (unfiltered by date) since totalSalaryPayroll needs full history
+    // to find whichever rate was actually effective at periodStart.
+    prismaPool[6].employee.findMany({ select: { id: true, role: true, monthlySalary: true, active: true } }),
+    prismaPool[7].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+    prismaPool[8].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
+    prismaPool[9].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true } }),
+    prismaPool[10].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
+    prismaPool[11].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true, status: true } }),
     ...trailingMonths.map((range, i) =>
-      prismaPool[6 + i].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true } })
+      prismaPool[(12 + i) % 13].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true } })
     ),
   ]);
 
-  return JSON.parse(JSON.stringify({ units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills, trailingMonthBookings }));
+  return JSON.parse(JSON.stringify({
+    units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
+    employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
+    trailingMonthBookings,
+  }));
 }
 
 const cachedFetchKpiData = unstable_cache(fetchKpiData, ["analytics-kpis"], { revalidate: 60 });
@@ -114,18 +133,36 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     filters.customEnd ?? "",
     (filters.unitIds ?? []).join(",")
   );
-  const { units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills, trailingMonthBookings } = data;
-  const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
+  const {
+    units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
+    employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
+    trailingMonthBookings,
+  } = data;
+  const { current, previous } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const currentStart = new Date(current.start);
   const currentEnd = new Date(current.end);
+  const previousStart = new Date(previous.start);
+  const previousEnd = new Date(previous.end);
 
   const totalRevenueCentavos = collectedRevenueCentavos(currentBookings);
   const previousRevenueCentavos = collectedRevenueCentavos(previousBookings);
 
   const currentPaidExpensesCents = paidExpensesCentavos(currentPaidBills);
   const previousPaidExpensesCents = paidExpensesCentavos(previousPaidBills);
-  const netProfit = netProfitCentavos({ revenueCentavos: totalRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents });
-  const previousNetProfit = netProfitCentavos({ revenueCentavos: previousRevenueCentavos, paidExpensesCentavos: previousPaidExpensesCents });
+  // Accrued payroll + TikTok ads + approved expense requests — see
+  // accruedOperationalCostsCentavos's own doc comment for why this exists:
+  // Net Profit previously only ever subtracted paid Bills, silently
+  // overstating it by the full payroll amount for the period.
+  const currentOtherCostsCents = accruedOperationalCostsCentavos({
+    employees, salaryHistory, weeklyExpenses: weeklyExpensesCurrent, expenseRequests: expenseRequestsCurrent,
+    periodStart: currentStart, periodEnd: currentEnd,
+  });
+  const previousOtherCostsCents = accruedOperationalCostsCentavos({
+    employees, salaryHistory, weeklyExpenses: weeklyExpensesPrevious, expenseRequests: expenseRequestsPrevious,
+    periodStart: previousStart, periodEnd: previousEnd,
+  });
+  const netProfit = netProfitCentavos({ revenueCentavos: totalRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents, otherPaidCostsCentavos: currentOtherCostsCents });
+  const previousNetProfit = netProfitCentavos({ revenueCentavos: previousRevenueCentavos, paidExpensesCentavos: previousPaidExpensesCents, otherPaidCostsCentavos: previousOtherCostsCents });
 
   const occ = computeOccupancy({
     unitCount: units.length,
@@ -146,7 +183,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   return {
     totalRevenueCentavos,
     netProfitCentavos: netProfit,
-    netProfitNote: "Revenue minus paid bills for this period. Doesn't include staff payroll yet — see Dashboard's Realized Profit for the fuller figure.",
+    netProfitNote: "Revenue minus paid bills, accrued staff payroll, and approved expenses for this period.",
     occupancyPct: occ.occupancyPct,
     adrCentavos: adr * 100,
     revparCentavos: revpar * 100,
@@ -255,7 +292,7 @@ async function fetchFinancialData(
 
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
-  const [bookings, paidBills, pendingBills] = await Promise.all([
+  const [bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests] = await Promise.all([
     prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true } }),
     prismaPool[1].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     // Pending bills are a "right now" figure, not period-scoped — an unpaid
@@ -265,9 +302,18 @@ async function fetchFinancialData(
     // require guessing which Bill.month buckets the period covers, a
     // shakier heuristic than just showing what's actually outstanding now.
     prismaPool[2].bill.findMany({ where: { ...billUnitWhere, paid: false }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true, paid: true } }),
+    // Accrued payroll + operational costs — same as getExecutiveKPIs, see
+    // accruedOperationalCostsCentavos's doc comment. Cash Flow previously
+    // only ever subtracted paid Bills, so it silently equaled Net Revenue
+    // whenever paid Bills were ₱0, no matter how much payroll had actually
+    // gone out the door.
+    prismaPool[3].employee.findMany({ select: { id: true, role: true, monthlySalary: true, active: true } }),
+    prismaPool[4].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+    prismaPool[5].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
+    prismaPool[6].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
   ]);
 
-  return JSON.parse(JSON.stringify({ bookings, paidBills, pendingBills }));
+  return JSON.parse(JSON.stringify({ bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests }));
 }
 
 const cachedFetchFinancialData = unstable_cache(fetchFinancialData, ["analytics-financial"], { revalidate: 60 });
@@ -285,13 +331,18 @@ export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: 
   const data = await cachedFetchFinancialData(
     user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { bookings, paidBills, pendingBills } = data;
+  const { bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests } = data;
+  const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
 
   const grossRevenueCentavos = bookings.reduce((s: number, b: any) => (b.cancelledAt ? s : s + b.amount * 100), 0);
   const netRevenueCentavos = collectedRevenueCentavos(bookings);
   const paidExpensesCents = paidExpensesCentavos(paidBills);
   const pendingExpensesCents = pendingExpensesCentavos(pendingBills);
-  const cashFlow = cashFlowCentavos({ revenueCentavos: netRevenueCentavos, paidExpensesCentavos: paidExpensesCents });
+  const otherCostsCents = accruedOperationalCostsCentavos({
+    employees, salaryHistory, weeklyExpenses, expenseRequests,
+    periodStart: new Date(current.start), periodEnd: new Date(current.end),
+  });
+  const cashFlow = cashFlowCentavos({ revenueCentavos: netRevenueCentavos, paidExpensesCentavos: paidExpensesCents, otherPaidCostsCentavos: otherCostsCents });
   const outstanding = outstandingBalanceCentavos(bookings);
 
   return {

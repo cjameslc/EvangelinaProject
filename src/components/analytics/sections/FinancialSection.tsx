@@ -12,7 +12,7 @@ export async function FinancialSection({ user, filters }: { user: { role: string
         <StatCard label="Net Revenue" value={pesoCentavos(fin.netRevenueCentavos)} sub="collected + downpayments" info="What's actually been paid or downpaid so far." />
         <StatCard label="Paid Expenses" value={pesoCentavos(fin.paidExpensesCentavos)} sub="bills paid this period" info="Bills marked paid, by their actual paid date." />
         <StatCard label="Pending Expenses" value={pesoCentavos(fin.pendingExpensesCentavos)} sub="unpaid, as of now" warn={fin.pendingExpensesCentavos > 0} tone="caution" info="Every currently-unpaid bill — a 'right now' figure, not scoped to the selected period." />
-        <StatCard label="Cash Flow" value={pesoCentavos(fin.cashFlowCentavos)} warn={fin.cashFlowCentavos < 0} tone="caution" sub="net revenue − paid expenses" info="Money actually collected minus bills actually paid, this period." />
+        <StatCard label="Cash Flow" value={pesoCentavos(fin.cashFlowCentavos)} warn={fin.cashFlowCentavos < 0} tone="caution" sub="net revenue − paid expenses − payroll" info="Money actually collected minus bills paid, accrued staff payroll, and approved expenses, this period." />
         <StatCard label="Outstanding Payments" value={pesoCentavos(fin.outstandingBalanceCentavos)} sub="owed on unpaid bookings" warn={fin.outstandingBalanceCentavos > 0} tone="caution" info="Remaining balance on this period's unpaid bookings (full amount, or amount minus downpayment)." />
       </div>
     </div>

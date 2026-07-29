@@ -374,7 +374,20 @@ export function DashboardView({
   // and unit status. Declared here (rather than down by the Earnings card
   // itself) because "Your team" below reads the same rangeType/periodRange,
   // so both cards always agree on what period is selected.
-  const [rangeType, setRangeType] = useState<RangeType>("weekly");
+  // Defaults to "monthly", not "weekly" — this drives the Key metrics
+  // card's Occupancy/RevPAR/ADR (see filteredOccupancyData below), which
+  // sits in the same card as Realized/Forecast Profit, Margin, and Cash
+  // Flow — all four of which are always "this month" regardless of this
+  // filter (see the comment on filteredOccupancyData for why). A "weekly"
+  // default silently showed a different period than the rest of that same
+  // card, and than Analytics' own default "This Month" view — a real,
+  // confirmed discrepancy (e.g. Occupancy showing 69% here vs Analytics'
+  // 76% for what looked like "the same" current state, simply because one
+  // was a 7-day window and the other was the full month). The underlying
+  // period filter itself is a real, deliberate feature (staff can still
+  // switch to daily/weekly/yearly/custom) — only the out-of-the-box
+  // default was misleading.
+  const [rangeType, setRangeType] = useState<RangeType>("monthly");
   const [periodOffset, setPeriodOffset] = useState(0);
   const [customRange, setCustomRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -1334,7 +1347,7 @@ export function DashboardView({
   const periodEndIso = dayOf(new Date(periodRange.end.getTime() - 86400000));
 
   function resetFilters() {
-    setRangeType("weekly");
+    setRangeType("monthly");
     setPeriodOffset(0);
     setCustomRange({ start: "", end: "" });
     setSelectedDate(null);
