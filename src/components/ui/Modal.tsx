@@ -22,18 +22,27 @@ export function Modal({
 }) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Escape-to-close and initial focus on the close button — shared by every
   // modal in the app, so fixing it once here covers all of them rather than
   // each caller reimplementing (or forgetting) the same keyboard behavior.
+  // Also restores focus to whatever triggered the modal once it closes —
+  // without this, a keyboard/screen-reader user's focus was silently
+  // dropped to <body> on close, forcing them to re-navigate from the top
+  // of the page instead of picking up where they left off.
   useEffect(() => {
     if (!open) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocusedRef.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;

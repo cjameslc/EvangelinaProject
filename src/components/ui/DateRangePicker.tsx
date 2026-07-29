@@ -154,11 +154,20 @@ export function DateRangePicker({
   return (
     <div className="relative" ref={rootRef}>
       <div className="flex items-stretch overflow-hidden rounded-2xl border border-[var(--line-2)]">
-        <button
-          type="button"
+        {/* A real <div role="button"> here, not <button> — the inner "clear"
+            control needs to be a real, independently keyboard-operable
+            <button>, and interactive elements can't nest inside a <button>
+            (invalid HTML, and a role="button" span with no onKeyDown — the
+            previous shape here — never gets native Enter/Space activation,
+            so a keyboard-only user could Tab to it but never actually
+            clear the date). */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
           className={cn(
-            "flex-1 border-r border-[var(--line-2)] px-3.5 py-2.5 text-left transition",
+            "flex-1 cursor-pointer border-r border-[var(--line-2)] px-3.5 py-2.5 text-left transition",
             open && "ring-2 ring-inset ring-[var(--ink)]",
             error && "border-rausch"
           )}
@@ -169,35 +178,41 @@ export function DateRangePicker({
               <div className="text-[14px] font-bold">{checkIn ? pillFormat(checkIn) : "Add date"}</div>
             </div>
             {checkIn && (
-              <span
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onSelectCheckIn(""); onSelectCheckOut(""); }}
+                aria-label="Clear check-in date"
                 className="grid h-6 w-6 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
               >
                 <CloseIcon className="h-3.5 w-3.5" />
-              </span>
+              </button>
             )}
           </div>
-        </button>
-        <button type="button" onClick={() => setOpen((v) => !v)} className={cn("flex-1 px-3.5 py-2.5 text-left transition", open && "ring-2 ring-inset ring-[var(--ink)]", error && "border-rausch")}>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
+          className={cn("flex-1 cursor-pointer px-3.5 py-2.5 text-left transition", open && "ring-2 ring-inset ring-[var(--ink)]", error && "border-rausch")}
+        >
           <div className="flex items-center justify-between gap-2">
             <div>
               <div className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Checkout</div>
               <div className="text-[14px] font-bold">{checkOut ? pillFormat(checkOut) : "Add date"}</div>
             </div>
             {checkOut && (
-              <span
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onSelectCheckOut(""); }}
+                aria-label="Clear checkout date"
                 className="grid h-6 w-6 flex-none place-items-center rounded-full text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
               >
                 <CloseIcon className="h-3.5 w-3.5" />
-              </span>
+              </button>
             )}
           </div>
-        </button>
+        </div>
       </div>
 
       {open && (
