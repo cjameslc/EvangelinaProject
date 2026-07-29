@@ -52,10 +52,23 @@ export function periodRangeFor(
     const fallbackEnd = new Date(fallback);
     fallbackEnd.setUTCDate(fallbackEnd.getUTCDate() + 1);
     if (!custom?.start || !custom?.end) return { start: fallback, end: fallbackEnd };
-    const start = new Date(`${custom.start}T00:00:00Z`);
-    const end = new Date(`${custom.end}T00:00:00Z`);
+    let start = new Date(`${custom.start}T00:00:00Z`);
+    let end = new Date(`${custom.end}T00:00:00Z`);
+    // AnalyticsFilterBar's date inputs have no min/max guard (unlike
+    // Dashboard's/SocialMediaView's own custom-range pickers, which do),
+    // and this range is also read directly from the URL query string on
+    // every render — so a backwards pick (end before start) is reachable
+    // either by the UI or by a hand-edited/pasted URL, not just a
+    // theoretical edge case. Previously only `end` fell back to tomorrow
+    // while `start` was left as whatever later date the user picked,
+    // producing a range even MORE inverted than what was typed (e.g.
+    // start=Aug 15, end=Aug 1 → end fell back to "tomorrow", still before
+    // start) — every Analytics query silently returned zero rows with no
+    // indication why. Swapping instead means "two dates, either order"
+    // always produces the range the user actually meant.
+    if (end < start) [start, end] = [end, start];
     end.setUTCDate(end.getUTCDate() + 1); // inclusive of the selected end date
-    return { start, end: end > start ? end : fallbackEnd };
+    return { start, end };
   }
   // yearly
   const start = new Date(Date.UTC(y + offset, 0, 1));

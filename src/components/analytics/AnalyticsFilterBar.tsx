@@ -50,11 +50,11 @@ export function AnalyticsFilterBar({ units }: { units: UnitOption[] }) {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label htmlFor="analytics-start" className="field-label">Start</label>
-            <input id="analytics-start" type="date" value={customStart} onChange={(e) => setParam({ start: e.target.value })} className="field-input mt-1" />
+            <input id="analytics-start" type="date" max={customEnd || undefined} value={customStart} onChange={(e) => setParam({ start: e.target.value })} className="field-input mt-1" />
           </div>
           <div>
             <label htmlFor="analytics-end" className="field-label">End</label>
-            <input id="analytics-end" type="date" value={customEnd} onChange={(e) => setParam({ end: e.target.value })} className="field-input mt-1" />
+            <input id="analytics-end" type="date" min={customStart || undefined} value={customEnd} onChange={(e) => setParam({ end: e.target.value })} className="field-input mt-1" />
           </div>
         </div>
       )}
