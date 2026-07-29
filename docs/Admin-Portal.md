@@ -23,6 +23,7 @@ All gated by `src/middleware.ts` per the role table in [Business-Rules.md](Busin
 | `/housekeeping` | Cleaning checklist execution, unit status, stock counts, bills |
 | `/auditor` | Read-only ledger (bookings, bills), full audit trail, quality-inspection findings |
 | `/earnings` | Staff's own pay/commission breakdown ("My Earnings") |
+| `/social` | Social Media Center — see [Social-Media-Center.md](Social-Media-Center.md). Open to every role (`canSeeSocialMedia()` always returns `true`), not gated further. |
 | `/admin` | Site configuration — see below. **OWNER_ADMIN only.** |
 
 ## The `/admin` page
@@ -54,6 +55,7 @@ Five collapsible sections:
 | Section | Contains |
 |---|---|
 | **Business & payroll rates** | Business name/address, the full accommodation rate table + weekday-night promo %, down-payment fee, payroll rates (housekeeping day rate/night bonus, booker commission, auditor weekly rate), extension/flexible/parking/celebration fees, and all Guest Experience content overrides (categories, amenities, house rules, FAQs, emergency contacts, staff contacts, host bio/photo, property lat/lng) |
+| **Brand Kit** | Logo upload (`POST /api/settings/logo`, uploads to Vercel Blob via `uploadBrandLogo()`), primary/secondary brand hex colors, and Facebook/Instagram/TikTok handles. Falls back to the static `/branding/logo.jpg` and the original rausch-pink/maroon colors everywhere it's consumed when unset — an admin who never opens this panel sees no change. Feeds the Social Media Center's exported graphics; see [Social-Media-Center.md](Social-Media-Center.md#brand-kit). |
 | **Coupons** | Create/edit/deactivate discount codes |
 | **Housekeeping checklist** | Edit the checklist groups/items every unit's cleaning checklist is built from |
 | **Login logs** | Staff sign-in history (from `AuditLog`, `action = "user.login"`) |

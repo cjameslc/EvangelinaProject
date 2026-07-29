@@ -12,6 +12,8 @@ Every rule below is drawn directly from the code that enforces it (file cited pe
 - [Cancellation vs. refund](#cancellation-vs-refund)
 - [Commission eligibility](#commission-eligibility)
 - [Payroll formula](#payroll-formula)
+- [Occupancy, ADR, RevPAR](#occupancy-adr-revpar)
+- [Revenue goals & the unit leaderboard](#revenue-goals--the-unit-leaderboard)
 - [Elite Booker Challenge](#elite-booker-challenge)
 - [Booking ID (confirmation number) validity](#booking-id-confirmation-number-validity)
 - [Coupons](#coupons)
@@ -108,6 +110,20 @@ Source: `src/lib/payroll.ts` — the single formula used by both the Dashboard s
 | **Auditor** | Flat `auditorWeeklyRate` (default ₱0 — not configured by default), scaled by however many weeks the reporting window covers |
 
 Any `WeeklyExpense` targeted at an employee (category `GENERAL`, e.g. a manually-logged "Salary" advance) is deducted from their total; untargeted `TIKTOK_ADS` expenses affect Net Profit only, never an individual's pay.
+
+## Occupancy, ADR, RevPAR
+
+Source: `src/lib/analytics/occupancy.ts`, shared by Dashboard and Analytics (not two separately-derived calculations).
+
+- **Occupied nights** — per **(unit, calendar day)**, deduped, not a flat sum of every booking's own night-count. A unit can legally have both a Daycation and a Night/Full stay on the same real calendar day (`bookingsConflict()` in `stayRange.ts` deliberately allows this — they occupy different real-timestamp windows, e.g. 8am–8pm vs 9pm–9am), but `occupiedRange()`'s day-granularity view of that same day is identical for both bookings. Summed without dedup, that one day counted as *two* occupied nights against *one* available night for that unit that day — a real, confirmed bug (verified live: reported "This Month" occupancy dropped from 81% to the correct 76% once fixed, using real July 2026 production data with 6 genuinely-overlapping unit-days). A unit-day now counts as occupied at most once.
+- **ADR** (Average Daily Rate) = collected room revenue ÷ real occupied nights (`nightsFor()` — a 3-night Full stay counts as 3, not 1 booking).
+- **RevPAR** (Revenue Per Available Room) = collected room revenue ÷ available room-nights (unit count × days in the period, minus Maintenance-blocked nights only — a Cleaning/turnover block still counts as "available," matching how real hospitality PMS metrics define the term).
+
+## Revenue goals & the unit leaderboard
+
+Source: `src/lib/analytics/revenueGoals.ts`. Every unit has a monthly revenue target — `Unit.monthlyRevenueTargetOverride` if set, else the property-wide `Settings.monthlyRevenueTargetPerUnit` (default ₱50,000). `pctComplete = round(currentPesos / targetPesos × 100)`, used for the on-screen display and the `at_risk`/`behind`/`on_track`/`ahead`/`achieved` status bucket.
+
+**The leaderboard (and the "Top Performing Unit" milestone badge) rank by the real, unrounded ratio — not `pctComplete`.** Two units a few hundred pesos apart can round to the identical whole-number percent (confirmed live: ₱41,193/₱50,000 = 82.39% and ₱40,758/₱50,000 = 81.52% both displayed "82%"); sorting on the already-rounded field left ties broken by whichever order the units happened to be in (their Admin-configured `sortOrder`) rather than who actually earned more. Fixed to sort on `currentPesos / targetPesos` directly, with raw `currentPesos` as the final tiebreaker for a genuine exact-ratio tie. The same bug existed in the Teams module's "priority unit" (worst-first) picker (`src/app/api/gamification/teams/route.ts`) and was fixed identically.
 
 ## Elite Booker Challenge
 

@@ -32,6 +32,7 @@ A 5-unit short-term rental property-management app for Evangelina's Staycation (
 
 - [Business-Rules.md](Business-Rules.md) — roles, pricing, commission, payroll, Elite Booker Challenge, booking-ID validity
 - [Booking.md](Booking.md) — the booking lifecycle end to end
+- [Social-Media-Center.md](Social-Media-Center.md) — real availability turned into ready-to-post graphics, captions, and quick replies
 - [Guest-Experience.md](Guest-Experience.md) — the Digital Guidebook, WiFi/door-code reveal, nearby places, AI Concierge
 - [Guest-Portal.md](Guest-Portal.md) — guest identity, sign-in, account pages
 - [Admin-Portal.md](Admin-Portal.md) — the staff app, `/admin` tab by tab
