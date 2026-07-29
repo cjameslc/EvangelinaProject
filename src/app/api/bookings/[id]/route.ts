@@ -45,9 +45,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // A Booker may only edit the specific booking they themselves logged, not
   // a peer's — the UI already hides the button, this is the server-side
   // backstop so a direct API call can't bypass it.
+  let ownEmployeeId: string | undefined;
   if (user.role === "BOOKER") {
     const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-    if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployee?.id)) {
+    ownEmployeeId = ownEmployee?.id;
+    if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployeeId)) {
       return new Response("Forbidden", { status: 403 });
     }
   }
@@ -57,6 +59,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = parsed.data;
   if (body.unitId && !isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
   const data: any = { ...body };
+  // Mirror BookingForm.tsx's own lock (and the create endpoint's identical
+  // guard) server-side: a Booker editing their own booking can't reassign
+  // who it's credited to via a raw API call with a different bookerId in
+  // the body — canEditSpecificBooking above only confirmed the booking
+  // already belongs to them, it never re-checked what they're trying to
+  // change it to. Every other role keeps the documented ability to
+  // reassign the booker when editing.
+  if (user.role === "BOOKER" && ownEmployeeId) data.bookerId = ownEmployeeId;
   if (body.date) data.date = new Date(body.date);
   if (body.checkOutDate !== undefined) data.checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   if (body.checkedInAt !== undefined) data.checkedInAt = body.checkedInAt ? new Date(body.checkedInAt) : null;

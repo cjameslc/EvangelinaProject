@@ -37,12 +37,16 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   const unit = await prisma.unit.findUnique({ where: { icalToken: token }, select: { id: true, name: true } });
   if (!unit) return new Response("Not found", { status: 404 });
 
-  // Every real Booking row is by definition an active reservation — a
-  // cancelled/removed booking is deleted outright (see DELETE
-  // /api/bookings/[id]), so there's no separate "cancelled" state to filter
-  // out here; the query already excludes it just by not existing anymore.
+  // Cancel/Remove is a soft delete (cancelledAt set, row kept — see
+  // POST /api/bookings/[id]/cancel, the only cancellation path a Booker
+  // has, since they can't hard-DELETE per rbac.ts) — the row still exists
+  // and must be excluded explicitly. Omitting this filter (a past version
+  // of this comment incorrectly assumed cancellation always hard-deletes)
+  // meant a cancelled booking kept appearing as "Reserved" in this feed,
+  // continuing to block those dates on Airbnb/Google Calendar even though
+  // /calendar and internal availability had already freed them up.
   const bookings = await prisma.booking.findMany({
-    where: { unitId: unit.id },
+    where: { unitId: unit.id, cancelledAt: null },
     select: { id: true, date: true, checkOutDate: true, stayType: true, guests: true, platform: true, updatedAt: true },
   });
 
