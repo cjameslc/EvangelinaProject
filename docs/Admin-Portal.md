@@ -12,7 +12,7 @@
 
 ## Staff page map
 
-All gated by `src/middleware.ts` per the role table in [Business-Rules.md](Business-Rules.md#roles--permissions).
+Gated per the role table in [Business-Rules.md](Business-Rules.md#roles--permissions) — most via `src/middleware.ts`'s `ROUTE_ROLES`/`matcher`, but `/social` and `/earnings` aren't in that matcher and instead do their own server-side `getCurrentUser()`/redirect check on the page itself (not a bypass — both routes are covered, just by a different mechanism than the rest of this table).
 
 | Page | Purpose |
 |---|---|
