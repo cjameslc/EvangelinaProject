@@ -4,7 +4,6 @@ import { dashboardUnitIdWhere } from "@/lib/session";
 import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, occupancyCalendarGrid, OCCUPANCY_CALENDAR_MAX_DAYS, type CalendarCell } from "@/lib/analytics/occupancy";
 import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
-import { collectedAmountPesos } from "@/lib/finance";
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
 import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
@@ -806,67 +805,4 @@ export type RevenueGoalsData = Awaited<ReturnType<typeof fetchRevenueGoalsData>>
 
 export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
   return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
-}
-
-// Airbnb's own reported earnings (imported from the host account's PDF
-// reports — see AirbnbEarningsMonth) compared month-by-month against what
-// our own Booking records show for platform="Airbnb" in the same month.
-// Bucketed by each booking's check-in date, same convention as every other
-// coarse monthly rollup in this file — this is a reference/reconciliation
-// view, not a proration-accurate revenue series (that's revenueSeries()).
-async function fetchAirbnbEarningsComparison(role: string, ownedUnitIds: string[], filterUnitIdsJoined: string) {
-  const user = { role, ownedUnitIds };
-  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
-  const unitIdWhere = effective ? { id: { in: effective } } : {};
-  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
-
-  // Scoped to the range actually requested (Feb 2025 - Mar 2026) — later
-  // imported months (e.g. June 2026) are kept in the table for future use
-  // but intentionally excluded from this view until that range is extended.
-  const [reportRows, units, airbnbBookings] = await Promise.all([
-    prismaPool[0].airbnbEarningsMonth.findMany({
-      where: { month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
-      orderBy: { month: "asc" },
-    }),
-    prismaPool[1].unit.findMany({ where: unitIdWhere, select: { id: true, unitNumber: true, shortName: true } }),
-    prismaPool[2].booking.findMany({
-      where: { ...bookingUnitWhere, platform: "Airbnb", cancelledAt: null },
-      select: { unitId: true, date: true, amount: true, dpAmount: true, paid: true, refundedAt: true },
-    }),
-  ]);
-  const scopedUnitIds = new Set(units.map((u) => u.id));
-
-  const appRevenueByMonth = new Map<string, number>();
-  for (const b of airbnbBookings) {
-    const key = new Date(Date.UTC(b.date.getUTCFullYear(), b.date.getUTCMonth(), 1)).toISOString();
-    const collected = collectedAmountPesos(b);
-    appRevenueByMonth.set(key, (appRevenueByMonth.get(key) ?? 0) + collected);
-  }
-
-  const scopedReportRows = effective ? reportRows.filter((r) => r.unitId === null || scopedUnitIds.has(r.unitId)) : reportRows;
-  const monthKeys = [...new Set(scopedReportRows.map((r) => r.month.toISOString()))].sort();
-
-  const months = monthKeys.map((monthIso) => {
-    const portfolioRow = scopedReportRows.find((r) => r.month.toISOString() === monthIso && r.unitId === null && r.unitLabel === null);
-    const unitRows = scopedReportRows.filter((r) => r.month.toISOString() === monthIso && (r.unitId !== null || r.unitLabel !== null));
-    return {
-      month: monthIso,
-      reportedTotalPesos: portfolioRow ? portfolioRow.totalCentavos / 100 : null,
-      appTrackedRevenuePesos: appRevenueByMonth.get(monthIso) ?? 0,
-      unitDetail: unitRows.length > 0
-        ? unitRows.map((r) => ({ unitId: r.unitId, unitLabel: r.unitLabel ?? "Unit", totalPesos: r.totalCentavos / 100 }))
-        : null,
-    };
-  });
-
-  return JSON.parse(JSON.stringify({ months }));
-}
-
-const cachedFetchAirbnbEarningsComparison = unstable_cache(fetchAirbnbEarningsComparison, ["analytics-airbnb-earnings"], { revalidate: 600 });
-
-export type AirbnbEarningsComparison = Awaited<ReturnType<typeof fetchAirbnbEarningsComparison>>;
-
-export async function getAirbnbEarningsComparison(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<AirbnbEarningsComparison> {
-  return cachedFetchAirbnbEarningsComparison(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
 }
