@@ -52,12 +52,31 @@ export function computeOccupancy(params: {
 }): OccupancyResult {
   const { unitCount, periodStart, periodEnd, bookings, maintenanceBlocks, cleaningBlocks } = params;
 
-  let occupiedNights = 0;
+  // Deduped per (unit, calendar day) — not a flat sum of each booking's own
+  // clippedNights. bookingsConflict() deliberately lets a Daycation and a
+  // Night/Full stay share the same unit on the same real calendar day (they
+  // occupy different real-timestamp windows, e.g. 8am-8pm vs 9pm-9am); this
+  // occupiedRange()-based calculation only has day granularity, so both
+  // bookings' whole-day ranges cover that same day. Summed without dedup,
+  // that day counted as 2 "occupied nights" against 1 "available night" for
+  // that unit that day — a real, confirmed bug that could push reported
+  // occupancy above 100%. A unit-day now counts as occupied at most once,
+  // matching how occupancyCalendarGrid below already treats it (a Map
+  // keyed by day, "booked" set once regardless of how many bookings touch
+  // that cell).
+  const occupiedDaysByUnit = new Map<string, Set<string>>();
   for (const b of bookings) {
     if (b.cancelledAt) continue;
     const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
-    occupiedNights += clippedNights(start, end, periodStart, periodEnd);
+    const s = start.getTime() > periodStart.getTime() ? start.getTime() : periodStart.getTime();
+    const e = end.getTime() < periodEnd.getTime() ? end.getTime() : periodEnd.getTime();
+    if (e <= s) continue;
+    let days = occupiedDaysByUnit.get(b.unitId);
+    if (!days) { days = new Set(); occupiedDaysByUnit.set(b.unitId, days); }
+    for (let t = s; t < e; t += 86400000) days.add(new Date(t).toISOString().slice(0, 10));
   }
+  let occupiedNights = 0;
+  for (const days of occupiedDaysByUnit.values()) occupiedNights += days.size;
 
   const blockNights = (blocks: OccupancyBlock[]) =>
     blocks.reduce((sum, blk) => {
