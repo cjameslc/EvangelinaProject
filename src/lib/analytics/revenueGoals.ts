@@ -133,7 +133,14 @@ export function computeMilestones(unitGoals: UnitGoal[], bookingsThisMonth: Goal
   }
 
   if (unitGoals.length > 0) {
-    const top = [...unitGoals].sort((a, b) => b.pctComplete - a.pctComplete)[0];
+    // Same unrounded-ratio sort as computeLeaderboard — sorting on the
+    // already-rounded pctComplete could pick the wrong unit as "top" on a
+    // rounding tie (e.g. 82.39% and 81.52% both display "82%").
+    const top = [...unitGoals].sort((a, b) => {
+      const ra = a.targetPesos > 0 ? a.currentPesos / a.targetPesos : 0;
+      const rb = b.targetPesos > 0 ? b.currentPesos / b.targetPesos : 0;
+      return rb - ra || b.currentPesos - a.currentPesos;
+    })[0];
     if (top.currentPesos > 0) badges.push({ icon: "⭐", label: "Top Performing Unit", detail: `${top.unitLabel} leads at ${top.pctComplete}% of target.` });
   }
 
@@ -170,7 +177,17 @@ export type LeaderboardRow = UnitGoal & { rank: number; highlights: LeaderboardH
  * dividing by zero or fabricating a rate.
  */
 export function computeLeaderboard(unitGoals: UnitGoal[]): LeaderboardRow[] {
-  const sorted = [...unitGoals].sort((a, b) => b.pctComplete - a.pctComplete);
+  // Ranked on the real, unrounded ratio — not `pctComplete`, which is
+  // already Math.round()'d for display (see computeUnitGoal). Two units a
+  // few hundred pesos apart can both round to the same whole-number
+  // percent (e.g. 82.39% and 81.52% both show "82%"); sorting on the
+  // rounded field then leaves the tie broken by whatever order the units
+  // happened to arrive in (their Admin-configured sortOrder), not by who
+  // actually earned more — a real bug, confirmed against production data
+  // where a higher-revenue unit displayed below a lower-revenue one.
+  // currentPesos is the final tiebreaker for a genuine exact-ratio tie.
+  const ratio = (g: UnitGoal) => (g.targetPesos > 0 ? g.currentPesos / g.targetPesos : 0);
+  const sorted = [...unitGoals].sort((a, b) => ratio(b) - ratio(a) || b.currentPesos - a.currentPesos);
   const rows: LeaderboardRow[] = sorted.map((g, i) => ({ ...g, rank: i + 1, highlights: [] }));
   if (rows.length > 0 && rows[0].currentPesos > 0) rows[0].highlights.push("top");
 

@@ -70,7 +70,15 @@ export async function GET() {
         monthEnd: nextMonthStart,
       })
     )
-    .sort((a, b) => a.pctComplete - b.pctComplete);
+    // Unrounded ratio, not the already-rounded pctComplete — two units a
+    // few hundred pesos apart can round to the same display percent, which
+    // would otherwise leave the "worst first" order decided by array
+    // insertion order rather than which unit is actually furthest behind.
+    .sort((a, b) => {
+      const ra = a.targetPesos > 0 ? a.currentPesos / a.targetPesos : 0;
+      const rb = b.targetPesos > 0 ? b.currentPesos / b.targetPesos : 0;
+      return ra - rb || a.currentPesos - b.currentPesos;
+    });
 
   const bookers = employees.filter((e) => e.role === "BOOKER");
   const housekeepers = employees.filter((e) => e.role === "HOUSEKEEPING");
