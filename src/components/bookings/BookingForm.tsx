@@ -255,6 +255,23 @@ export function BookingForm({
 
   function selectCheckInDate(date: string) {
     setV((s) => {
+      // Daycation/Flexible are same-day stay types by definition (see
+      // smartSchedule/STAY_TYPE_DEFAULT_TIMES — checkout always equals
+      // check-in for these) — that has to override checkOutTouched, not
+      // defer to it. checkOutTouched exists so a deliberately-picked
+      // multi-night checkout survives a later check-in tweak; it was never
+      // meant to let a same-day type's checkout drift onto a different day.
+      // Editing an EXISTING booking is exactly where this bit: checkOutTouched
+      // starts true whenever initial.checkOutDate is already set (every saved
+      // booking has one), so changing check-in on a Daycation edit silently
+      // left checkout on its old date/month instead of following along —
+      // confirmed live: a Daycation edited from Jul 30 to Jul 31 kept a
+      // stale checkout, which a subsequent manual date-picker pick (already
+      // showing the following month) then set to Aug 31, producing a
+      // 31-day range that collided with an unrelated later booking and
+      // rejected an otherwise-valid same-day transfer.
+      const defaults = s.stayType ? STAY_TYPE_DEFAULT_TIMES[s.stayType] : undefined;
+      if (defaults && !defaults.nextDay) return { ...s, date, checkOutDate: date };
       if (checkOutTouched || !s.stayType) return { ...s, date };
       return { ...s, date, checkOutDate: smartSchedule(s.stayType, date).checkOutDate };
     });
