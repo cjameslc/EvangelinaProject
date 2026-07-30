@@ -6,7 +6,6 @@ import { peso, pesoCentavos, billCentavos, billPaidCentavos, formatUnitDisplay }
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
-import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
 import { UploadIcon, EditIcon, TrashIcon, PlusIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { cn } from "@/lib/utils";
@@ -354,7 +353,13 @@ function ReceiptModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => v
   async function handleFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { alert("File is too large (max 4MB)."); return; }
-    setReceiptUrl(await fileToDataUrl(file));
+    const body = new FormData();
+    body.set("file", file);
+    body.set("billId", bill.id);
+    const res = await fetch("/api/housekeeping/bills/photo", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(j.error ?? "Couldn't upload the receipt."); return; }
+    setReceiptUrl(j.url);
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {

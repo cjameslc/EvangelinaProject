@@ -12,7 +12,6 @@ import { ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { Trophy, Medal, Award, type LucideIcon } from "lucide-react";
-import { fileToDataUrl } from "@/lib/file";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
 import { TeamsSection } from "@/components/earnings/TeamsSection";
 import { playFanfare, playPop } from "@/lib/sound";
@@ -654,7 +653,12 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
   async function onReceiptChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setReceiptUrl(await fileToDataUrl(file));
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch("/api/expense-requests/photo", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error ?? "Couldn't upload receipt", true); return; }
+    setReceiptUrl(j.url);
   }
 
   async function submit() {
@@ -723,11 +727,12 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
   );
 }
 
-// Full-size receipt view — receiptUrl is a raw base64 data: URL (uploaded
-// via fileToDataUrl, never hosted), and browsers won't reliably open a
-// data: URL from a target="_blank" link (Chrome in particular just does
-// nothing), which is why tapping the thumbnail previously looked broken.
-// An in-page modal sidesteps that entirely.
+// Full-size receipt view — new receiptUrls are real hosted Blob URLs now,
+// but this modal still matters for any pre-migration row still holding a
+// raw base64 data: URL, since browsers won't reliably open a data: URL
+// from a target="_blank" link (Chrome in particular just does nothing),
+// which is why tapping the thumbnail previously looked broken. An in-page
+// modal sidesteps that entirely regardless of which kind of URL it is.
 function ReceiptViewerModal({ url, onClose }: { url: string | null; onClose: () => void }) {
   if (!url) return null;
   return (

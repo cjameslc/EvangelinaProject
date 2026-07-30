@@ -5,7 +5,6 @@ import { Modal } from "@/components/ui/Modal";
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
 import { peso, formatUnitDisplay, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
-import { fileToDataUrl } from "@/lib/file";
 import { cn } from "@/lib/utils";
 
 type OwnerCandidate = { id: string; name: string; role: string };
@@ -144,6 +143,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
   const [selectedLockId, setSelectedLockId] = useState("");
   const [linking, setLinking] = useState(false);
   const [markingReplaced, setMarkingReplaced] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const exportUrl = icalToken && typeof window !== "undefined" ? `${window.location.origin}/api/ical/${icalToken}.ics` : "";
 
@@ -244,8 +244,14 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
   async function handlePhoto(file: File | undefined) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { toast("Photo is too large (max 4MB)", true); return; }
-    const dataUrl = await fileToDataUrl(file);
-    setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    setUploadingPhoto(true);
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch("/api/units/photo", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    setUploadingPhoto(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't upload photo", true); return; }
+    setForm((f) => ({ ...f, photoUrl: j.url }));
   }
 
   return (
@@ -300,8 +306,13 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
           <label className="field-label">Listing photo</label>
           <p className="mt-0.5 text-[12px] text-[var(--gray)]">Shown on the Dashboard&rsquo;s &ldquo;Your listings&rdquo; cards.</p>
           <div className="mt-1.5 rounded-2xl border border-dashed border-[var(--line-2)] p-3">
-            <input id="unit-photo" type="file" accept="image/*" className="hidden" onChange={(e) => handlePhoto(e.target.files?.[0])} />
-            {!form.photoUrl ? (
+            <input id="unit-photo" type="file" accept="image/*" className="hidden" disabled={uploadingPhoto} onChange={(e) => handlePhoto(e.target.files?.[0])} />
+            {uploadingPhoto ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-center text-[13px] font-semibold text-[var(--gray)]">
+                <UploadIcon className="h-6 w-6 animate-pulse" />
+                Uploading…
+              </div>
+            ) : !form.photoUrl ? (
               <label htmlFor="unit-photo" className="flex cursor-pointer flex-col items-center gap-2 py-6 text-center text-[13px] font-semibold text-[var(--gray)]">
                 <UploadIcon className="h-6 w-6" />
                 Tap to upload a listing photo

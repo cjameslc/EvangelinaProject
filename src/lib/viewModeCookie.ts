@@ -4,3 +4,8 @@
 // client bundle if imported here.
 export const VIEW_MODE_COOKIE = "view-mode";
 export type ViewMode = "staff" | "travel";
+
+export function readViewModeCookie(): ViewMode {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${VIEW_MODE_COOKIE}=([^;]*)`));
+  return match && decodeURIComponent(match[1]) === "travel" ? "travel" : "staff";
+}

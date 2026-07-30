@@ -8,7 +8,8 @@ import { useEffect, useState } from "react";
 import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { VIEW_MODE_COOKIE, type ViewMode } from "@/lib/viewModeCookie";
+import { useViewMode } from "@/components/layout/ViewModeProvider";
+import type { ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
 import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MessageIcon, MegaphoneIcon } from "@/components/ui/Icons";
@@ -37,7 +38,8 @@ export const ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   megaphone: MegaphoneIcon,
 };
 
-export function Navbar({ viewMode }: { viewMode: ViewMode }) {
+export function Navbar() {
+  const { viewMode, setViewMode } = useViewMode();
   const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -103,10 +105,9 @@ export function Navbar({ viewMode }: { viewMode: ViewMode }) {
   useEffect(() => { setMoreOpen(false); }, [pathname]);
 
   function switchMode(mode: ViewMode) {
-    document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=${60 * 60 * 24 * 365}`;
+    setViewMode(mode);
     setMenuOpen(false);
     router.push(mode === "travel" ? "/" : "/dashboard");
-    router.refresh();
   }
 
   return (

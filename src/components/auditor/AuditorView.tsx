@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { fmtDate, unitLabel, manilaDayStart } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { fileToDataUrl } from "@/lib/file";
 import { useToast } from "@/components/ui/Toast";
 import { Pagination } from "@/components/ui/Pagination";
 import { UploadIcon, DownloadIcon, EditIcon, AlertIcon } from "@/components/ui/Icons";
@@ -139,8 +138,12 @@ export function AuditorView({
   async function handlePhoto(file: File | undefined) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { toast("Photo is too large (max 4MB)", true); return; }
-    const dataUrl = await fileToDataUrl(file);
-    setForm((f) => ({ ...f, photoUrl: dataUrl }));
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch("/api/auditor-findings/photo", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error ?? "Couldn't upload photo", true); return; }
+    setForm((f) => ({ ...f, photoUrl: j.url }));
   }
 
   async function submit() {

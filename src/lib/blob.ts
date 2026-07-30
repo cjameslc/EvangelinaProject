@@ -40,6 +40,73 @@ export async function uploadChatImage(file: File, conversationId: string) {
   return blob.url;
 }
 
+// Unit listing photo — was base64-in-DB until it turned out to be a real
+// Fast Origin Transfer cost: every guest who opens the public /book page
+// or a listing detail re-downloads all 5 units' full photo bytes from the
+// origin on every single visit, since nothing in this app is ever
+// edge-cached. Real object storage, same reasoning as every other photo
+// field above.
+export async function uploadUnitPhoto(file: File) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `units/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Staff profile avatar — was base64-in-DB, up to several MB each. Bulk
+// reads (Admin's Users tab, every /admin load) shipped every active user's
+// full photo bytes on every visit — the same class of Fast Origin Transfer
+// cost as Unit.photoUrl, just staff-facing instead of guest-facing. Real
+// object storage means these bulk reads can keep selecting avatarUrl
+// directly (a cheap URL string) instead of needing the proxy-endpoint
+// pattern chat/avatars.ts uses for the still-base64 legacy rows.
+export async function uploadUserAvatar(file: File) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `avatars/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Bill payment receipt photo — was base64-in-DB (currently 0 real rows in
+// production, but the upload path still wrote raw bytes, so this would
+// have become the next Fast Origin Transfer incident the moment staff
+// started attaching receipts). Real object storage from the start, same
+// reasoning as every other photo field above.
+export async function uploadBillReceipt(file: File, billId: string) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `bills/${billId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Settings host photo — one singleton (Settings.hostPhotoUrl), same
+// reasoning as every other photo field above.
+export async function uploadHostPhoto(file: File) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `settings/host-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Auditor finding photo — same reasoning as every other photo field above.
+export async function uploadAuditFindingPhoto(file: File) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `audit-findings/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Expense-request receipt — submitted alongside a brand-new ExpenseRequest
+// that doesn't have an id yet, so no entity-id segment in the key (same
+// shape as uploadBrandLogo below). Same reasoning as every other photo
+// field above.
+export async function uploadExpenseReceipt(file: File) {
+  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
+  const key = `expense-receipts/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
 // Brand Kit logo — one singleton logo, not per-entity, so no id segment in
 // the key. Real object storage, not base64-in-DB, same reasoning as every
 // other photo field above (and unlike Settings.hostPhotoUrl, which still

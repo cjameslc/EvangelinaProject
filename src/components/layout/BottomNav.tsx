@@ -7,7 +7,8 @@ import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
 import { visibleNavItems, ROLE_LABEL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { VIEW_MODE_COOKIE, type ViewMode } from "@/lib/viewModeCookie";
+import { useViewMode } from "@/components/layout/ViewModeProvider";
+import type { ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { ICONS, PRIMARY_NAV_COUNT } from "@/components/layout/Navbar";
 import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon, HomeIcon } from "@/components/ui/Icons";
@@ -15,7 +16,8 @@ import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon, HomeIcon 
 // Mobile-only primary navigation, replacing the old hamburger dropdown-panel.
 // Desktop keeps Navbar's top nav untouched. Shares NAV_ITEMS/role-filtering
 // with Navbar via visibleNavItems() so the two surfaces can't drift.
-export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
+export function BottomNav() {
+  const { viewMode, setViewMode } = useViewMode();
   const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -53,10 +55,9 @@ export function BottomNav({ viewMode }: { viewMode: ViewMode }) {
   if (!session || viewMode === "travel") return null;
 
   function switchMode(mode: ViewMode) {
-    document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=${60 * 60 * 24 * 365}`;
+    setViewMode(mode);
     setSheetOpen(false);
     router.push(mode === "travel" ? "/" : "/dashboard");
-    router.refresh();
   }
 
   const role = session.user?.role;

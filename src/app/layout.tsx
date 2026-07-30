@@ -10,7 +10,6 @@ import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { manilaDayStart } from "@/lib/format";
 import { getCachedActiveUnitCount } from "@/lib/bookingEngine/unitsCache";
-import { getViewMode } from "@/lib/viewMode";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-manrope" });
 
@@ -34,7 +33,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // it must track whatever's actually configured there. Cached (see
   // getCachedActiveUnitCount) since this renders on every single page.
   const unitCount = await getCachedActiveUnitCount().catch(() => 0);
-  const viewMode = getViewMode();
 
   return (
     <html lang="en" className={manrope.variable}>
@@ -43,7 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <ServiceWorkerRegister />
           <div className="sticky top-0 z-40">
             <ImpersonationBanner />
-            <Navbar viewMode={viewMode} />
+            <Navbar />
           </div>
           <main className="pb-16 md:pb-0">{children}</main>
           <InstallPrompt />
@@ -53,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <span>Cubao, Quezon City · {unitCount} unit{unitCount !== 1 ? "s" : ""}</span>
             </div>
           </footer>
-          <BottomNav viewMode={viewMode} />
+          <BottomNav />
           <AIAssistantWidget />
         </Providers>
       </body>

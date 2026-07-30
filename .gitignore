@@ -14,3 +14,4 @@ build
 .claude
 *.tsbuildinfo
 .vercel.old-account.bak
+scratch/

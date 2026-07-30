@@ -5,7 +5,6 @@ import { useSession, signOut } from "next-auth/react";
 import { ROLE_LABEL } from "@/lib/constants";
 import { initials, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
-import { fileToDataUrl } from "@/lib/file";
 import { useAvatar } from "@/components/profile/AvatarProvider";
 import { cn } from "@/lib/utils";
 import { LogoutIcon, EditIcon } from "@/components/ui/Icons";
@@ -39,16 +38,19 @@ export function ProfileView({ user }: { user: ProfileUser }) {
 
     setUploadingPhoto(true);
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const uploadRes = await fetch("/api/profile/avatar", { method: "POST", body: (() => { const f = new FormData(); f.set("file", file); return f; })() });
+      const uploadJson = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) { toast(uploadJson.error ?? "Couldn't upload your photo", true); return; }
+      const url = uploadJson.url as string;
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarUrl: dataUrl }),
+        body: JSON.stringify({ avatarUrl: url }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { toast(j.error ?? "Couldn't update your photo", true); return; }
-      setAvatarUrl(dataUrl);
-      setNavAvatarUrl(dataUrl);
+      setAvatarUrl(url);
+      setNavAvatarUrl(url);
       toast("Profile photo updated ✓");
     } finally {
       setUploadingPhoto(false);

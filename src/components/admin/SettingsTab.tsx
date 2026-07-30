@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
 import { PlusIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
-import { fileToDataUrl } from "@/lib/file";
 import type { EmergencyContact, FaqCategory } from "@/lib/guidebookService";
 
 type Settings = {
@@ -46,8 +45,12 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
   async function handleHostPhoto(file: File | undefined) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { toast("Photo is too large (max 4MB)", true); return; }
-    const dataUrl = await fileToDataUrl(file);
-    setForm((f) => ({ ...f, hostPhotoUrl: dataUrl }));
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch("/api/settings/host-photo", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error ?? "Couldn't upload photo", true); return; }
+    setForm((f) => ({ ...f, hostPhotoUrl: j.url }));
   }
 
   async function save() {
