@@ -1341,6 +1341,7 @@ function BookingLine({
           <span className="font-bold">{fmtDate(outIso, { month: "short", day: "numeric" })}{b.checkOutTime ? ` · ${fmtTimeStr(b.checkOutTime)}` : ""}</span>
         </div>
         {b.conflict && <div className="flex items-center gap-1 font-bold text-rausch"><span aria-hidden>⚠</span> Conflict</div>}
+        <div><span className="text-[var(--gray)]">Booker </span><span className="font-bold">{b.booker?.name ?? (b.platform === "Airbnb" ? "Airbnb booking" : b.platform === "Direct" ? "Direct Booking" : "Unassigned")}</span></div>
         {b.dpReceivedBy && <div><span className="text-[var(--gray)]">DP To </span><span className="font-bold text-blue">{b.dpReceivedBy.name}</span></div>}
         {b.receivedBy && <div><span className="text-[var(--gray)]">FP To </span><span className="font-bold text-blue">{b.receivedBy.name}</span></div>}
       </div>

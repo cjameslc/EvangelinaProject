@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canSeeBookings } from "@/lib/rbac";
 import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { CalendarView } from "@/components/calendar/CalendarView";
@@ -9,11 +10,7 @@ import { CalendarView } from "@/components/calendar/CalendarView";
 export default async function CalendarPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  // Booker/Auditor no longer have a Calendar tab (nav-scoped in
-  // constants.ts) — this page-level guard matches that so the route isn't
-  // still reachable by a direct URL. Owner/Admin, Co-owner, and
-  // Housekeeping keep access (Airbnb sync links, per-unit availability).
-  if (!["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"].includes(user.role)) redirect("/");
+  if (!canSeeBookings(user.role)) redirect("/");
 
   const where = unitWhere(user);
 
