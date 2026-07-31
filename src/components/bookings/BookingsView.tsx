@@ -475,27 +475,29 @@ export function BookingsView({
   // recorded at all falls back to GCash (the property's actual default/most
   // common collection method), never a 4th "Unspecified" bucket.
   const byReceiver = useMemo(() => {
-    const map = new Map<string, { total: number; byMethod: Record<MethodKey, number> }>();
-    function add(name: string, amount: number, method: string | null) {
+    const map = new Map<string, { total: number; byMethod: Record<MethodKey, number>; bookingIds: Set<string> }>();
+    function add(name: string, amount: number, method: string | null, bookingRef: string) {
       if (!amount) return;
-      if (!map.has(name)) map.set(name, { total: 0, byMethod: { Cash: 0, GCash: 0, BankTransfer: 0 } });
+      if (!map.has(name)) map.set(name, { total: 0, byMethod: { Cash: 0, GCash: 0, BankTransfer: 0 }, bookingIds: new Set() });
       const entry = map.get(name)!;
       entry.total += amount;
       const key: MethodKey = (method === "Cash" || method === "BankTransfer") ? method : "GCash";
       entry.byMethod[key] += amount;
+      entry.bookingIds.add(bookingRef);
     }
     insightBookings.forEach((b) => {
       // Refunded money was given back — it never belongs in "where the
       // money went" regardless of paid/cancelled status.
       if (b.refundedAt) return;
+      const bookingRef = b.confirmationNumber ?? b.id;
       if (b.paid) {
         const name = b.receivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
         const method = b.method ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
-        if (name) add(name, b.amount, method);
+        if (name) add(name, b.amount, method, bookingRef);
       }
       const dpName = b.dpReceivedBy?.name ?? (b.platform === "Airbnb" ? "Airbnb" : null);
       const dpMethod = b.dpMethod ?? (b.platform === "Airbnb" ? "BankTransfer" : null);
-      if (dpName) add(dpName, b.dpAmount ?? 0, dpMethod);
+      if (dpName) add(dpName, b.dpAmount ?? 0, dpMethod, bookingRef);
     });
     return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [insightBookings]);
@@ -942,6 +944,9 @@ export function BookingsView({
                           <span className="font-semibold text-[var(--ink)]">{peso(data.byMethod[k])}</span>
                         </div>
                       ))}
+                      <p className="pt-0.5 text-[10.5px] leading-relaxed text-[var(--gray)]">
+                        Bookings: {[...data.bookingIds].join(", ")}
+                      </p>
                     </div>
                   )}
                 </div>
