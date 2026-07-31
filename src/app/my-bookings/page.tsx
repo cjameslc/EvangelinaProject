@@ -67,7 +67,7 @@ export default async function MyBookingsPage({ searchParams }: { searchParams?: 
         <div className="mt-8 text-center">
           <p className="text-[15px] font-bold">No bookings yet</p>
           <p className="mx-auto mt-1.5 max-w-[380px] text-[13.5px] text-[var(--gray)]">
-            Once you book a stay with us, it'll show up here — tap it any time for your room number, digital door
+            Once you book a stay with us, it&rsquo;ll show up here — tap it any time for your room number, digital door
             access, WiFi, and everything else you need for your trip.
           </p>
           <Link href="/" className="btn-primary mt-4 inline-flex">Browse listings</Link>

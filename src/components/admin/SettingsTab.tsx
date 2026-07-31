@@ -178,7 +178,7 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
               onChange={(e) => setForm({ ...form, monthlyRevenueTargetPerUnit: +e.target.value })}
               className="field-input mt-1.5"
             />
-            <p className="mt-1 text-[11px] text-[var(--gray)]">Default monthly goal shown on Dashboard/Analytics for every unit — override an individual unit's target from the Units tab.</p>
+            <p className="mt-1 text-[11px] text-[var(--gray)]">Default monthly goal shown on Dashboard/Analytics for every unit — override an individual unit&rsquo;s target from the Units tab.</p>
           </div>
           <div>
             <label className="field-label">Flexible time fee (₱)</label>

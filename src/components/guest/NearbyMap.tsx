@@ -30,11 +30,8 @@ export function NearbyMap({
   onSelect: (key: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const directionsRendererRef = useRef<any>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string } | null>(null);
@@ -110,7 +107,7 @@ export function NearbyMap({
   // Selection changes — pan/zoom + draw the real walking route.
   useEffect(() => {
     if (status !== "ready" || !mapRef.current) return;
-    const w = window as unknown as { google?: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const w = window as unknown as { google?: any };
     const g = w.google;
     if (!g) return;
 
@@ -128,7 +125,7 @@ export function NearbyMap({
     const directionsService = new g.maps.DirectionsService();
     directionsService.route(
       { origin, destination: { lat: place.lat, lng: place.lng }, travelMode: g.maps.TravelMode.WALKING },
-      (result: any, routeStatus: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      (result: any, routeStatus: string) => {
         if (routeStatus === "OK" && result) {
           directionsRendererRef.current?.setDirections(result);
           const leg = result.routes?.[0]?.legs?.[0];

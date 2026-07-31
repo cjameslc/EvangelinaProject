@@ -199,7 +199,7 @@ function ImpersonateModal({ user, onClose }: { user: UserRow; onClose: () => voi
         <div>
           <label className="field-label">Reason (optional)</label>
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Troubleshooting a booking issue" className="field-input mt-1.5" />
-          <p className="mt-1 text-[11.5px] text-[var(--gray)]">Recorded in the impersonation audit log along with this session's start/end time and your IP.</p>
+          <p className="mt-1 text-[11.5px] text-[var(--gray)]">Recorded in the impersonation audit log along with this session&rsquo;s start/end time and your IP.</p>
         </div>
         <p className="rounded-xl bg-amber/10 px-3 py-2.5 text-[11.5px] text-amber">
           This session ends automatically after 30 minutes of inactivity, or any time you click &ldquo;Return to My Account.&rdquo; Your own session stays signed in the whole time.

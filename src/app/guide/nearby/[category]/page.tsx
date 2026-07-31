@@ -37,7 +37,7 @@ export default async function NearbyCategoryPage({ params }: { params: { categor
           className="card mt-3 flex items-center justify-between p-4 transition hover:-translate-y-0.5 hover:shadow-s"
         >
           <div>
-            <div className="text-[13.5px] font-extrabold">🎟️ Check what's on now</div>
+            <div className="text-[13.5px] font-extrabold">🎟️ Check what&rsquo;s on now</div>
             <p className="mt-0.5 text-[12px] text-[var(--gray)]">Live search for upcoming concerts &amp; events at Smart Araneta Coliseum</p>
           </div>
           <span className="text-[18px] text-[var(--gray)]">→</span>

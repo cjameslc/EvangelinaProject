@@ -13,7 +13,6 @@
 // here beats adding a dependency just for one file's types) — every other
 // component that touches the map talks to it only through NearbyMap.tsx's
 // typed props, never the raw SDK.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GoogleNamespace = any;
 
 let loadPromise: Promise<GoogleNamespace> | null = null;
