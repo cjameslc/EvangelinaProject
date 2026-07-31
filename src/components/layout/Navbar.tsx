@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
@@ -42,7 +42,6 @@ export function Navbar() {
   const { viewMode, setViewMode } = useViewMode();
   const { data: session } = useSession();
   const pathname = usePathname();
-  const router = useRouter();
   const { theme, toggle } = useTheme();
   const { avatarUrl, name: liveName } = useAvatar();
   const displayName = liveName ?? session?.user?.name ?? "";
@@ -107,7 +106,15 @@ export function Navbar() {
   function switchMode(mode: ViewMode) {
     setViewMode(mode);
     setMenuOpen(false);
-    router.push(mode === "travel" ? "/" : "/dashboard");
+    // A full browser navigation, not router.push — the destination page's
+    // own server-side redirect (app/page.tsx's getViewMode() check) reads
+    // the view-mode cookie fresh on request, but Next's client Router
+    // Cache can replay an earlier cached navigation to the same path
+    // (recorded back when the cookie said the opposite mode) instead of
+    // hitting the server again, landing right back where you started as
+    // if the click did nothing. Same class of bug already fixed this way
+    // on the login page's post-auth redirect.
+    window.location.href = mode === "travel" ? "/" : "/dashboard";
   }
 
   return (

@@ -88,7 +88,21 @@ export async function ensureDefaultConversations(): Promise<void> {
       if (!memberSet.has(`${groupId}::${u.id}`)) toCreate.push({ conversationId: groupId, userId: u.id });
     }
   }
-  if (toCreate.length > 0) await prisma.chatConversationMember.createMany({ data: toCreate });
+  if (toCreate.length > 0) {
+    try {
+      await prisma.chatConversationMember.createMany({ data: toCreate });
+    } catch (e: any) {
+      // The check-then-insert above isn't atomic, and the lastEnsuredAt
+      // guard is per-instance (a fresh cold-started serverless instance
+      // starts at 0) — under real concurrency two requests can both decide
+      // the same rows are missing and both try to insert them. SQLite/Turso
+      // doesn't support skipDuplicates on createMany, so a UNIQUE constraint
+      // hit here just means another concurrent request already finished the
+      // exact same provisioning — not a real failure, everyone ends up a
+      // member either way. Anything else is a genuine error.
+      if (!String(e?.message ?? "").includes("Unique constraint")) throw e;
+    }
+  }
 
   lastEnsuredAt = Date.now();
 }

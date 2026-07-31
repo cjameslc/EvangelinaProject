@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { clearQueuedMutations } from "@/lib/offlineQueue";
 import { useEffect, useState } from "react";
@@ -20,7 +20,6 @@ export function BottomNav() {
   const { viewMode, setViewMode } = useViewMode();
   const { data: session } = useSession();
   const pathname = usePathname();
-  const router = useRouter();
   const { theme, toggle } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
@@ -57,7 +56,10 @@ export function BottomNav() {
   function switchMode(mode: ViewMode) {
     setViewMode(mode);
     setSheetOpen(false);
-    router.push(mode === "travel" ? "/" : "/dashboard");
+    // Full browser navigation, not router.push — see Navbar.tsx's
+    // switchMode for why (Router Cache can replay a stale cached
+    // navigation to "/" recorded under the old cookie value).
+    window.location.href = mode === "travel" ? "/" : "/dashboard";
   }
 
   const role = session.user?.role;
