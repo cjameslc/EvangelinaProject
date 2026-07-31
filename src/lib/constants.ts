@@ -71,6 +71,15 @@ export const STAY_TYPE_DEFAULT_TIMES: Record<string, { checkInTime: string; chec
   Full: { checkInTime: "14:00", checkOutTime: "12:00", nextDay: true },
 };
 
+// Airbnb's standard check-in/check-out — distinct from (and one hour
+// earlier out than) the generic Full-stay default above, since Airbnb's
+// own house rules are 2:00 PM / 11:00 AM, not this property's usual 12:00
+// PM checkout. Applied when a new Airbnb booking is imported (icalSync.ts)
+// and suggested when staff manually pick "Airbnb" in BookingForm — either
+// way it's a real, stored value any Booker can edit afterward (e.g. a guest
+// requests an early check-in or late checkout), never a locked field.
+export const AIRBNB_DEFAULT_TIMES = { checkInTime: "14:00", checkOutTime: "11:00", nextDay: true };
+
 export const PLATFORMS = ["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"] as const;
 export const PLATFORM_LABEL: Record<string, string> = { WalkIn: "Walk-in" };
 

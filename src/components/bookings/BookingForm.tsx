@@ -7,7 +7,7 @@ import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
-import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, AIRBNB_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 import { quotePrice, type RateTable } from "@/lib/pricing/rates";
 
@@ -57,6 +57,17 @@ const EMPTY: BookingFormValue = {
   notes: "",
 };
 
+/** Shared by smartSchedule() below and Airbnb's own suggestion (selectPlatform) —
+ * applies a {checkInTime, checkOutTime, nextDay} default against a check-in date. */
+function applyTimeDefaults(defaults: { checkInTime: string; checkOutTime: string; nextDay: boolean }, checkInDate: string) {
+  if (!defaults.nextDay) {
+    return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: checkInDate };
+  }
+  const next = new Date(`${checkInDate}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: next.toISOString().slice(0, 10) };
+}
+
 /** Smart defaults per stay type — Daycation runs same-day 8am-8pm; Night/Full
  * run overnight, check-in 2pm through checkout noon the next day. Matches
  * the Airbnb-style "pick a type, get a sensible schedule" flow; the guest
@@ -64,12 +75,7 @@ const EMPTY: BookingFormValue = {
 function smartSchedule(type: BookingFormValue["stayType"], checkInDate: string) {
   const defaults = type ? STAY_TYPE_DEFAULT_TIMES[type] : undefined;
   if (!defaults) return { checkInTime: "", checkOutTime: "", checkOutDate: "" };
-  if (!defaults.nextDay) {
-    return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: checkInDate };
-  }
-  const next = new Date(`${checkInDate}T00:00:00Z`);
-  next.setUTCDate(next.getUTCDate() + 1);
-  return { checkInTime: defaults.checkInTime, checkOutTime: defaults.checkOutTime, checkOutDate: next.toISOString().slice(0, 10) };
+  return applyTimeDefaults(defaults, checkInDate);
 }
 
 /** Formats a guest name as Title Case (first letter of every space-separated
@@ -245,7 +251,10 @@ export function BookingForm({
   // via a direct API call either).
   function selectPlatform(p: BookingFormValue["platform"]) {
     if (p === "Airbnb") {
-      const suggestion = smartSchedule("Full", v.date || EMPTY.date);
+      // Airbnb's own standard (2:00 PM / 11:00 AM) — not the generic Full
+      // stay's noon checkout — but still just a suggestion any Booker can
+      // edit afterward, same as every other field here.
+      const suggestion = applyTimeDefaults(AIRBNB_DEFAULT_TIMES, v.date || EMPTY.date);
       setV((s) => ({ ...s, platform: p, stayType: "Full", ...suggestion }));
       setCheckOutTouched(false);
     } else {

@@ -84,6 +84,7 @@ function effectiveRange(b: Booking) {
     checkOutDate: b.checkOutDate ? new Date(b.checkOutDate) : null,
     checkInTime: b.checkInTime,
     checkOutTime: b.checkOutTime,
+    platform: b.platform,
   });
   return { inIso: dayOf(inDate), outIso: dayOf(lastOccupiedDay(window)) };
 }
@@ -1074,7 +1075,7 @@ export function BookingsView({
                           key={`out-${b.id}`} b={b} kind="checkout"
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
-                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
                           onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
                           toast={toast}
                         />
@@ -1093,7 +1094,7 @@ export function BookingsView({
                           key={`in-${b.id}`} b={b} kind="checkin"
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
-                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId)} canDelete={canDeleteBookings(role as any)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
                           onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
                           toast={toast}
                         />

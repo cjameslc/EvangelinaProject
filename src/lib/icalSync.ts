@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { parseICS } from "@/lib/ical";
 import { occupiedRange, syncCalendarMirror, rangesOverlap, nightsFor } from "@/lib/calendarMirror";
-import { AIRBNB_NIGHTLY_RATE } from "@/lib/constants";
+import { AIRBNB_NIGHTLY_RATE, AIRBNB_DEFAULT_TIMES } from "@/lib/constants";
 
 /** Airbnb .ics events carry no price — revenue is nights x the fixed per-night rate. DTEND is exclusive, so this is exact. */
 function airbnbRevenue(start: Date, end: Date): number {
@@ -172,6 +172,8 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
         date: ev.start,
         checkOutDate: ev.end,
         stayType: "Full",
+        checkInTime: AIRBNB_DEFAULT_TIMES.checkInTime,
+        checkOutTime: AIRBNB_DEFAULT_TIMES.checkOutTime,
         guests: ["Airbnb guest"] as any,
         contactNumber: "",
         platform: "Airbnb",

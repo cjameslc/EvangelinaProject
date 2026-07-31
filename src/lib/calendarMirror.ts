@@ -17,6 +17,7 @@ type MirrorableBooking = {
   checkOutDate: Date | null;
   checkInTime?: string | null;
   checkOutTime?: string | null;
+  platform?: string;
   guests: string[];
 };
 

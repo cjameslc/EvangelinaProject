@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (user.role === "BOOKER") {
     const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
     ownEmployeeId = ownEmployee?.id;
-    if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployeeId)) {
+    if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployeeId, existing.platform)) {
       return new Response("Forbidden", { status: 403 });
     }
   }

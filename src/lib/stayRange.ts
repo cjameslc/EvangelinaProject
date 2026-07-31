@@ -3,7 +3,7 @@
 // Prisma client for syncCalendarMirror and can't be bundled client-side).
 // calendarMirror.ts re-exports these for its existing server-side callers.
 
-import { STAY_TYPE_DEFAULT_TIMES } from "@/lib/constants";
+import { STAY_TYPE_DEFAULT_TIMES, AIRBNB_DEFAULT_TIMES } from "@/lib/constants";
 
 /**
  * Computes the `endDate` for a Booking's mirrored CalendarBlock.
@@ -49,7 +49,7 @@ export function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date
   return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
 }
 
-type BookingLike = { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null };
+type BookingLike = { stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null; platform?: string };
 
 function combineDateAndTime(day: Date, hhmm: string | null | undefined, fallbackHHMM: string): Date {
   const [h, m] = (hhmm ?? fallbackHHMM).split(":").map(Number);
@@ -62,14 +62,18 @@ function combineDateAndTime(day: Date, hhmm: string | null | undefined, fallback
  * Real check-in/check-out timestamps for a booking — combines its calendar
  * date(s) with checkInTime/checkOutTime (falling back to that stay type's
  * smart-schedule default, STAY_TYPE_DEFAULT_TIMES, when a time wasn't
- * recorded — e.g. Airbnb imports and legacy-migrated rows). If the computed
- * end would land at or before the start (a checkout time earlier than the
- * check-in time on the same nominal day — the classic "Flexible booking
- * crosses midnight" case), the end rolls forward a day at a time until it's
- * genuinely after the start.
+ * recorded — e.g. legacy-migrated rows, or an Airbnb booking imported before
+ * icalSync.ts started stamping AIRBNB_DEFAULT_TIMES on create; those now-old
+ * rows fall back to Airbnb's own 2pm/11am standard here rather than the
+ * generic Full stay's noon checkout). If the computed end would land at or
+ * before the start (a checkout time earlier than the check-in time on the
+ * same nominal day — the classic "Flexible booking crosses midnight" case),
+ * the end rolls forward a day at a time until it's genuinely after the start.
  */
 export function getOccupiedWindow(b: BookingLike): { start: Date; end: Date } {
-  const defaults = STAY_TYPE_DEFAULT_TIMES[b.stayType] ?? { checkInTime: "08:00", checkOutTime: "20:00", nextDay: false };
+  const defaults = b.platform === "Airbnb"
+    ? AIRBNB_DEFAULT_TIMES
+    : STAY_TYPE_DEFAULT_TIMES[b.stayType] ?? { checkInTime: "08:00", checkOutTime: "20:00", nextDay: false };
   const start = combineDateAndTime(b.date, b.checkInTime, defaults.checkInTime);
   let endDay = b.checkOutDate ?? b.date;
   let end = combineDateAndTime(endDay, b.checkOutTime, defaults.checkOutTime);

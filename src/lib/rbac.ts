@@ -34,10 +34,19 @@ export function canEditBookings(role: Role) {
  * booking they themselves logged (Booking.bookerId), not a peer's. Every
  * other role canEditBookings() already covers (Owner/Admin, Co-owner,
  * Housekeeping) keeps full access, unrestricted by who logged it.
+ *
+ * Airbnb-sourced bookings are the one deliberate exception: they never have
+ * a bookerId (nobody "logged" them — see icalSync.ts), so the ownership
+ * check above can never pass for them, and a Booker would otherwise be
+ * permanently locked out of even fixing an Airbnb guest's check-in/check-out
+ * time when Airbnb notifies of a schedule change — open to every Booker,
+ * not scoped to whoever's "closest" to it, since there's no real owner to
+ * scope to.
  */
-export function canEditSpecificBooking(role: Role, bookingBookerId: string | null | undefined, ownEmployeeId: string | null | undefined) {
+export function canEditSpecificBooking(role: Role, bookingBookerId: string | null | undefined, ownEmployeeId: string | null | undefined, platform?: string) {
   if (!canEditBookings(role)) return false;
   if (role !== "BOOKER") return true;
+  if (platform === "Airbnb") return true;
   return !!ownEmployeeId && bookingBookerId === ownEmployeeId;
 }
 /**
