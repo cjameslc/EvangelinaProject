@@ -671,7 +671,7 @@ async function fetchStaffData(
     // isCommissionEligible needs both.
     prismaPool[0].booking.findMany({
       where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } },
-      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
+      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true, cancelledAt: true, cancellationCategory: true, dpAmount: true, refundedAt: true },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
     prismaPool[2].weeklyExpense.findMany({ where: { date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),

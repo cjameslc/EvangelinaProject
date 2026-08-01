@@ -55,7 +55,7 @@ const getRankedLeaderboard = unstable_cache(
       // to keep Elite Challenge ranking exactly as before.
       prismaPool[1].booking.findMany({
         where: { bookerId: { in: bookerIds }, date: { gte: monthStart, lt: nextMonthStart } },
-        select: { bookerId: true, date: true, checkOutDate: true, cancelledAt: true, paid: true, dpAmount: true, refundedAt: true },
+        select: { bookerId: true, date: true, checkOutDate: true, cancelledAt: true, cancellationCategory: true, paid: true, dpAmount: true, refundedAt: true },
       }),
       prismaPool[2].eliteBookerAward.findMany({ where: { employeeId: { in: bookerIds }, month: monthStart } }),
     ]);

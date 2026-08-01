@@ -13,7 +13,7 @@ export type PayrollRates = {
 
 export type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 
-type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime?: string | null; paid: boolean; cancelledAt?: string | null; dpAmount?: number | null; refundedAt?: string | null };
+type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime?: string | null; paid: boolean; cancelledAt?: string | null; cancellationCategory?: string | null; dpAmount?: number | null; refundedAt?: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
 /** An Admin-approved ExpenseRequest — money this employee is owed back for
  * a business expense they paid out of pocket (TikTok ads, a unit repair),

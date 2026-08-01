@@ -90,21 +90,31 @@ export function isBookingCompleted(
 }
 
 /**
- * The ₱/booking commission rule: money kept, not yet given back.
+ * The ₱/booking commission rule: money kept, not yet given back — and, for
+ * a cancelled booking, only when the cancellation was genuinely the
+ * guest's own.
  *   - An active (non-cancelled) booking earns commission once it's fully
  *     paid — no more waiting for the stay to actually check out.
- *   - A cancelled booking still earns commission if a down payment (or the
- *     full amount) was collected and never refunded — the business kept the
- *     money, so the booker still gets credit for bringing it in.
+ *   - A cancelled booking only earns commission when it's explicitly
+ *     marked cancellationCategory: "guestCancelled" (a real, legit
+ *     guest-initiated cancellation) AND money was collected and never
+ *     refunded. Any other cancellation — a mistaken/duplicate entry
+ *     ("bookerConfusion"), a unit reassigned to a different/VIP guest
+ *     ("vipReassignment"), or any legacy cancelled booking from before
+ *     this distinction existed (cancellationCategory left null) — earns no
+ *     commission at all, paid or not: the booker didn't actually bring in
+ *     a guest who stayed, so there's nothing to credit them for.
  *   - A refund reverses commission either way, regardless of paid/cancelled
  *     status — refundedAt is the one thing that always wins.
  * Deliberately independent of isBookingCompleted — a same-day paid booking
  * shouldn't have to wait until midnight to count.
  */
-export function isCommissionEligible(booking: { paid: boolean; cancelledAt?: Date | string | null; dpAmount?: number | null; refundedAt?: Date | string | null }): boolean {
+export function isCommissionEligible(booking: { paid: boolean; cancelledAt?: Date | string | null; cancellationCategory?: string | null; dpAmount?: number | null; refundedAt?: Date | string | null }): boolean {
   if (booking.refundedAt) return false;
-  if (booking.paid) return true;
-  return !!booking.cancelledAt && (booking.dpAmount ?? 0) > 0;
+  if (booking.cancelledAt) {
+    return booking.cancellationCategory === "guestCancelled" && (booking.paid || (booking.dpAmount ?? 0) > 0);
+  }
+  return booking.paid;
 }
 
 /**

@@ -18,7 +18,6 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
-import { BookingActivityLogPanel } from "./BookingActivityLogPanel";
 import type { AvailabilityResult } from "./AvailabilityChat";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import type { ConversationSummary } from "@/lib/chat/clientTypes";
@@ -267,40 +266,20 @@ export function BookingsView({
     refresh();
   }
 
-  // A Booker can't hard-delete, but can cancel their own booking with a
-  // required reason — reverses their commission on My Earnings immediately
-  // (see /api/my-earnings, which excludes cancelledAt bookings live).
-  async function cancelBooking(id: string) {
-    const reason = prompt("Reason for cancelling this booking? (required)");
-    if (reason === null) return;
-    if (!reason.trim()) { toast("A reason is required to cancel a booking.", true); return; }
-    const res = await fetch(`/api/bookings/${id}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: reason.trim() }),
-    });
-    if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't cancel booking", true); return; }
-    toast("Booking cancelled");
-    refresh();
-  }
-
-  // "Remove" — a distinct action from "Cancel" above, for when the guest
-  // never asked to cancel: staff pulled the booking themselves, either
-  // because it was a confused/duplicate entry or to free the unit for a
-  // higher-priority (VIP) guest. Same underlying mechanism as Cancel (same
-  // calendar-freeing, same commission rule — see cancellationCategory on
-  // the Booking model) so it's just as reversible/audited, but tracked and
-  // displayed separately so it never reads as "the guest cancelled."
-  const [removingBooking, setRemovingBooking] = useState<Booking | null>(null);
-  async function removeBooking(id: string, category: "bookerConfusion" | "vipReassignment", reason: string) {
+  // Cancel and Remove both land here — the only real difference is which
+  // category the operator picks. Only "guestCancelled" keeps the booker's
+  // commission (see isCommissionEligible in @/lib/bookingStatus); the two
+  // staff-initiated categories never do, regardless of how much was paid.
+  const [cancelModal, setCancelModal] = useState<{ booking: Booking; mode: "cancel" | "remove" } | null>(null);
+  async function submitCancelOrRemove(id: string, category: "guestCancelled" | "bookerConfusion" | "vipReassignment", reason: string) {
     const res = await fetch(`/api/bookings/${id}/cancel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason, category }),
     });
-    if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't remove booking", true); return false; }
-    toast("Booking removed from calendar");
-    setRemovingBooking(null);
+    if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't update booking", true); return false; }
+    toast(category === "guestCancelled" ? "Booking cancelled" : "Booking removed from calendar");
+    setCancelModal(null);
     refresh();
     return true;
   }
@@ -589,6 +568,10 @@ export function BookingsView({
       if (statusFilter === "unpaid" && b.paid) return false;
       if (statusFilter === "paid" && !b.paid) return false;
       if (statusFilter === "cancelled" && !b.cancelledAt) return false;
+      if (statusFilter === "cancelled-guest" && b.cancellationCategory !== "guestCancelled") return false;
+      if (statusFilter === "removed-confusion" && b.cancellationCategory !== "bookerConfusion") return false;
+      if (statusFilter === "removed-transfer" && b.cancellationCategory !== "vipReassignment") return false;
+      if (statusFilter === "cancelled-needs-review" && !(b.cancelledAt && !b.cancellationCategory)) return false;
       if (statusFilter === "pastdue" && !isPastDue(b)) return false;
       if (platformFilter !== "all" && b.platform !== platformFilter) return false;
       if (bookerFilter !== "all" && b.bookerId !== bookerFilter) return false;
@@ -892,8 +875,6 @@ export function BookingsView({
             <div id="log-new-booking-anchor" />
             <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} rates={rates} onSubmit={createBooking} initial={bookingPrefill ?? undefined} ownEmployeeId={ownEmployeeId} />
           </Accordion>
-
-          <BookingActivityLogPanel units={units} role={role} />
         </>
       )}
 
@@ -928,7 +909,13 @@ export function BookingsView({
           <option value="unpaid">Unpaid only</option>
           <option value="paid">Paid only</option>
           <option value="pastdue">Past due</option>
-          <option value="cancelled">Cancelled</option>
+          <optgroup label="Cancelled / removed">
+            <option value="cancelled">All cancelled</option>
+            <option value="cancelled-guest">Cancelled — guest (commission kept)</option>
+            <option value="removed-transfer">Removed — guest transfer</option>
+            <option value="removed-confusion">Removed — incorrect entry</option>
+            <option value="cancelled-needs-review">Cancelled — needs review (uncategorized)</option>
+          </optgroup>
         </select>
         <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All platforms</option>
@@ -989,7 +976,7 @@ export function BookingsView({
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
                           canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
-                          onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
+                          onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           toast={toast}
                         />
                       ))}
@@ -1008,7 +995,7 @@ export function BookingsView({
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
                           canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
-                          onEdit={() => setEditing(b)} onCancel={() => cancelBooking(b.id)} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setRemovingBooking(b)}
+                          onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           toast={toast}
                         />
                       ))}
@@ -1058,33 +1045,52 @@ export function BookingsView({
         )}
       </Modal>
 
-      <RemoveBookingModal booking={removingBooking} onClose={() => setRemovingBooking(null)} onConfirm={removeBooking} />
+      <CancelOrRemoveModal state={cancelModal} onClose={() => setCancelModal(null)} onConfirm={submitCancelOrRemove} />
     </div>
   );
 }
 
-function RemoveBookingModal({
-  booking, onClose, onConfirm,
+type CancelCategory = "guestCancelled" | "bookerConfusion" | "vipReassignment";
+
+const CANCEL_CATEGORY_OPTIONS: { value: CancelCategory; label: string; detail: string }[] = [
+  { value: "guestCancelled", label: "Legit — the guest cancelled", detail: "A genuine guest-initiated cancellation. Keeps the booker's commission if money was collected and never refunded." },
+  { value: "bookerConfusion", label: "Booker confusion / duplicate", detail: "Logged in error, or a duplicate of another booking. No commission." },
+  { value: "vipReassignment", label: "VIP priority reassignment", detail: "Bumping this guest to accommodate a higher-priority client. No commission." },
+];
+
+/**
+ * One modal behind both "Cancel" (guest-initiated, defaults to
+ * guestCancelled) and "Remove" (staff-initiated bump, defaults to
+ * bookerConfusion) — same underlying endpoint and commission consequence
+ * either way (see isCommissionEligible in @/lib/bookingStatus), so the only
+ * real difference between the two entry points is which option starts
+ * selected. Requiring an explicit category on every cancellation (instead
+ * of silently defaulting to "guest cancelled") is what makes the commission
+ * rule enforceable at all.
+ */
+function CancelOrRemoveModal({
+  state, onClose, onConfirm,
 }: {
-  booking: Booking | null;
+  state: { booking: Booking; mode: "cancel" | "remove" } | null;
   onClose: () => void;
-  onConfirm: (id: string, category: "bookerConfusion" | "vipReassignment", reason: string) => Promise<boolean>;
+  onConfirm: (id: string, category: CancelCategory, reason: string) => Promise<boolean>;
 }) {
-  const [category, setCategory] = useState<"bookerConfusion" | "vipReassignment">("bookerConfusion");
+  const [category, setCategory] = useState<CancelCategory>("guestCancelled");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Reset to a clean slate every time a different booking is opened —
-  // otherwise the previous booking's typed reason would leak into this one.
+  // Reset to a clean slate every time a different booking (or a different
+  // mode on the same booking) is opened.
   useEffect(() => {
-    setCategory("bookerConfusion");
+    setCategory(state?.mode === "remove" ? "bookerConfusion" : "guestCancelled");
     setReason("");
-  }, [booking?.id]);
+  }, [state?.booking.id, state?.mode]);
 
-  if (!booking) return null;
+  if (!state) return null;
+  const { booking } = state;
 
   async function submit() {
-    if (!reason.trim() || !booking) return;
+    if (!reason.trim()) return;
     setSaving(true);
     const ok = await onConfirm(booking.id, category, reason.trim());
     setSaving(false);
@@ -1093,39 +1099,34 @@ function RemoveBookingModal({
 
   return (
     <Modal
-      open={!!booking}
+      open={!!state}
       onClose={onClose}
-      title="Remove booking"
+      title={state.mode === "remove" ? "Remove booking" : "Cancel booking"}
       sub={`${booking.guests.join(", ") || "Guest"} · ${formatUnitDisplay(booking.unit.unitNumber)}`}
       maxWidth={480}
       footer={
         <>
           <button onClick={onClose} className="btn">Never mind</button>
           <button onClick={submit} disabled={saving || !reason.trim()} className="btn-primary disabled:opacity-50">
-            {saving ? "Removing…" : "Remove booking"}
+            {saving ? "Saving…" : state.mode === "remove" ? "Remove booking" : "Cancel booking"}
           </button>
         </>
       }
     >
       <p className="mb-3 text-[13px] text-[var(--gray)]">
-        For a booking the guest never asked to cancel — a duplicate/confused entry, or freeing this unit for a higher-priority guest.
-        This frees the unit on the calendar immediately, same as Cancel, but is tracked separately so it never reads as the guest&rsquo;s own cancellation.
+        Every cancellation needs a category — it decides whether the booker keeps their commission on this booking.
+        This frees the unit on the calendar immediately either way.
       </p>
       <div className="mb-3 space-y-2">
-        <label className={cn("flex cursor-pointer items-start gap-2.5 rounded-xl border p-3", category === "bookerConfusion" ? "border-rausch bg-rausch/5" : "border-[var(--line)]")}>
-          <input type="radio" name="remove-category" className="mt-0.5" checked={category === "bookerConfusion"} onChange={() => setCategory("bookerConfusion")} />
-          <span>
-            <span className="block text-[13.5px] font-bold">Booker confusion / duplicate</span>
-            <span className="block text-[12px] text-[var(--gray)]">Logged in error, or a duplicate of another booking.</span>
-          </span>
-        </label>
-        <label className={cn("flex cursor-pointer items-start gap-2.5 rounded-xl border p-3", category === "vipReassignment" ? "border-rausch bg-rausch/5" : "border-[var(--line)]")}>
-          <input type="radio" name="remove-category" className="mt-0.5" checked={category === "vipReassignment"} onChange={() => setCategory("vipReassignment")} />
-          <span>
-            <span className="block text-[13.5px] font-bold">VIP priority reassignment</span>
-            <span className="block text-[12px] text-[var(--gray)]">Bumping this guest to accommodate a higher-priority client.</span>
-          </span>
-        </label>
+        {CANCEL_CATEGORY_OPTIONS.map((opt) => (
+          <label key={opt.value} className={cn("flex cursor-pointer items-start gap-2.5 rounded-xl border p-3", category === opt.value ? "border-rausch bg-rausch/5" : "border-[var(--line)]")}>
+            <input type="radio" name="cancel-category" className="mt-0.5" checked={category === opt.value} onChange={() => setCategory(opt.value)} />
+            <span>
+              <span className="block text-[13.5px] font-bold">{opt.label}</span>
+              <span className="block text-[12px] text-[var(--gray)]">{opt.detail}</span>
+            </span>
+          </label>
+        ))}
       </div>
       <label className="field-label">Reason *</label>
       <textarea
@@ -1201,7 +1202,7 @@ function BookingLine({
         </div>
         <div className="flex flex-none items-center gap-1">
           {b.cancelledAt ? (
-            <Tag variant="cancelled">{b.cancellationCategory ? "Removed" : "Cancelled"}</Tag>
+            <Tag variant="cancelled">{b.cancellationCategory === "bookerConfusion" || b.cancellationCategory === "vipReassignment" ? "Removed" : "Cancelled"}</Tag>
           ) : pastDue ? (
             <Tag variant="unpaid">Past due</Tag>
           ) : b.paid ? (

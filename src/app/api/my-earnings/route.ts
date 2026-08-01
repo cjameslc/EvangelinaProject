@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
     prismaPool[0].booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
       select: {
-        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true,
+        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, cancellationCategory: true, dpAmount: true, refundedAt: true,
         guests: true, unit: { select: { shortName: true, unitNumber: true } },
       },
       orderBy: { date: "desc" },
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
     employee.teamKey
       ? prismaPool[8].booking.findMany({
           where: { date: { gte: monthStartForTeam } },
-          select: { bookerId: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true },
+          select: { bookerId: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true, cancellationCategory: true },
         })
       : Promise.resolve([]),
   ]);
@@ -224,7 +224,7 @@ export async function GET(req: NextRequest) {
   const portfolioThisWeek = portfolioNormalized.filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; });
   const weekBookingsNormalized = allBookingsForEmployee
     .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; })
-    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
+    .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, cancellationCategory: b.cancellationCategory, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
   const cleaningDaysThisWeek = new Set(
     cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= weekStart && d < weekEnd; }).map((c) => dayOf(new Date(c.startedAt)))
   ).size;
@@ -261,7 +261,7 @@ export async function GET(req: NextRequest) {
   const monthExpenseRequestsNormalized = myExpenseRequests
     .filter((r) => r.status === "APPROVED" && r.date.toISOString().slice(0, 7) === thisMonthIso)
     .map((r) => ({ employeeId: employee!.id, note: r.note, amount: r.amount }));
-  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
+  const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, cancellationCategory: b.cancellationCategory, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
   const portfolioThisMonth = portfolioNormalized.filter((b) => b.date.slice(0, 7) === thisMonthIso);
   const thisMonthActivity = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisMonth,
@@ -398,7 +398,7 @@ export async function GET(req: NextRequest) {
     wEnd.setUTCDate(wEnd.getUTCDate() + 7);
     const wBookings = allBookingsForEmployee
       .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= wStart && d < wEnd; })
-      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
+      .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, cancellationCategory: b.cancellationCategory, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
     const wCleaningDays = new Set(
       cleaningLogs.filter((c) => { const d = new Date(dayOf(new Date(c.startedAt))); return d >= wStart && d < wEnd; }).map((c) => dayOf(new Date(c.startedAt)))
     ).size;

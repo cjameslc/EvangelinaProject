@@ -10,6 +10,7 @@ export type StaffBooking = {
   checkOutTime: string | null;
   paid: boolean;
   cancelledAt: string | null;
+  cancellationCategory: string | null;
   dpAmount: number | null;
   refundedAt: string | null;
 };

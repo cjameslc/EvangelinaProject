@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     // net (whole days the range touches) the same way my-earnings does.
     prisma.booking.findMany({
       where: { date: { gte: start, lt: end } },
-      select: { id: true, unitId: true, bookerId: true, cleanerId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, platform: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true },
+      select: { id: true, unitId: true, bookerId: true, cleanerId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, platform: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true, cancellationCategory: true },
     }),
     prisma.cleaningLog.findMany({ where: { startedAt: { gte: start, lt: end } }, select: { employeeId: true, unitId: true, startedAt: true } }),
     prisma.unit.count({ where: { active: true } }),
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType,
     date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null,
     checkOutTime: b.checkOutTime, checkInTime: b.checkInTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null,
-    dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null,
+    cancellationCategory: b.cancellationCategory, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null,
   }));
 
   const payrollEmployees = employees.filter((e) => isPayrollRole(e.role));

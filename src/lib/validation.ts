@@ -99,7 +99,11 @@ export const couponSchema = z.object({
 // model for what it means.
 export const bookingCancelSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required to cancel a booking.").max(500, "Keep the reason under 500 characters."),
-  category: z.enum(["bookerConfusion", "vipReassignment"]).optional(),
+  // "guestCancelled" — a genuine guest-initiated cancellation, the only
+  // category that keeps the booker's commission (see isCommissionEligible
+  // in bookingStatus.ts). "bookerConfusion"/"vipReassignment" are the
+  // staff-initiated "Remove" categories, which never earn commission.
+  category: z.enum(["guestCancelled", "bookerConfusion", "vipReassignment"]).optional(),
 });
 
 // Staff-side refund — POST /api/bookings/[id]/refund. Same shape/rationale
@@ -168,15 +172,6 @@ export const expenseRequestReviewSchema = z.object({
   rejectionReason: z.string().nullable().optional(),
 });
 
-export const bookingActivityLogSchema = z.object({
-  type: z.enum(["cancelled", "rescheduled", "other"]),
-  unitId: z.string().nullable().optional(),
-  guestName: z.string().min(1),
-  contactNumber: z.string().nullable().optional(),
-  transactionDate: z.string().min(1),
-  amount: z.number().int().nonnegative().nullable().optional(),
-  note: z.string().nullable().optional(),
-});
 
 export const employeeAchievementSchema = z.object({
   employeeId: z.string().min(1),

@@ -17,9 +17,13 @@ import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
 //
 // Also the endpoint behind the "Remove" action on a booking card (as
 // opposed to "Cancel") — same mechanism, distinguished only by an optional
-// `category` in the body for when staff pull a booking that the guest
-// never asked to cancel (a duplicate/confused entry, or bumping someone
-// for a higher-priority guest) rather than a guest-initiated cancellation.
+// `category` in the body: "bookerConfusion"/"vipReassignment" for when
+// staff pull a booking the guest never asked to cancel (a duplicate/
+// confused entry, or bumping someone for a higher-priority guest), and
+// "guestCancelled" for the regular "Cancel" flow's own explicit confirmation
+// that this really was the guest's own cancellation. Only "guestCancelled"
+// keeps the booker's commission — see isCommissionEligible in
+// bookingStatus.ts, the actual reason this distinction exists at all.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
@@ -54,7 +58,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   if (count === 0) return NextResponse.json({ error: "This booking is already cancelled." }, { status: 400 });
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: params.id } });
-  await logAudit(user.id, category ? "booking.remove" : "booking.cancel", "Booking", booking.id, { reason, category });
+  const isRemoval = category === "bookerConfusion" || category === "vipReassignment";
+  await logAudit(user.id, isRemoval ? "booking.remove" : "booking.cancel", "Booking", booking.id, { reason, category });
 
   // A cancelled booking frees up the unit (availabilityService already
   // excludes cancelledAt bookings) — the mirrored CalendarBlock has to go
