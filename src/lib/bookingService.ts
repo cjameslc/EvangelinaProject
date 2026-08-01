@@ -63,12 +63,11 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
       // Same check the Booking Engine's availability service uses
       // everywhere else, so "is this unit free" only has one
       // implementation — just run against the transaction's own view of
-      // the data instead of the outer client. Compares actual occupied
-      // date ranges (not just exact check-in date matches), so a
-      // multi-night stay correctly blocks every night it spans — not only
-      // bookings whose check-in happens to land on the exact same day.
-      // Daycation and Night may still share a single day (different time
-      // slots); Full always blocks the whole day.
+      // the data instead of the outer client. Compares real check-in/
+      // check-out timestamps (not just calendar days or stay type), so a
+      // multi-night stay correctly blocks every night it spans, and two
+      // bookings of different stay types on the same day still conflict
+      // whenever their actual occupied windows overlap.
       const { available } = await checkAvailability(
         { unitId: body.unitId, date: dayStart, checkOutDate, stayType, checkInTime: body.checkInTime, checkOutTime: body.checkOutTime },
         { client: tx }
@@ -134,7 +133,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
     });
   } catch (e) {
     if (e instanceof BookingConflictError) {
-      return { ok: false, error: "This unit already has a booking that overlaps this date and stay type." };
+      return { ok: false, error: "This unit already has a booking that overlaps this check-in/check-out window." };
     }
     if (e instanceof CouponConflictError) {
       return { ok: false, error: "That coupon just became unavailable. Please remove it and try again." };

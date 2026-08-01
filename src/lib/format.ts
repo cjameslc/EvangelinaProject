@@ -100,6 +100,21 @@ export function fmtTime(d: Date | string) {
   return date.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
+/**
+ * Same as fmtTime, but reads the UTC clock fields instead of converting to
+ * Asia/Manila — for timestamps built by stayRange.ts's getOccupiedWindow
+ * (combineDateAndTime uses setUTCHours), which stores a booking's intended
+ * Manila wall-clock time in the UTC fields rather than as a real UTC
+ * instant. Converting those through Asia/Manila again would double-apply
+ * the offset and show the wrong hour — same reason booking dates elsewhere
+ * in this app are formatted with `timeZone: "UTC"` instead of fmtDate's
+ * Asia/Manila default.
+ */
+export function fmtUtcTime(d: Date | string) {
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleTimeString("en-PH", { timeZone: "UTC", hour: "numeric", minute: "2-digit" });
+}
+
 /** Formats a "HH:MM" 24-hour time-input value (e.g. from <input type="time">) as "2:30 PM". */
 export function fmtTimeStr(t: string | null | undefined): string | null {
   if (!t) return null;

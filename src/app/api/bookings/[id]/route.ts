@@ -135,7 +135,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
     } catch (e) {
       if (e instanceof BookingConflictError) {
-        return NextResponse.json({ error: "This unit already has a booking that overlaps this date and stay type." }, { status: 409 });
+        return NextResponse.json({ error: "This unit already has a booking that overlaps this check-in/check-out window." }, { status: 409 });
       }
       throw e;
     }

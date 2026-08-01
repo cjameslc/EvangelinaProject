@@ -6,7 +6,7 @@ import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
 import { CloseIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
-import { peso, fmtDate, fmtTimeStr, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
+import { peso, fmtDate, fmtTimeStr, fmtUtcTime, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, AIRBNB_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 import { quotePrice, type RateTable } from "@/lib/pricing/rates";
@@ -229,6 +229,7 @@ export function BookingForm({
   // the time pickers," tracked here explicitly.
   const [flexTimesConfirmed, setFlexTimesConfirmed] = useState(!!(initial?.checkInTime && initial?.checkOutTime));
   const [conflict, setConflict] = useState(false);
+  const [conflictWindow, setConflictWindow] = useState<{ start: string; end: string } | null>(null);
   const [checkingConflict, setCheckingConflict] = useState(false);
 
   useEffect(() => {
@@ -292,23 +293,23 @@ export function BookingForm({
   }
 
   // Live conflict check — same centralized rule the API enforces on submit,
-  // so the guest sees the warning before they even try to save.
+  // so the guest sees the warning before they even try to save. Runs on
+  // every field that can change the real occupied window — check-in/
+  // check-out time now genuinely affect every stay type's conflict result,
+  // not just Flexible's.
   useEffect(() => {
-    if (!v.unitId || !v.date || !v.stayType) { setConflict(false); return; }
+    if (!v.unitId || !v.date || !v.stayType) { setConflict(false); setConflictWindow(null); return; }
     const controller = new AbortController();
     setCheckingConflict(true);
     const t = setTimeout(() => {
       const params = new URLSearchParams({ unitId: v.unitId, date: v.date, stayType: v.stayType });
       if (v.checkOutDate) params.set("checkOutDate", v.checkOutDate);
-      // Only actually matters for Flexible (real time-of-day overlap check)
-      // — harmless to always send, every other type's conflict check
-      // ignores these.
       if (v.checkInTime) params.set("checkInTime", v.checkInTime);
       if (v.checkOutTime) params.set("checkOutTime", v.checkOutTime);
       if (bookingId) params.set("excludeId", bookingId);
       fetch(`/api/bookings/check-conflict?${params}`, { signal: controller.signal })
         .then((r) => r.json())
-        .then((j) => setConflict(!!j.conflict))
+        .then((j) => { setConflict(!!j.conflict); setConflictWindow(j.existing ?? null); })
         .catch(() => {})
         .finally(() => setCheckingConflict(false));
     }, 300);
@@ -555,7 +556,23 @@ export function BookingForm({
         {conflict && (
           <div className="sm:col-span-2 flex items-start gap-2.5 rounded-2xl border border-rausch/30 bg-rausch/5 p-3.5 text-[13px] font-semibold text-rausch">
             <AlertIcon className="h-4 w-4 flex-none translate-y-0.5" />
-            This unit is already booked during the selected schedule. Pick a different unit, date, or stay type.
+            <span>
+              Room already occupied.
+              {conflictWindow && (
+                <>
+                  {" "}Existing booking{" "}
+                  <span className="whitespace-nowrap">
+                    {fmtDate(conflictWindow.start, { month: "short", day: "numeric", timeZone: "UTC" })} {fmtUtcTime(conflictWindow.start)}
+                  </span>
+                  {" → "}
+                  <span className="whitespace-nowrap">
+                    {fmtDate(conflictWindow.end, { month: "short", day: "numeric", timeZone: "UTC" })} {fmtUtcTime(conflictWindow.end)}
+                  </span>
+                  .
+                </>
+              )}
+              {" "}Please select another unit or change the booking time.
+            </span>
           </div>
         )}
 

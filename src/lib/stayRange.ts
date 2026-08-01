@@ -104,53 +104,28 @@ export function lastOccupiedDay(window: { end: Date }): Date {
 }
 
 /**
- * Whether two bookings on the same unit actually conflict. A Full stay
- * blocks the whole day against anything. Two stays of the same type
- * overlapping always conflict. Daycation and Night may share the exact same
- * single calendar day (different time slots) — but only when neither one
- * actually spans multiple nights, since a multi-night stay occupies the
- * room around the clock for every day in its range.
+ * Whether two bookings on the same unit actually conflict — a pure
+ * real-timestamp overlap of their actual (or stay-type-defaulted)
+ * check-in/check-out windows via getOccupiedWindow/windowsOverlap.
+ * Booking type never decides availability by itself; it only supplies the
+ * default check-in/check-out time when a booking doesn't have its own
+ * explicit time recorded (see getOccupiedWindow). This also correctly
+ * handles a window that crosses midnight (e.g. two identical 6pm-5am
+ * bookings on the same unit must conflict, even though naive same-day
+ * minute comparison would miss it: a "5am" checkout is numerically earlier
+ * than a "6pm" check-in — getOccupiedWindow's roll-forward fixes that).
  *
- * Flexible is the one exception to that coarse "different type never
- * conflicts" assumption: since its whole point is an arbitrary same-day
- * time window, any pairing involving it (including two Flexible bookings)
- * is checked against the two bookings' actual real-timestamp occupied
- * windows (getOccupiedWindow/windowsOverlap) instead of the day-level
- * range — which also correctly handles a Flexible window that crosses
- * midnight (e.g. two identical 6pm-5am Flexible bookings on the same unit
- * must conflict, even though naive same-day minute comparison would miss
- * it: a "5am" checkout is numerically earlier than an "6pm" check-in).
- *
- * The day-level range check above has a blind spot: it's an exclusive-end
- * range, so a booking checking out ON day D (any time) and a new booking
- * starting on day D never register as overlapping, even though the first
- * booking may not have actually vacated yet (e.g. a Full stay checking out
- * noon vs. a new booking starting 9am the same day) — the calendar itself
- * renders date/endDate as an INCLUSIVE range (CalendarView.tsx), so it
- * visually shows day D as occupied even though this exclusive-end guard
- * doesn't. When the two bookings' day-ranges are exactly adjacent like
- * this, fall back to a real-timestamp overlap check instead of the day-only
- * one — this is strictly additive (it only catches cases the day-level
- * check already said "no overlap" on) and never touches the same-day
- * carve-outs above, since those only run when the day ranges DO overlap.
+ * Previously this short-circuited to "no conflict" whenever two bookings
+ * were different stay types and each spanned a single calendar day (e.g.
+ * Daycation vs. Night), on the assumption those types occupy genuinely
+ * non-overlapping default time slots. That assumption was already false
+ * for this property's own defaults (Daycation 08:00-20:00 vs. Night
+ * 14:00-12:00-next-day genuinely overlap 14:00-20:00), and got worse once
+ * check-in/check-out times became editable per booking — a Night booking
+ * moved earlier, or a Daycation extended later, could silently overlap an
+ * existing booking of a different type and both would be accepted. Real
+ * double bookings, not a rounding nuance.
  */
 export function bookingsConflict(a: BookingLike, b: BookingLike): boolean {
-  const ra = occupiedRange(a.stayType, a.date, a.checkOutDate);
-  const rb = occupiedRange(b.stayType, b.date, b.checkOutDate);
-  if (rangesOverlap(ra.start, ra.end, rb.start, rb.end)) {
-    if (a.stayType === "Full" || b.stayType === "Full") return true;
-    const aSingleDay = ra.end.getTime() - ra.start.getTime() <= 86400000;
-    const bSingleDay = rb.end.getTime() - rb.start.getTime() <= 86400000;
-    if (aSingleDay && bSingleDay) {
-      if (a.stayType === "Flexible" || b.stayType === "Flexible") {
-        return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
-      }
-      if (a.stayType !== b.stayType) return false;
-    }
-    return true;
-  }
-  if (ra.end.getTime() === rb.start.getTime() || rb.end.getTime() === ra.start.getTime()) {
-    return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
-  }
-  return false;
+  return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
 }
