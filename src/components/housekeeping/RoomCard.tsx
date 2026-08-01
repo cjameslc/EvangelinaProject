@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { Tag } from "@/components/ui/Tag";
+import { Modal } from "@/components/ui/Modal";
 import { PhotoCapture } from "@/components/housekeeping/PhotoCapture";
 import { cn } from "@/lib/utils";
 import { formatUnitDisplay } from "@/lib/format";
@@ -51,11 +52,25 @@ export function RoomCard({
     onChange(unit.id, { checked: next });
   }
 
-  function start() {
-    onChange(unit.id, { status: "cleaning", byName: currentUserName, start: true, bookingId: pendingBookingId });
+  // Start/Finish both go through an explicit confirm step now — housekeeping
+  // staff asked for something deliberate here, not a single accidental tap,
+  // since starting or finishing a clean is what the rest of the app (Bookings,
+  // Dashboard, guest check-in readiness) treats as the real signal for
+  // "this room is being worked on" / "this room is ready."
+  const [confirming, setConfirming] = useState<"start" | "finish" | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function confirmStart() {
+    setBusy(true);
+    await onChange(unit.id, { status: "cleaning", byName: currentUserName, start: true, bookingId: pendingBookingId });
+    setBusy(false);
+    setConfirming(null);
   }
-  function finish() {
-    onChange(unit.id, { status: "clean", end: true, bookingId: pendingBookingId });
+  async function confirmFinish() {
+    setBusy(true);
+    await onChange(unit.id, { status: "clean", end: true, bookingId: pendingBookingId });
+    setBusy(false);
+    setConfirming(null);
   }
   function reset() {
     onChange(unit.id, { status: "todo", bookingId: null });
@@ -81,8 +96,8 @@ export function RoomCard({
       ) : (
         <>
           <div className="flex items-center gap-2">
-            {canEdit && status === "todo" && <button onClick={start} className="btn-sm btn-primary ml-auto">Start cleaning</button>}
-            {canEdit && status === "cleaning" && <button onClick={finish} className="btn-sm ml-auto" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
+            {canEdit && status === "todo" && <button onClick={() => setConfirming("start")} className="btn-sm btn-primary ml-auto">Start cleaning</button>}
+            {canEdit && status === "cleaning" && <button onClick={() => setConfirming("finish")} className="btn-sm ml-auto" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -133,6 +148,35 @@ export function RoomCard({
           )}
         </>
       )}
+
+      <Modal
+        open={!!confirming}
+        onClose={() => { if (!busy) setConfirming(null); }}
+        title={confirming === "start" ? "Start cleaning this room?" : "Mark this room clean?"}
+        sub={formatUnitDisplay(unit.unitNumber, unit.shortName)}
+        maxWidth={420}
+        footer={
+          <>
+            <button onClick={() => setConfirming(null)} disabled={busy} className="btn disabled:opacity-50">Never mind</button>
+            <button
+              onClick={confirming === "start" ? confirmStart : confirmFinish}
+              disabled={busy}
+              className="btn-primary disabled:opacity-50"
+              style={confirming === "finish" ? { background: "#0B7C74", borderColor: "#0B7C74" } : undefined}
+            >
+              {busy
+                ? confirming === "start" ? "Starting…" : "Marking clean…"
+                : confirming === "start" ? "Yes, start cleaning" : "Yes, mark clean"}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-[var(--gray)]">
+          {confirming === "start"
+            ? "This marks the room as being actively cleaned and records your name against it."
+            : "This clears the checklist and marks the room ready for the next guest."}
+        </p>
+      </Modal>
     </div>
   );
 }

@@ -114,7 +114,7 @@ export function useAttentionItems({
   // A completed stay whose remaining balance was never marked paid —
   // revenue that's stuck, not currently flagged anywhere.
   const unpaidAfterCheckout = useMemo(
-    () => combinedRecentBookings.filter((b) => isCompletedStay(b) && !b.paid && b.amount > 0),
+    () => combinedRecentBookings.filter((b) => !b.cancelledAt && isCompletedStay(b) && !b.paid && b.amount > 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [combinedRecentBookings]
   );
@@ -123,9 +123,13 @@ export function useAttentionItems({
   // Past due" tag now shown on the Bookings page. Excludes stays that have
   // already fully completed (checked out) since those are the more specific,
   // more urgent unpaidAfterCheckout case just above; a booking can't be in
-  // both buckets at once.
+  // both buckets at once. Also excludes cancelled bookings — a cancelled
+  // stay was never going to check in, so an unpaid balance on it isn't
+  // "past due," it's just moot (real bug: a cancelled-with-only-a-
+  // downpayment booking was showing up here indefinitely since neither
+  // filter checked cancelledAt at all).
   const pastDueBookings = useMemo(
-    () => combinedRecentBookings.filter((b) => !isCompletedStay(b) && !b.paid && b.amount > 0 && dayOf(new Date(b.date)) < todayIso),
+    () => combinedRecentBookings.filter((b) => !b.cancelledAt && !isCompletedStay(b) && !b.paid && b.amount > 0 && dayOf(new Date(b.date)) < todayIso),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [combinedRecentBookings]
   );

@@ -278,10 +278,18 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         // through this loop, duplicating the pair's bars.
         const isDayNightPair = (b.block.type === "Daycation" || b.block.type === "Night")
           && group?.length === 2 && group.some((g) => g.block.type === "Daycation") && group.some((g) => g.block.type === "Night");
+        // The lane stays held through whichever of the pair actually ends
+        // later — always the Night stay, since it's the one that continues
+        // past their shared day into its own checkout day. Using the
+        // currently-iterated block's own (possibly same-day) end here
+        // previously freed the lane a day early, letting an unrelated later
+        // booking get placed in the same lane while the Night stay's
+        // continuation bar (pushed below) was still occupying it.
+        const laneHoldEnd = isDayNightPair ? group!.find((g) => g.block.type === "Night")!.end : b.end;
 
         let lane = laneEnds.findIndex((end) => end < b.start);
-        if (lane === -1) { lane = laneEnds.length; laneEnds.push(b.end); }
-        else laneEnds[lane] = b.end;
+        if (lane === -1) { lane = laneEnds.length; laneEnds.push(laneHoldEnd); }
+        else laneEnds[lane] = laneHoldEnd;
 
         const visStart = b.start < firstIso ? firstIso : b.start;
         const visEnd = b.end > lastIso ? lastIso : b.end;
@@ -292,17 +300,38 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
         if (isDayNightPair) {
           const dayHalf = group!.find((g) => g.block.type === "Daycation")!;
           const nightHalf = group!.find((g) => g.block.type === "Night")!;
-          // Confine both halves to the single shared day, not the Night
-          // stay's full (start, checkout) span — the point of splitting the
-          // lane is to distinguish two events on the SAME day; stretching
-          // the night half into its checkout day (where there's no Daycation
-          // to pair against anymore) would just leave an orphaned half-bar.
+          // The split-lane visualization (half-height top/bottom) only
+          // applies to their one shared day. The Night stay's real occupied
+          // window keeps going past it (into its checkout day) — drawn as
+          // its own continuation bar right after, in the same lane, so the
+          // room still reads as occupied on the calendar right up to actual
+          // checkout instead of silently going blank the moment the paired
+          // Daycation's single day ends.
           const sharedIdx = dayIsos.indexOf(b.start);
           const pairCommon = { startIdx: sharedIdx, span: 1, lane, isTrueStart: true, isTrueEnd: true };
           bars.push({ block: dayHalf.block, ...pairCommon, half: "top" });
           bars.push({ block: nightHalf.block, ...pairCommon, half: "bottom" });
           placed.add(dayHalf.block.id);
           placed.add(nightHalf.block.id);
+
+          if (nightHalf.end > b.start) {
+            const contStart = dayIsos[sharedIdx + 1] ?? nightHalf.end;
+            const contVisStart = contStart < firstIso ? firstIso : contStart;
+            const contVisEnd = nightHalf.end > lastIso ? lastIso : nightHalf.end;
+            const contStartIdx = dayIsos.indexOf(contVisStart);
+            const contEndIdx = dayIsos.indexOf(contVisEnd);
+            if (contStartIdx !== -1 && contEndIdx !== -1 && contEndIdx >= contStartIdx) {
+              bars.push({
+                block: nightHalf.block,
+                startIdx: contStartIdx,
+                span: contEndIdx - contStartIdx + 1,
+                lane,
+                isTrueStart: false,
+                isTrueEnd: contVisEnd === nightHalf.end,
+                half: "full",
+              });
+            }
+          }
         } else {
           bars.push({ block: b.block, ...common, half: "full" });
           placed.add(b.block.id);
@@ -348,7 +377,16 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
   }, [filteredBlocks, todayIso]);
 
   const todayCount = filteredBlocks.filter((b) => b.date.slice(0, 10) === todayIso && b.type !== "Cleaning" && b.type !== "Maintenance").length;
-  const occupiedUnits = new Set(filteredBlocks.filter((b) => b.date.slice(0, 10) === todayIso).map((b) => b.unitId)).size;
+  // Inclusive [date, endDate] range, not just a same-day match — a Night
+  // stay's block starts the day before and its guest is still there today
+  // until checkout (same bug/fix as the calendar bars above: a block's
+  // start date alone doesn't tell you whether it's occupying the unit
+  // *today*, only when it began).
+  const occupiedUnits = new Set(
+    filteredBlocks
+      .filter((b) => b.date.slice(0, 10) <= todayIso && (b.endDate ? b.endDate.slice(0, 10) : b.date.slice(0, 10)) >= todayIso)
+      .map((b) => b.unitId)
+  ).size;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-9 sm:px-6">
@@ -580,7 +618,12 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                         const barTop = bar.lane * LANE_H + (bar.half === "bottom" ? LANE_H / 2 : 0) + 5;
                         return (
                           <button
-                            key={b.id}
+                            // A Night stay paired with a same-day Daycation now
+                            // renders as two bars (the shared-day half + its
+                            // checkout-day continuation) from the same
+                            // underlying block — b.id alone is no longer
+                            // unique per bar.
+                            key={`${b.id}-${bar.startIdx}`}
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setSelected(b); }}
                             title={`${b.guest ?? done?.label ?? meta?.label ?? b.type}${b.note ? ` — ${b.note}` : ""}${b.booking ? ` — ${b.booking.paid ? "Paid" : "Unpaid"}` : ""} — click for details`}

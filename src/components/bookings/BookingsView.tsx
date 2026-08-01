@@ -1145,7 +1145,7 @@ function CancelOrRemoveModal({
  * timing) so staff can tell an on-schedule unpaid booking from one that's
  * actually overdue. */
 function isPastDue(b: Booking) {
-  return !b.paid && dayOf(new Date(b.date)) < dayOf(new Date());
+  return !b.cancelledAt && !b.paid && dayOf(new Date(b.date)) < dayOf(new Date());
 }
 
 /** Stay-lifecycle bucket for the Bookings-page quick tabs — reuses the same
