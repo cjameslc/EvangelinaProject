@@ -6,6 +6,7 @@ import { computeTeamBreakdown, isPayrollRole, salaryForPeriod, type PayrollRates
 import { isCommissionEligible, isBookingCompleted } from "@/lib/bookingStatus";
 import { nightsFor } from "@/lib/stayRange";
 import { TEAMS } from "@/lib/constants";
+import { collectedAmountPesos } from "@/lib/finance";
 
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
     const members = rows.filter((r) => memberIds.has(r.id));
     const memberBookings = bookings.filter((b) => !b.cancelledAt && b.bookerId && memberIds.has(b.bookerId));
     const successfulBookings = memberBookings.filter((b) => isCommissionEligible(b)).length;
-    const revenue = memberBookings.reduce((s, b) => s + ((b.paid ? b.amount : 0) + (b.dpAmount || 0)), 0);
+    const revenue = memberBookings.reduce((s, b) => s + collectedAmountPesos(b), 0);
     const teamNights = memberBookings.reduce((s, b) => s + nightsFor(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null), 0);
     const occupancyContribution = totalCompanyNights > 0 ? Math.round((teamNights / totalCompanyNights) * 100) : 0;
     return {

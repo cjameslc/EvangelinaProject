@@ -10,6 +10,7 @@ export type OccupancyBooking = {
   paid: boolean;
   dpAmount: number | null;
   cancelledAt?: string | Date | null;
+  refundedAt?: string | Date | null;
 };
 
 export type OccupancyBlock = { unitId: string; type: string; date: string | Date; endDate: string | Date | null };
@@ -106,8 +107,13 @@ export function computeOccupancy(params: {
  * 3-night Full stay counts as 3 nights of revenue-per-night, not 1 booking).
  * Only counts bookings whose check-in falls within the period, matching how
  * "this period's income" is already recognized elsewhere in this app
- * ((paid ? amount : 0) + dpAmount). Excludes cancellations. Returns whole
- * pesos, 0 when there were no occupied nights to divide by.
+ * (collectedAmountPesos: (paid ? amount : 0) + dpAmount, zeroed on refund).
+ * Excludes cancellations from both nights and revenue. A refund (which can
+ * happen independent of cancellation — see the Booking.refundedAt schema
+ * comment) still counts the night as occupied, since the room was actually
+ * used, but excludes that booking's money from revenue — same split
+ * collectedAmountPesos enforces everywhere else. Returns whole pesos, 0 when
+ * there were no occupied nights to divide by.
  */
 export function computeADR(bookings: OccupancyBooking[], periodStart: Date, periodEnd: Date): number {
   let totalCentavos = 0;
@@ -118,7 +124,7 @@ export function computeADR(bookings: OccupancyBooking[], periodStart: Date, peri
     if (date < periodStart || date >= periodEnd) continue;
     const checkOutDate = b.checkOutDate ? new Date(b.checkOutDate) : null;
     totalNights += nightsFor(b.stayType, date, checkOutDate);
-    totalCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
+    if (!b.refundedAt) totalCentavos += ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
   }
   return totalNights > 0 ? Math.round(totalCentavos / totalNights / 100) : 0;
 }

@@ -6,6 +6,7 @@ import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
 import { isCommissionEligible } from "@/lib/bookingStatus";
 import { periodRangeFor, type AnalyticsPeriodType } from "@/lib/analytics/period";
+import { collectedAmountPesos } from "@/lib/finance";
 
 // The Elite Challenge company-wide ranking data (every eligible booker's
 // bookings + awards this month) is identical for every viewer — same idea
@@ -186,7 +187,7 @@ export async function GET(req: NextRequest) {
     const teammateIds = new Set(teammates.map((t) => t.id));
     const teamBookings = teamBookingsThisMonth.filter((b) => b.bookerId && teammateIds.has(b.bookerId));
     const successfulBookings = teamBookings.filter((b) => isCommissionEligible(b)).length;
-    const revenue = teamBookings.reduce((s, b) => (b.refundedAt ? s : s + ((b.paid ? b.amount : 0) + (b.dpAmount || 0))), 0);
+    const revenue = teamBookings.reduce((s, b) => s + collectedAmountPesos(b), 0);
     team = {
       key: employee.teamKey,
       members: teammates.map((t) => ({ id: t.id, name: t.name, role: t.role })),

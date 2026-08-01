@@ -123,7 +123,7 @@ export function useMonthlyReportExport({
         ["RevPAR", p(monthlyRevpar)],
         ["Nightly rate (ADR)", p(monthlyAdr)],
         ["Reservations", String(bookingsMonth.length)],
-        ["Booked nights", String(bookingsMonth.length)],
+        ["Booked nights", String(monthlyOccupancyData.occupiedNights)],
         ["Payroll", p(monthlyPayrollTotal)],
       ],
       stayMix: (["Daycation", "Night", "Full"] as const)

@@ -1,6 +1,7 @@
 import { Accordion } from "@/components/ui/Accordion";
 import { peso, formatUnitDisplay } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { collectedAmountPesos } from "@/lib/finance";
 import type { Unit, Booking } from "../types";
 
 export function YourListingsSection({
@@ -19,7 +20,7 @@ export function YourListingsSection({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {units.map((u) => {
           const st = unitStatus(u);
-          const earn = bookingsWeek.filter((b) => b.unitId === u.id && !b.refundedAt).reduce((s, b) => s + b.amount + (b.dpAmount || 0), 0);
+          const earn = bookingsWeek.filter((b) => b.unitId === u.id).reduce((s, b) => s + collectedAmountPesos(b), 0);
           return (
             <div key={u.id} className="card overflow-hidden">
               {u.photoUrl ? (
