@@ -76,3 +76,6 @@ export const SparkleIcon = (p: SVGProps<SVGSVGElement>) => (
 );
 export const CopyIcon = (p: SVGProps<SVGSVGElement>) => base(<><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>, p);
 export const ShareIcon = (p: SVGProps<SVGSVGElement>) => base(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.6" y1="10.6" x2="15.4" y2="6.4" /><line x1="8.6" y1="13.4" x2="15.4" y2="17.6" /></>, p);
+export const TrophyIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4Z" /><path d="M7 5H4a1 1 0 0 0-1 1c0 2.5 1.5 4 4 4.3M17 5h3a1 1 0 0 1 1 1c0 2.5-1.5 4-4 4.3" /></>, p);
+export const RocketIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 19 2c0 2.52-.6 6.7-4 10a22.35 22.35 0 0 1-3 2z" /><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" /></>, p);
+export const SunriseIcon = (p: SVGProps<SVGSVGElement>) => base(<><path d="M12 3v5M4.2 10.2l1.4 1.4M18.4 11.6l1.4-1.4M2 18h2M20 18h2M6 18a6 6 0 0 1 12 0" /><line x1="12" y1="18" x2="12" y2="18" /><line x1="8" y1="21" x2="16" y2="21" /></>, p);

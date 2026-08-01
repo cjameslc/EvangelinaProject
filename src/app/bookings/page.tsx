@@ -30,7 +30,7 @@ export default async function BookingsPage() {
   ninetyDaysAgo.setUTCHours(0, 0, 0, 0);
   const sinceIso = ninetyDaysAgo.toISOString().slice(0, 10);
 
-  const [units, employees, bookings, settings, ownEmployee, hkStates, conversations, firstBookingRows] = await Promise.all([
+  const [units, employees, bookings, settings, ownEmployee, conversations, firstBookingRows] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     // Explicit select — BookingsView never reads proofUrl/dpProofUrl (the
@@ -57,9 +57,6 @@ export default async function BookingsPage() {
     }),
     prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
     prismaPool[4].employee.findUnique({ where: { userId: user.id }, select: { id: true } }),
-    // Read-only room-readiness for the "Today's occupancy" card — Booker
-    // already has canSeeBookings, no new RBAC surface needed for a read.
-    prismaPool[5].housekeepingUnitState.findMany({ where, select: { unitId: true, status: true } }),
     listConversationsForUser(user.id),
     // "1st booking" tag needs real all-time data (a guest's very first
     // stay could easily be older than the 90-day window above), but only
@@ -97,7 +94,6 @@ export default async function BookingsPage() {
       initialFirstBookingIds={firstBookingIds}
       defaultDpFee={settings.dpFee}
       ownEmployeeId={ownEmployee?.id ?? null}
-      hkStates={JSON.parse(JSON.stringify(hkStates))}
       rates={{
         weekdayRate12h: settings.weekdayRate12h,
         weekdayRate21h: settings.weekdayRate21h,

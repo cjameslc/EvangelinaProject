@@ -43,7 +43,6 @@ model User {
   shifts       Shift[]
   weeklyExpensesAdded WeeklyExpense[]
   reviewedExpenseRequests ExpenseRequest[]
-  markedPayrollPayments PayrollPayment[]
   dismissedAttentionItems DismissedAttentionItem[]
   laundryOrdersCreated LaundryOrder[]
   laundryStatusChanges LaundryStatusHistory[]
@@ -192,6 +191,21 @@ model Employee {
   monthlySalary Int @default(0)
   salaryHistory SalaryHistory[]
 
+  // Collaborative earning group (My Earnings' Team Performance section) —
+  // independent of role, unlike the old display-only "Booking Team"/
+  // "Housekeeping Team" grouping in TeamsSection.tsx. Nullable: an employee
+  // not yet assigned to a team simply doesn't show up in any team's roster.
+  // See TEAMS in lib/constants.ts for the key → display name/color mapping.
+  teamKey String?
+
+  // Justine-specific (and any future hire paid the same way): true means
+  // this employee's fixed salary already covers regular day-to-day
+  // cleaning, so My Earnings shows only their qualifying Night Clean Bonus
+  // activity, never a separate "regular pay" line that would double-count
+  // work their salary already pays for. Defaults false — everyone else
+  // keeps the existing day-rate-plus-bonus model.
+  fixedSalaryCoversCleaning Boolean @default(false)
+
   bookingsAsBooker    Booking[] @relation("BookerRel")
   bookingsAsCleaner   Booking[] @relation("CleanerRel")
   bookingsAsDpReceiver Booking[] @relation("DpReceiverRel")
@@ -202,7 +216,6 @@ model Employee {
   auditFindings       AuditFinding[]
   eliteBookerAwards   EliteBookerAward[]
   expenseRequests     ExpenseRequest[]
-  payrollPayments     PayrollPayment[]
   achievements        EmployeeAchievement[]
   laundryOrdersAssigned LaundryOrder[]
 
@@ -315,23 +328,6 @@ model ExpenseRequest {
 // is a snapshot of what was actually given, since the live-computed total
 // could change later (a rate edit, a corrected booking) without that
 // retroactively rewriting what was already paid out.
-model PayrollPayment {
-  id          String    @id @default(cuid())
-  employeeId  String
-  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  periodStart DateTime  // Sunday of the week this covers (same convention as manilaWeekRange)
-  amount      Int
-  status      String    @default("PENDING") // PENDING | GIVEN
-  givenAt     DateTime?
-  markedById  String?
-  markedBy    User?     @relation(fields: [markedById], references: [id], onDelete: SetNull)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([employeeId, periodStart])
-  @@map("payroll_payments")
-}
-
 // Owner-configurable per-employee achievement — replaces the old hardcoded
 // "First Booking / 10 Bookings / 25 Bookings" badges every employee shared
 // identically. `threshold` is a lifetime completed-activity count (bookings

@@ -42,7 +42,7 @@ export async function syncEliteBookerAwards() {
   // forward.
   const bookings = await prisma.booking.findMany({
     where: { bookerId: { in: bookers.map((b) => b.id) }, cancelledAt: null },
-    select: { bookerId: true, date: true, checkOutDate: true },
+    select: { bookerId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true },
   });
 
   // Group each booker's completed bookings by calendar month (keyed off

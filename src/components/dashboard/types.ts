@@ -6,7 +6,7 @@ export type Unit = {
   ttlockLockId?: number | null; ttlockBatteryPct?: number | null; ttlockHasGateway?: boolean | null; ttlockBatterySyncedAt?: string | null;
   monthlyRevenueTargetOverride?: number | null;
 };
-export type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null; refundedAt?: string | null };
+export type Booking = { id: string; unitId: string; unit?: Unit; date: string; checkOutDate: string | null; checkInTime: string | null; checkOutTime: string | null; stayType: string; platform: string; amount: number; paid: boolean; dpAmount: number | null; guests: string[]; receivedById: string | null; dpReceivedById: string | null; cleanerId: string | null; bookerId: string | null; conflict?: boolean; cancelledAt?: string | null; refundedAt?: string | null };
 export type Employee = { id: string; name: string; role: string; monthlySalary: number; active?: boolean; userId?: string | null };
 export type Bill = { id: string; unitId: string | null; key: string; label: string | null; month: string; dueDay: number | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null; paid: boolean; unit: Unit | null };
 export type HkState = { unitId: string; status: string; unit: Unit; cleanedBookingIds?: string[] };

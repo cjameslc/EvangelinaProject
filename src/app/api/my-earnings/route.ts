@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { computeTeamBreakdown, isPayrollRole, weeklySalaryFor, type PayrollRates } from "@/lib/payroll";
 import { isBookingCompleted, syncEliteBookerAwards, ELITE_TIERS, ELITE_CHALLENGE_ROLES } from "@/lib/gamification";
 import { isCommissionEligible } from "@/lib/bookingStatus";
+import { periodRangeFor, type AnalyticsPeriodType } from "@/lib/analytics/period";
 
 // The Elite Challenge company-wide ranking data (every eligible booker's
 // bookings + awards this month) is identical for every viewer — same idea
@@ -30,7 +31,7 @@ const getEliteChallengeMonthData = unstable_cache(
     ]);
     const allMonthBookings = await prisma.booking.findMany({
       where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
-      select: { bookerId: true, date: true, checkOutDate: true },
+      select: { bookerId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true },
     });
     return JSON.parse(JSON.stringify({ allBookers, allMonthAwards, allMonthBookings }));
   },
@@ -70,6 +71,20 @@ export async function GET(req: NextRequest) {
   const requestedEmployeeId = req.nextUrl.searchParams.get("employeeId");
   const isAdminViewer = user.role === "OWNER_ADMIN" || user.role === "CO_OWNER";
 
+  // Range filter for the Successful Bookings / Night Clean Bonus tables
+  // only — defaults to "this week" (the tables' own previous scope was
+  // "lifetime"/"this month" respectively; now both start at this week and
+  // the viewer can widen it). Every other figure on this page (pending
+  // payroll, gross/net this month, lifetime earnings, Elite Challenge) is
+  // intentionally untouched by this filter — those already have their own
+  // fixed weekly/monthly meaning baked into their labels.
+  const sp = req.nextUrl.searchParams;
+  const tableRangeType = (sp.get("rangeType") ?? "weekly") as AnalyticsPeriodType;
+  const tableOffset = Number(sp.get("offset") ?? "0");
+  const tableCustomStart = sp.get("start") ?? undefined;
+  const tableCustomEnd = sp.get("end") ?? undefined;
+  const tableRange = periodRangeFor(tableRangeType, tableOffset, tableCustomStart && tableCustomEnd ? { start: tableCustomStart, end: tableCustomEnd } : undefined);
+
   // Resolve which Employee record we're reporting on. A non-admin may only
   // ever see their own linked record — this is enforced here, not just in
   // the UI, so it can't be bypassed via the URL/API directly.
@@ -103,15 +118,28 @@ export async function GET(req: NextRequest) {
   // Spread across the read pool (not the single shared `prisma` client) —
   // the libSQL adapter serializes queries on one client behind an internal
   // mutex, so a Promise.all on `prisma` alone gets none of the real
-  // concurrency this pool exists to provide (see src/lib/prisma.ts).
-  const [allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests] = await Promise.all([
+  // concurrency this pool exists to provide (see src/lib/prisma.ts). Every
+  // query below — including the HOUSEKEEPING portfolio data and the Team
+  // roster/bookings — is fired in this one Promise.all rather than awaited
+  // one after another, so switching between employees (Owner Summary's
+  // picker) never stacks up multiple sequential round trips against the
+  // remote Turso DB.
+  const monthStartForTeam = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+  const [
+    allBookingsForEmployee, cleaningLogs, expenses, myAwards, myExpenseRequests,
+    activeUnitCount, portfolioHousekeepingBookings,
+    teammates, teamBookingsThisMonth,
+  ] = await Promise.all([
     // No cancelledAt filter here — a cancelled booking can still be
     // commission-eligible (see isCommissionEligible: money kept, not
     // refunded), so cancelled bookings have to stay in this set. dpAmount +
     // refundedAt are selected because isCommissionEligible needs both.
     prismaPool[0].booking.findMany({
       where: { OR: [{ bookerId: employee.id }, { cleanerId: employee.id }] },
-      select: { id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true },
+      select: {
+        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true, bookerId: true, cleanerId: true, paid: true, cancelledAt: true, dpAmount: true, refundedAt: true,
+        guests: true, unit: { select: { shortName: true, unitNumber: true } },
+      },
       orderBy: { date: "desc" },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { employeeId: employee.id }, select: { unitId: true, startedAt: true }, orderBy: { startedAt: "desc" } }),
@@ -123,7 +151,48 @@ export async function GET(req: NextRequest) {
       take: 50,
       include: { unit: { select: { id: true, name: true, shortName: true } } },
     }),
+    // Portfolio-wide housekeeping data — needed only for HOUSEKEEPING staff,
+    // to compute the real Night Clean Bonus rule (total cleanings that day,
+    // across every housekeeping employee, vs. total active units — see
+    // computeTeamBreakdown's portfolioBookings/totalUnits params).
+    employee.role === "HOUSEKEEPING" ? prismaPool[5].unit.count({ where: { active: true } }) : Promise.resolve(0),
+    // A 40-day lookback comfortably covers "this week"/"this month" for the
+    // payroll figures; also stretched back to tableRange.start so the Night
+    // Clean Bonus table's own range filter (Last Month/Custom Range can
+    // reach further back) is fully covered by this one query too.
+    employee.role === "HOUSEKEEPING"
+      ? prismaPool[6].booking.findMany({
+          where: { cleanerId: { not: null }, date: { gte: new Date(Math.min(Date.now() - 40 * 86400000, tableRange.start.getTime())) } },
+          select: { unitId: true, cleanerId: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, cancelledAt: true },
+        })
+      : Promise.resolve([]),
+    // This employee's real Team A/B/C group (Employee.teamKey) — roster plus
+    // this month's real activity for the team as a whole, not the old
+    // role-based Booking/Housekeeping/Operations display split.
+    employee.teamKey ? prismaPool[7].employee.findMany({ where: { teamKey: employee.teamKey, active: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+    employee.teamKey
+      ? prismaPool[8].booking.findMany({
+          where: { date: { gte: monthStartForTeam } },
+          select: { bookerId: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true },
+        })
+      : Promise.resolve([]),
   ]);
+
+  // Team stats are computed here (no more awaits) — teamBookingsThisMonth is
+  // fetched company-wide above (parallel-safe, no dependency on teammates
+  // resolving first) and filtered down to this employee's actual teammates.
+  let team: any = null;
+  if (employee.teamKey && teammates.length > 0) {
+    const teammateIds = new Set(teammates.map((t) => t.id));
+    const teamBookings = teamBookingsThisMonth.filter((b) => b.bookerId && teammateIds.has(b.bookerId));
+    const successfulBookings = teamBookings.filter((b) => isCommissionEligible(b)).length;
+    const revenue = teamBookings.reduce((s, b) => (b.refundedAt ? s : s + ((b.paid ? b.amount : 0) + (b.dpAmount || 0))), 0);
+    team = {
+      key: employee.teamKey,
+      members: teammates.map((t) => ({ id: t.id, name: t.name, role: t.role })),
+      statsThisMonth: { successfulBookings, revenue },
+    };
+  }
 
   const now = new Date();
   // "Completed" here is about the stay having actually finished — used for
@@ -141,6 +210,17 @@ export async function GET(req: NextRequest) {
   const weekStart = manilaWeekStart(0);
   const weekEnd = new Date(weekStart);
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+
+  // Company-wide cleanings (every housekeeping employee, not just this one)
+  // — computeTeamBreakdown's portfolioBookings only reads cancelledAt/
+  // cleanerId/checkOutDate/date/checkOutTime, so the other NormalizedBooking
+  // fields below are unused placeholders, not real data.
+  const portfolioNormalized = portfolioHousekeepingBookings.map((b) => ({
+    bookerId: null as string | null, cleanerId: b.cleanerId, unitId: b.unitId, stayType: "Night", paid: true,
+    date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, checkInTime: b.checkInTime,
+    cancelledAt: b.cancelledAt?.toISOString() ?? null,
+  }));
+  const portfolioThisWeek = portfolioNormalized.filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; });
   const weekBookingsNormalized = allBookingsForEmployee
     .filter((b) => { const d = new Date(dayOf(new Date(b.date))); return d >= weekStart && d < weekEnd; })
     .map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
@@ -162,6 +242,8 @@ export async function GET(req: NextRequest) {
     weekExpenses: weekExpensesNormalized,
     weekExpenseRequests: weekExpenseRequestsNormalized,
     rates,
+    portfolioBookings: employee.role === "HOUSEKEEPING" ? portfolioThisWeek : undefined,
+    totalUnits: employee.role === "HOUSEKEEPING" ? activeUnitCount : undefined,
   });
   const salaryThisWeek = weeklySalaryFor(employee.monthlySalary);
   const pendingPayroll = salaryThisWeek + thisWeek.total;
@@ -179,6 +261,7 @@ export async function GET(req: NextRequest) {
     .filter((r) => r.status === "APPROVED" && r.date.toISOString().slice(0, 7) === thisMonthIso)
     .map((r) => ({ employeeId: employee!.id, note: r.note, amount: r.amount }));
   const monthBookingsNormalized = monthBookings.map((b) => ({ bookerId: b.bookerId, cleanerId: b.cleanerId, unitId: b.unitId, stayType: b.stayType, date: b.date.toISOString(), checkOutDate: b.checkOutDate?.toISOString() ?? null, checkOutTime: b.checkOutTime, paid: b.paid, cancelledAt: b.cancelledAt?.toISOString() ?? null, dpAmount: b.dpAmount, refundedAt: b.refundedAt?.toISOString() ?? null }));
+  const portfolioThisMonth = portfolioNormalized.filter((b) => b.date.slice(0, 7) === thisMonthIso);
   const thisMonthActivity = computeTeamBreakdown(employee, {
     cleaningDays: cleaningDaysThisMonth,
     weekBookings: monthBookingsNormalized,
@@ -186,6 +269,8 @@ export async function GET(req: NextRequest) {
     weekExpenseRequests: monthExpenseRequestsNormalized,
     rates,
     periodWeeks: 30 / 7,
+    portfolioBookings: employee.role === "HOUSEKEEPING" ? portfolioThisMonth : undefined,
+    totalUnits: employee.role === "HOUSEKEEPING" ? activeUnitCount : undefined,
   });
   const monthAwards = myAwards.filter((a) => a.month.toISOString().slice(0, 7) === thisMonthIso);
   const monthBonusTotal = monthAwards.reduce((s, a) => s + a.amount, 0);
@@ -343,8 +428,68 @@ export async function GET(req: NextRequest) {
     ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString()
     : weekEnd.toISOString();
 
+  // ---- Successful Bookings table (Bookers) — every commission-eligible
+  // booking this employee logged within the selected range (defaults to
+  // this week), most recent first. ----
+  const successfulBookings = employee.role === "BOOKER"
+    ? commissionEligibleLifetime
+        .filter((b) => b.date >= tableRange.start && b.date < tableRange.end)
+        .sort((a, b) => b.date.getTime() - a.date.getTime())
+        .map((b) => ({
+          id: b.id,
+          guestName: (b.guests as string[])[0] ?? "Guest",
+          unit: b.unit ? (b.unit.shortName || b.unit.unitNumber) : b.unitId,
+          date: b.date.toISOString(),
+          commissionEarned: rates.bookerCommission,
+          status: b.cancelledAt ? "Cancelled (deposit kept)" : b.paid ? "Paid" : "Pending",
+        }))
+    : [];
+
+  // ---- Night Clean Bonus table (Housekeeping) — cleanings within the
+  // selected range (defaults to this week), itemized with the same
+  // eligibility rule computeTeamBreakdown applies in aggregate above, so
+  // the per-row math and the total always agree for the same range. ----
+  let nightCleanBonusRows: any[] = [];
+  if (employee.role === "HOUSEKEEPING") {
+    const portfolioForTableRange = portfolioNormalized.filter((b) => {
+      const d = new Date(b.date);
+      return d >= tableRange.start && d < tableRange.end;
+    });
+    const allCleaningsByDayRange = new Map<string, number>();
+    for (const b of portfolioForTableRange) {
+      if (b.cancelledAt || !b.cleanerId) continue;
+      const day = (b.checkOutDate ?? b.date).slice(0, 10);
+      allCleaningsByDayRange.set(day, (allCleaningsByDayRange.get(day) ?? 0) + 1);
+    }
+    const remainingExtraByDay = new Map<string, number>();
+    for (const [day, count] of allCleaningsByDayRange) remainingExtraByDay.set(day, Math.max(0, count - activeUnitCount));
+    const myRangeCleaned = allBookingsForEmployee
+      .filter((b) => b.cleanerId === employee!.id && !b.cancelledAt && b.date >= tableRange.start && b.date < tableRange.end)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    nightCleanBonusRows = myRangeCleaned.map((b) => {
+      const day = (b.checkOutDate ?? b.date).toISOString().slice(0, 10);
+      const additionalCleaningCount = Math.max(0, (allCleaningsByDayRange.get(day) ?? 0) - activeUnitCount);
+      const isLateCheckIn = !!b.checkInTime && b.checkInTime >= "17:00";
+      const remaining = remainingExtraByDay.get(day) ?? 0;
+      const qualified = isLateCheckIn && remaining > 0;
+      if (qualified) remainingExtraByDay.set(day, remaining - 1);
+      return {
+        bookingId: b.id,
+        unit: b.unit ? (b.unit.shortName || b.unit.unitNumber) : b.unitId,
+        checkInTime: b.checkInTime,
+        additionalCleaningCount,
+        bonus: qualified ? rates.housekeepingNightBonus : 0,
+        qualified,
+        status: qualified ? "Eligible" : !isLateCheckIn ? "Not eligible — check-in before 5PM" : "Not eligible — no additional cleaning that day",
+      };
+    });
+  }
+
   return NextResponse.json({
-    employee: { id: employee.id, name: employee.name, role: employee.role, salaryType: employee.salaryType, salaryRate: employee.salaryRate, monthlySalary: employee.monthlySalary },
+    employee: {
+      id: employee.id, name: employee.name, role: employee.role, salaryType: employee.salaryType, salaryRate: employee.salaryRate, monthlySalary: employee.monthlySalary,
+      fixedSalaryCoversCleaning: employee.fixedSalaryCoversCleaning,
+    },
     salaryThisWeek,
     thisWeek,
     pendingPayroll,
@@ -362,5 +507,8 @@ export async function GET(req: NextRequest) {
       rejectionReason: r.rejectionReason, unit: r.unit ? { id: r.unit.id, name: r.unit.name, shortName: r.unit.shortName } : null,
       receiptUrl: r.receiptUrl,
     })),
+    team,
+    successfulBookings,
+    nightCleanBonusRows,
   });
 }

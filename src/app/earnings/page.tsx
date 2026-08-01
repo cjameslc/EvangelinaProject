@@ -2,11 +2,6 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { EarningsView } from "@/components/earnings/EarningsView";
-import { getCategoryImagesBatch } from "@/lib/unsplash/service";
-
-const JOURNEY_IMAGE_KEYS = ["journey-village", "journey-forest", "journey-castle", "journey-peak", "journey-volcano", "journey-sky", "journey-kingdom"];
-const TEAM_IMAGE_KEYS = ["team-booking", "team-housekeeping", "team-operations"];
-const UNIT_IMAGE_KEYS = ["gallery-bedroom", "gallery-living-area", "room-info"];
 
 export default async function EarningsPage() {
   const user = await getCurrentUser();
@@ -26,17 +21,6 @@ export default async function EarningsPage() {
     ? await prisma.employee.findMany({ where: { active: true, role: { in: ["BOOKER", "HOUSEKEEPING", "AUDITOR"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } })
     : [];
 
-  // Gamification module visuals — pure cache reads (never a live Unsplash
-  // call on the request path, see getCategoryImagesBatch), so this never
-  // slows the page down or risks the API's rate limit. An unwarmed/errored
-  // category just comes back an empty array and each component's own
-  // gradient fallback renders instead.
-  const [journeyImages, teamImages, unitImages] = await Promise.all([
-    getCategoryImagesBatch(JOURNEY_IMAGE_KEYS),
-    getCategoryImagesBatch(TEAM_IMAGE_KEYS),
-    getCategoryImagesBatch(UNIT_IMAGE_KEYS),
-  ]);
-
   return (
     <EarningsView
       role={user.role}
@@ -47,9 +31,6 @@ export default async function EarningsPage() {
       // own non-payroll record.
       ownEmployeeId={isAdminViewer ? null : ownEmployee?.id ?? null}
       employees={employees}
-      journeyImages={journeyImages}
-      teamImages={teamImages}
-      unitImages={unitImages}
     />
   );
 }

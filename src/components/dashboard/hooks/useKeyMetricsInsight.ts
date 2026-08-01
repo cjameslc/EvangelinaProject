@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { peso, pesoCentavos } from "@/lib/format";
-import { computeOccupancy, type OccupancyBlock } from "@/lib/analytics/occupancy";
 import type { Booking } from "../types";
 
 /**
@@ -28,11 +27,7 @@ export function useKeyMetricsInsight({
   forecastProfitCents,
   monthIncome,
   bookingsMonth,
-  units,
-  weekRangeStart,
-  weekRangeEnd,
-  bookingsWeek,
-  calendarBlocksOccupancy,
+  occupancy,
 }: {
   overdueCentavos: number;
   billsDueMonthCentavos: number;
@@ -42,36 +37,15 @@ export function useKeyMetricsInsight({
   forecastProfitCents: number;
   monthIncome: number;
   bookingsMonth: Booking[];
-  units: { id: string }[];
-  weekRangeStart: string;
-  weekRangeEnd: string;
-  bookingsWeek: Booking[];
-  calendarBlocksOccupancy: OccupancyBlock[];
+  /** Same period-scoped occupancy percentage the Occupancy stat card itself
+   * shows (filteredOccupancy from useEarningsData) — this used to compute
+   * its own separate always-trailing-7-day figure here, which could (and
+   * did) disagree with the displayed card, e.g. "occupancy rate of 69
+   * percent" in this prose next to a "78%" card for the same month simply
+   * because one was a fixed week window and the other followed the
+   * Weekly/Monthly/Yearly period filter. Single source of truth now. */
+  occupancy: number;
 }) {
-  // Real occupied/available nights from actual date ranges (via
-  // src/lib/analytics/occupancy.ts), not a flat booking-count/×7
-  // approximation — a 3-night Full stay now correctly counts as 3 occupied
-  // nights, and a unit under Maintenance no longer counts as "available".
-  // weekRangeStart/End are the exact window the server fetched bookingsWeek
-  // for, so this always matches what was actually queried. Only used for
-  // its occupancyPct here — see useMonthlyProfitSummary/DashboardView's own
-  // comment for why the rest of this same computeOccupancy call's figures
-  // (income/revpar/adr/occupiedNights/availableNights) were dead code and
-  // dropped rather than migrated.
-  const weeklyOccupancy = useMemo(
-    () =>
-      computeOccupancy({
-        unitCount: units.length,
-        periodStart: new Date(weekRangeStart),
-        periodEnd: new Date(weekRangeEnd),
-        bookings: bookingsWeek,
-        maintenanceBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"),
-        cleaningBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"),
-      }),
-    [units.length, weekRangeStart, weekRangeEnd, bookingsWeek, calendarBlocksOccupancy]
-  );
-  const occupancy = weeklyOccupancy.occupancyPct;
-
   const { keyMetricsInsights, insightMetricsPayload } = useMemo(() => {
     const insights: string[] = [];
     const operatingCostCentavos = monthlyStaffSalary * 100 + billsPaidMonthCentavos + billsDueMonthCentavos;

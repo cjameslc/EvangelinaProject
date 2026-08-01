@@ -46,6 +46,17 @@ export function visibleNavItems(role: string | undefined) {
   });
 }
 
+// Collaborative earning groups for My Earnings' Team Performance section —
+// Employee.teamKey points into this, independent of role (a team can mix
+// Bookers and Housekeeping). Purely a display/config lookup, not a Prisma
+// model, matching how STAY_TYPES/PLATFORMS below are also just labeled
+// constants over a plain string column.
+export const TEAMS: Record<string, { key: string; name: string; color: string; emoji: string }> = {
+  A: { key: "A", name: "Team A", color: "#008A05", emoji: "🟢" },
+  B: { key: "B", name: "Team B", color: "#3B71E8", emoji: "🔵" },
+  C: { key: "C", name: "Team C", color: "#6C5CE7", emoji: "🟣" },
+};
+
 export const STAY_TYPES = {
   Daycation: { label: "Daycation", short: "DAY", hrs: "12 hrs", color: "#C87D00" },
   Night: { label: "Night stay", short: "NIGHT", hrs: "12 hrs", color: "#6C5CE7" },

@@ -1,33 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, manilaWeekRange, manilaMonthStart, initials } from "@/lib/format";
-import { ROLE_LABEL } from "@/lib/constants";
+import { ROLE_LABEL, TEAMS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { FilePdfIcon, PlusIcon, TrashIcon, EditIcon, ChevronDownIcon } from "@/components/ui/Icons";
 import { Trophy, Medal, Award, type LucideIcon } from "lucide-react";
 import { monthlySalaryFromRate, weeklySalaryFor, isPayrollRole, type SalaryType } from "@/lib/payroll";
-import { TeamsSection } from "@/components/earnings/TeamsSection";
 import { playFanfare, playPop } from "@/lib/sound";
-import type { UnsplashImage } from "@/lib/unsplash/types";
-
-// WorldMapProgress/EliteBadgeButton/AchievementBadgeCard pull in
-// framer-motion (the single largest contributor to /earnings' bundle —
-// nearly double every other page's own-route JS). Same lazy-loading
-// pattern already used for recharts in Analytics (see
-// RevenueSectionClient.tsx) — ssr:false keeps it out of the server bundle,
-// and the dynamic import keeps it out of every other page's client bundle
-// too, deferred until this page actually mounts on the client instead of
-// blocking initial load for a gamification visual.
-const WorldMapProgress = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.WorldMapProgress), { ssr: false, loading: () => <div className="h-[320px] animate-pulse rounded-2xl bg-[var(--bg-2)]" /> });
-const EliteBadgeButton = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.EliteBadgeButton), { ssr: false, loading: () => <div className="h-[88px] animate-pulse rounded-xl bg-[var(--bg-2)]" /> });
-const AchievementBadgeCard = dynamic(() => import("@/components/earnings/WorldMapProgress").then((m) => m.AchievementBadgeCard), { ssr: false, loading: () => <div className="h-[72px] animate-pulse rounded-xl bg-[var(--bg-2)]" /> });
 
 // Festive top-3 treatment for the Leaderboard — gold/silver/bronze medal
 // badge, a matching soft gradient wash, and a glow ring, so the top spots
@@ -46,7 +31,6 @@ type ExpenseRequestRow = {
 };
 type PendingRequestRow = ExpenseRequestRow & { employee: { id: string; name: string; role: string } };
 type FullEmployee = { id: string; name: string; role: string; monthlySalary: number; salaryType: SalaryType; salaryRate: number; active: boolean };
-type PayrollPaymentRow = { id: string; employeeId: string; amount: number; status: string; givenAt: string | null; markedBy: { id: string; name: string } | null };
 type AchievementDefRow = { id: string; label: string; threshold: number; rewardAmount: number; personalMessage: string | null };
 
 const EXPENSE_STATUS_BADGE: Record<string, string> = {
@@ -72,8 +56,11 @@ type Achievement = { id: string; label: string; unlocked: boolean; threshold?: n
 type PayrollHistoryRow = { weekStart: string; weekEnd: string; salary: number; activity: number; bookingCount: number; bonuses: number; total: number; status: string };
 type BonusAward = { id: string; month: string; tier: number; amount: number; slotRank: number; completedAt: string };
 type Adjustment = { id: string; date: string; amount: number; note: string; deduction: boolean };
+type SuccessfulBookingRow = { id: string; guestName: string; unit: string; date: string; commissionEarned: number; status: string };
+type NightCleanBonusRow = { bookingId: string; unit: string; checkInTime: string | null; additionalCleaningCount: number; bonus: number; qualified: boolean; status: string };
+type MyTeam = { key: string; members: { id: string; name: string; role: string }[]; statsThisMonth: { successfulBookings: number; revenue: number } };
 type EarningsData = {
-  employee: { id: string; name: string; role: string; salaryType: string; salaryRate: number; monthlySalary: number };
+  employee: { id: string; name: string; role: string; salaryType: string; salaryRate: number; monthlySalary: number; fixedSalaryCoversCleaning?: boolean };
   salaryThisWeek: number;
   thisWeek: { total: number; items: TeamLineItem[]; subtitle: string };
   pendingPayroll: number;
@@ -87,6 +74,9 @@ type EarningsData = {
   bonusAwards: BonusAward[];
   adjustments: Adjustment[];
   expenseRequests: ExpenseRequestRow[];
+  team: MyTeam | null;
+  successfulBookings: SuccessfulBookingRow[];
+  nightCleanBonusRows: NightCleanBonusRow[];
 };
 type LeaderboardRow = { employeeId: string; name: string; avatarUrl: string | null; avatarColor: string; completedThisMonth: number; commissionThisMonth: number; bonusThisMonth: number };
 type LeaderboardData =
@@ -164,15 +154,12 @@ function BaseSalaryStat({
 }
 
 export function EarningsView({
-  role, isAdminViewer, ownEmployeeId, employees, journeyImages, teamImages, unitImages,
+  role, isAdminViewer, ownEmployeeId, employees,
 }: {
   role: string;
   isAdminViewer: boolean;
   ownEmployeeId: string | null;
   employees: EmployeeLite[];
-  journeyImages?: Record<string, UnsplashImage[]>;
-  teamImages?: Record<string, UnsplashImage[]>;
-  unitImages?: Record<string, UnsplashImage[]>;
 }) {
   // Owners land on the company-wide summary by default rather than a
   // specific employee's earnings — that's the primary reason for being on
@@ -187,13 +174,23 @@ export function EarningsView({
   const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
   const [historySearch, setHistorySearch] = useState("");
 
+  // Range filter for the Successful Bookings / Night Clean Bonus tables —
+  // defaults to "this week", reuses the exact same filter bar/param shape
+  // Owner Summary's Executive Summary already uses.
+  const [tableRangeChoice, setTableRangeChoice] = useState<RangeChoice>("this_week");
+  const [tableCustomStart, setTableCustomStart] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [tableCustomEnd, setTableCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
+
   async function load() {
     if (selectedEmployeeId === OWNER_SUMMARY_VALUE) return;
     setLoading(true);
     setError(false);
     try {
-      const params = selectedEmployeeId ? `?employeeId=${selectedEmployeeId}` : "";
-      const res = await fetch(`/api/my-earnings${params}`);
+      const params = new URLSearchParams();
+      if (selectedEmployeeId) params.set("employeeId", selectedEmployeeId);
+      const rangeParams = rangeChoiceToParams(tableRangeChoice, tableCustomStart, tableCustomEnd);
+      for (const [k, v] of Object.entries(rangeParams)) params.set(k, String(v));
+      const res = await fetch(`/api/my-earnings?${params.toString()}`);
       if (!res.ok) throw new Error();
       const j = await res.json();
       setData(j);
@@ -207,7 +204,7 @@ export function EarningsView({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEmployeeId]);
+  }, [selectedEmployeeId, tableRangeChoice, tableCustomStart, tableCustomEnd]);
 
   useEffect(() => {
     fetch("/api/leaderboard")
@@ -217,11 +214,10 @@ export function EarningsView({
   }, []);
 
   // Owner-only: the Owner Summary view's data (team salary, pending-approvals
-  // queue, this week's payroll-given status) is company-wide, independent of
-  // the per-employee earnings fetch above — loaded once, refreshed on demand.
+  // queue) is company-wide, independent of the per-employee earnings fetch
+  // above — loaded once, refreshed on demand.
   const [teamEmployees, setTeamEmployees] = useState<FullEmployee[]>([]);
   const [pendingRequests, setPendingRequests] = useState<PendingRequestRow[]>([]);
-  const [payrollPayments, setPayrollPayments] = useState<PayrollPaymentRow[]>([]);
   async function refreshTeamEmployees() {
     const res = await fetch("/api/employees");
     if (res.ok) setTeamEmployees(await res.json());
@@ -230,27 +226,10 @@ export function EarningsView({
     const res = await fetch("/api/expense-requests?status=PENDING");
     if (res.ok) setPendingRequests(await res.json());
   }
-  // Two fetches, merged: weekly-cadence staff (DAILY/WEEKLY salaryType) are
-  // tracked against this week's Sunday, monthly-cadence staff against this
-  // month's 1st — each employee only ever has rows in their own cadence
-  // (see OwnerSummarySection), so merging never collides.
-  async function refreshPayrollPayments() {
-    const monthStartIso = manilaMonthStart().toISOString();
-    const [weekRes, monthRes] = await Promise.all([
-      fetch("/api/payroll-payments"),
-      fetch(`/api/payroll-payments?periodStart=${encodeURIComponent(monthStartIso)}`),
-    ]);
-    const [weekRows, monthRows] = await Promise.all([
-      weekRes.ok ? weekRes.json() : [],
-      monthRes.ok ? monthRes.json() : [],
-    ]);
-    setPayrollPayments([...weekRows, ...monthRows]);
-  }
   useEffect(() => {
     if (!isAdminViewer) return;
     refreshTeamEmployees();
     refreshPendingRequests();
-    refreshPayrollPayments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminViewer]);
 
@@ -341,8 +320,6 @@ export function EarningsView({
           onEmployeesChanged={refreshTeamEmployees}
           pendingRequests={pendingRequests}
           onRequestsChanged={refreshPendingRequests}
-          payrollPayments={payrollPayments}
-          onPayrollChanged={refreshPayrollPayments}
         />
       </div>
     );
@@ -379,31 +356,36 @@ export function EarningsView({
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <StatCard label="Pending payroll" value={peso(data.pendingPayroll)} sub="salary + activity, this week" />
-        <StatCard label="Upcoming payroll date" value={fmtDate(data.upcomingPayrollDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} />
-        <StatCard label="Gross salary" value={peso(data.grossThisMonth)} sub="this month" />
-        <StatCard label="Net salary" value={peso(data.netThisMonth)} sub="this month" />
-        <StatCard
-          label="Base salary"
-          value={
-            <BaseSalaryStat
-              employeeId={data.employee.id}
-              monthlySalary={data.employee.monthlySalary}
-              salaryType={data.employee.salaryType}
-              editable={isAdminViewer && !isOwnerSummary}
-              onSaved={load}
-            />
-          }
-          sub="monthly equivalent"
-        />
-        <StatCard label="Commission/incentives" value={peso(data.thisWeek.total)} sub="activity this week" />
-        <StatCard label="Bonuses" value={peso(data.bonusAwards.reduce((s, a) => s + a.amount, 0))} sub="lifetime, all units" />
-        <StatCard label="Lifetime earnings" value={peso(data.lifetimeEarnings)} sub="estimated, all-time" />
-      </div>
+      {/* Payroll Card — Current Week Payroll, Upcoming Payroll Date, Fixed
+          Salary, Commission, Bonuses, Total Payroll, formula spelled out
+          below. Simplified from the old 8-card grid (Gross/Net/Lifetime
+          dropped — owner-facing detail, not what a staff member needs at a
+          glance). */}
+      <div className="card mb-5 p-5">
+        <h2 className="text-[15px] font-extrabold">Payroll</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard label="Current Week Payroll" value={peso(data.pendingPayroll)} sub="salary + activity" />
+          <StatCard label="Upcoming Payroll Date" value={fmtDate(data.upcomingPayrollDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })} />
+          <StatCard
+            label="Fixed Salary"
+            value={
+              <BaseSalaryStat
+                employeeId={data.employee.id}
+                monthlySalary={data.employee.monthlySalary}
+                salaryType={data.employee.salaryType}
+                editable={isAdminViewer && !isOwnerSummary}
+                onSaved={load}
+              />
+            }
+            sub="monthly equivalent"
+          />
+          <StatCard label="Commission" value={peso(data.thisWeek.items.filter((i) => i.label === "Booking commission").reduce((s, i) => s + i.amount, 0))} sub="this week" />
+          <StatCard label="Bonuses" value={peso(data.bonusAwards.reduce((s, a) => s + a.amount, 0) + data.thisWeek.items.filter((i) => i.label === "Night Clean Bonus").reduce((s, i) => s + i.amount, 0))} sub="Elite + Night Clean, this week" />
+          <StatCard label="Total Payroll" value={peso(data.pendingPayroll)} sub="fixed + commission + bonuses" />
+        </div>
 
-      <Accordion title="How this is calculated" sub={data.thisWeek.subtitle || undefined}>
-        <div className="space-y-2">
+        <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Total Payroll = Fixed Salary + Commission + Approved Bonuses</p>
           <div className="flex items-center justify-between text-[13px]">
             <div>
               <div className="font-bold">Salary this week</div>
@@ -426,19 +408,116 @@ export function EarningsView({
             <span>{peso(data.pendingPayroll)}</span>
           </div>
         </div>
-      </Accordion>
+      </div>
 
-      {data.eliteChallenge && <EliteChallengeQuest challenge={data.eliteChallenge} employeeId={data.employee.id} journeyImages={journeyImages} />}
+      {(data.employee.role === "BOOKER" || (data.employee.role === "HOUSEKEEPING" && data.employee.fixedSalaryCoversCleaning)) && (
+        <div className="mb-3">
+          <RangeFilterBar
+            choice={tableRangeChoice} onChoice={setTableRangeChoice}
+            customStart={tableCustomStart} customEnd={tableCustomEnd}
+            onCustomStart={setTableCustomStart} onCustomEnd={setTableCustomEnd}
+          />
+        </div>
+      )}
 
-      <TeamsSection teamImages={teamImages} unitImages={unitImages} />
-
-      {(data.employee.role === "BOOKER" || data.employee.role === "HOUSEKEEPING") && (
-        <Accordion title="Achievements">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {data.achievements.map((a, i) => <AchievementBadgeCard key={a.id} a={a} index={i} />)}
+      {data.employee.role === "BOOKER" && (
+        <Accordion title="Successful Bookings" sub={`${data.successfulBookings.length} this range · ${peso(data.successfulBookings.reduce((s, b) => s + b.commissionEarned, 0))} commission`}>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-left text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+                  <th className="py-2 pr-3">Guest</th>
+                  <th className="py-2 pr-3">Unit</th>
+                  <th className="py-2 pr-3">Date</th>
+                  <th className="py-2 pr-3 text-right">Commission</th>
+                  <th className="py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.successfulBookings.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-[var(--gray)]">No successful bookings in this range.</td></tr>}
+                {data.successfulBookings.map((b) => (
+                  <tr key={b.id} className="border-b border-[var(--line)] last:border-0">
+                    <td className="py-2 pr-3 font-semibold">{b.guestName}</td>
+                    <td className="py-2 pr-3">{b.unit}</td>
+                    <td className="py-2 pr-3">{fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}</td>
+                    <td className="py-2 pr-3 text-right font-bold">{peso(b.commissionEarned)}</td>
+                    <td className="py-2">{b.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {data.successfulBookings.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-[var(--line)] font-extrabold">
+                    <td className="py-2 pr-3" colSpan={3}>Total</td>
+                    <td className="py-2 pr-3 text-right">{peso(data.successfulBookings.reduce((s, b) => s + b.commissionEarned, 0))}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         </Accordion>
       )}
+
+      {data.employee.role === "HOUSEKEEPING" && data.employee.fixedSalaryCoversCleaning && (
+        <Accordion title="Night Clean Bonus" sub={`${data.nightCleanBonusRows.filter((r) => r.qualified).length} qualifying this range · ${peso(data.nightCleanBonusRows.reduce((s, r) => s + r.bonus, 0))}`}>
+          <p className="mb-3 text-[12px] text-[var(--gray)]">Your fixed salary already covers regular cleaning — only qualifying Night Clean Bonuses show below as extra activity income.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-left text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+                  <th className="py-2 pr-3">Unit</th>
+                  <th className="py-2 pr-3">Check-in Time</th>
+                  <th className="py-2 pr-3 text-right">Additional Cleanings</th>
+                  <th className="py-2 pr-3 text-right">Bonus</th>
+                  <th className="py-2 pr-3">Qualified</th>
+                  <th className="py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.nightCleanBonusRows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-[var(--gray)]">No cleanings recorded in this range.</td></tr>}
+                {data.nightCleanBonusRows.map((r) => (
+                  <tr key={r.bookingId} className="border-b border-[var(--line)] last:border-0">
+                    <td className="py-2 pr-3 font-semibold">{r.unit}</td>
+                    <td className="py-2 pr-3">{r.checkInTime ?? "—"}</td>
+                    <td className="py-2 pr-3 text-right">{r.additionalCleaningCount}</td>
+                    <td className="py-2 pr-3 text-right font-bold">{r.bonus > 0 ? peso(r.bonus) : "—"}</td>
+                    <td className="py-2 pr-3">{r.qualified ? <span className="rounded-full bg-green/15 px-2 py-0.5 text-[11px] font-extrabold text-green">Eligible</span> : <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[11px] font-extrabold text-[var(--gray)]">Not eligible</span>}</td>
+                    <td className="py-2 text-[11.5px] text-[var(--gray)]">{r.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Accordion>
+      )}
+
+      {data.team && (
+        <div className="card mb-5 p-5">
+          <h2 className="text-[15px] font-extrabold">{TEAMS[data.team.key]?.emoji} My Team — {TEAMS[data.team.key]?.name}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {data.team.members.map((m) => (
+              <div key={m.id} className="flex items-center gap-2 rounded-full border border-[var(--line)] py-1 pl-1 pr-3">
+                <span className="grid h-7 w-7 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: TEAMS[data.team!.key]?.color }}>{initials(m.name)}</span>
+                <span className="text-[12.5px] font-semibold">{m.name}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-2">
+            <StatCard label="Team bookings" value={String(data.team.statsThisMonth.successfulBookings)} sub="this month" />
+            <StatCard label="Team revenue" value={peso(data.team.statsThisMonth.revenue)} sub="this month" />
+          </div>
+        </div>
+      )}
+
+      {/* Gamification — the Elite Booker Challenge world map + Achievement
+          badges are retired for now; a real replacement is coming. Nothing
+          from the old system (tiers, badges, awards) renders here anymore. */}
+      <div className="card mb-5 p-8 text-center">
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--bg-2)] text-3xl">🚧</div>
+        <h2 className="text-[16px] font-extrabold">Coming Soon</h2>
+        <p className="mx-auto mt-1.5 max-w-[380px] text-[13px] text-[var(--gray)]">A new rewards &amp; recognition experience is on the way. Check back soon.</p>
+      </div>
 
       <Accordion title="Payroll history" sub="last 10 weeks">
         <input
@@ -603,23 +682,6 @@ export function EarningsView({
         )}
       </Accordion>
     </div>
-  );
-}
-
-// An original fantasy-kingdom "world map" skin over the Elite Booker
-// Challenge data (see WorldMapProgress.tsx) — same numbers as before,
-// presented as a journey through seven original waypoints instead of a
-// plain stat card. No licensed art/characters/music of any kind.
-function EliteChallengeQuest({ challenge, employeeId, journeyImages }: { challenge: EliteChallenge; employeeId: string; journeyImages?: Record<string, UnsplashImage[]> }) {
-  return (
-    <Accordion title="Monthly Elite Booker Challenge" sub="resets on the 1st of every month">
-      <div className="mb-4">
-        <WorldMapProgress challenge={challenge} employeeId={employeeId} journeyImages={journeyImages} />
-      </div>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
-        {challenge.tiers.map((t, i) => <EliteBadgeButton key={t.tier} tier={t} index={i} />)}
-      </div>
-    </Accordion>
   );
 }
 
@@ -887,53 +949,108 @@ function ExpenseApprovalsPanel({ requests, onChanged }: { requests: PendingReque
 
 const SALARY_TYPE_LABEL: Record<SalaryType, string> = { DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly" };
 const RATE_LABEL: Record<SalaryType, string> = { DAILY: "Rate per day (₱)", WEEKLY: "Rate per week (₱)", MONTHLY: "Rate per month (₱)" };
-const PAYROLL_STATUS_BADGE: Record<string, string> = { PENDING: "bg-amber/15 text-amber", GIVEN: "bg-green/15 text-green" };
 
-// The Owner's landing view — one compact table (status + summary + edit, all
-// in one place instead of stacked separately) plus the expense-approval
-// queue right underneath, so both halves of "review and approve" live
-// together.
+type RangeChoice = "this_week" | "last_week" | "this_month" | "last_month" | "custom";
+const RANGE_LABEL: Record<RangeChoice, string> = { this_week: "This Week", last_week: "Last Week", this_month: "This Month", last_month: "Last Month", custom: "Custom Range" };
+function rangeChoiceToParams(choice: RangeChoice, customStart: string, customEnd: string) {
+  switch (choice) {
+    case "this_week": return { rangeType: "weekly", offset: 0 };
+    case "last_week": return { rangeType: "weekly", offset: -1 };
+    case "this_month": return { rangeType: "monthly", offset: 0 };
+    case "last_month": return { rangeType: "monthly", offset: -1 };
+    case "custom": return { rangeType: "custom", offset: 0, start: customStart, end: customEnd };
+  }
+}
+
+type OverviewRow = { id: string; name: string; role: string; teamKey: string | null; fixedSalary: number; successfulBookings: number; commissionPerBooking: number; commissionTotal: number; totalCleans: number; nightCleans: number; nightCleanBonus: number; totalPayroll: number };
+type BookerRow = OverviewRow & { badge: string };
+type TeamRow = { key: string; name: string; color: string; emoji: string; members: { id: string; name: string; role: string }[]; successfulBookings: number; revenue: number; totalPayroll: number; totalIncentives: number; occupancyContribution: number; rank: number; isTopTeam: boolean };
+type OverviewData = {
+  executiveSummary: { totalPayroll: number; totalIncentives: number; totalFixedSalary: number; totalHousekeepingBonus: number; totalBookingsClosed: number; activeEmployees: number };
+  bookerPerformance: BookerRow[];
+  housekeepingSummary: OverviewRow[];
+  teams: TeamRow[];
+};
+
+/** This/Last Week/Month + custom-range filter, shared by every section on
+ * the Owner View so switching it updates the Executive Summary, Booker
+ * Performance, Housekeeping Summary, and Team Performance together. */
+function RangeFilterBar({ choice, onChoice, customStart, customEnd, onCustomStart, onCustomEnd }: {
+  choice: RangeChoice; onChoice: (c: RangeChoice) => void;
+  customStart: string; customEnd: string; onCustomStart: (v: string) => void; onCustomEnd: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex flex-wrap gap-1 rounded-full bg-[var(--bg-2)] p-1">
+        {(["this_week", "last_week", "this_month", "last_month", "custom"] as const).map((c) => (
+          <button
+            key={c}
+            onClick={() => onChoice(c)}
+            className={cn("rounded-full px-3 py-1.5 text-[12.5px] font-bold transition", choice === c ? "bg-[var(--card)] shadow-s" : "text-[var(--gray)]")}
+          >
+            {RANGE_LABEL[c]}
+          </button>
+        ))}
+      </div>
+      {choice === "custom" && (
+        <div className="flex items-center gap-1.5">
+          <input type="date" value={customStart} onChange={(e) => onCustomStart(e.target.value)} className="field-input !w-auto" />
+          <span className="text-[12px] text-[var(--gray)]">to</span>
+          <input type="date" value={customEnd} onChange={(e) => onCustomEnd(e.target.value)} className="field-input !w-auto" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The Owner's landing view — Executive Summary, Booker Performance,
+// Housekeeping Summary, and Team Performance (all range-filtered together),
+// then the Staff & Salary editor and the expense-approval queue underneath.
 function OwnerSummarySection({
-  role, teamEmployees, onEmployeesChanged, pendingRequests, onRequestsChanged, payrollPayments, onPayrollChanged,
+  role, teamEmployees, onEmployeesChanged, pendingRequests, onRequestsChanged,
 }: {
-  /** Only OWNER_ADMIN may actually mark a payroll payment given/pending
-   * (POST /api/payroll-payments) — a Co-owner can view this whole section
-   * but the toggle button is hidden for them rather than shown and then
-   * failing with a 403 on click. */
   role: string;
   teamEmployees: FullEmployee[];
   onEmployeesChanged: () => void;
   pendingRequests: PendingRequestRow[];
   onRequestsChanged: () => void;
-  payrollPayments: PayrollPaymentRow[];
-  onPayrollChanged: () => void;
 }) {
-  const canMarkPayroll = role === "OWNER_ADMIN";
   const toast = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; role: string; salaryType: SalaryType; salaryRate: string }>({ name: "", role: "BOOKER", salaryType: "MONTHLY", salaryRate: "" });
   const [saving, setSaving] = useState(false);
-  const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
 
   const periodStartIso = useMemo(() => manilaWeekRange(0).start.toISOString(), []);
   const monthStartIso = useMemo(() => manilaMonthStart().toISOString(), []);
-  const paymentByEmployee = useMemo(() => new Map(payrollPayments.map((p) => [p.employeeId, p])), [payrollPayments]);
 
   // Owners/Co-owners aren't staff paid a salary through this list — they
   // manage the business, not the other way around (same rule isPayrollRole
   // already applies to the Achievements panel below).
   const payrollEmployees = useMemo(() => teamEmployees.filter((e) => isPayrollRole(e.role)), [teamEmployees]);
 
-  // Whoever's salaryType is MONTHLY gets tracked/given once a month against
-  // their full monthly rate; everyone else (DAILY/WEEKLY) stays on the
-  // existing weekly cadence — one less setting to keep in sync, since
-  // salaryType is already what the owner configured for how this person is
-  // actually paid.
   function periodFor(emp: FullEmployee) {
     return emp.salaryType === "MONTHLY"
       ? { periodStart: monthStartIso, amount: emp.monthlySalary, label: "this month" }
       : { periodStart: periodStartIso, amount: Math.round(weeklySalaryFor(emp.monthlySalary)), label: "this week" };
   }
+
+  // ---- Executive Summary / Booker Performance / Housekeeping Summary /
+  // Team Performance — one shared range filter driving all four. ----
+  const [rangeChoice, setRangeChoice] = useState<RangeChoice>("this_week");
+  const [customStart, setCustomStart] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [overview, setOverview] = useState<OverviewData | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  useEffect(() => {
+    setOverviewLoading(true);
+    const params = rangeChoiceToParams(rangeChoice, customStart, customEnd);
+    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+    fetch(`/api/earnings/overview?${qs.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j && setOverview(j))
+      .catch(() => {})
+      .finally(() => setOverviewLoading(false));
+  }, [rangeChoice, customStart, customEnd]);
 
   function startEdit(e: FullEmployee) {
     setEditingId(e.id);
@@ -956,36 +1073,117 @@ function OwnerSummarySection({
     onEmployeesChanged();
   }
 
-  async function togglePayroll(emp: FullEmployee, nextStatus: "PENDING" | "GIVEN") {
-    setBusyPaymentId(emp.id);
-    const { periodStart, amount } = periodFor(emp);
-    const res = await fetch("/api/payroll-payments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId: emp.id, periodStart, amount, status: nextStatus }),
-    });
-    setBusyPaymentId(null);
-    if (!res.ok) { toast("Couldn't update payroll status", true); return; }
-    toast(nextStatus === "GIVEN" ? "Marked as given ✓" : "Marked as pending");
-    onPayrollChanged();
-  }
-
   return (
     <div className="space-y-5">
+      <div className="card p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-[15px] font-extrabold">Executive Summary</h2>
+          <RangeFilterBar choice={rangeChoice} onChoice={setRangeChoice} customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd} />
+        </div>
+        {overviewLoading && !overview && <p className="text-[13px] text-[var(--gray)]">Loading…</p>}
+        {overview && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <StatCard label="Total Payroll" value={peso(overview.executiveSummary.totalPayroll)} sub="fixed + incentives" />
+            <StatCard label="Total Incentives" value={peso(overview.executiveSummary.totalIncentives)} sub="commission + bonuses" />
+            <StatCard label="Total Fixed Salary" value={peso(overview.executiveSummary.totalFixedSalary)} sub="prorated to range" />
+            <StatCard label="Housekeeping Bonus" value={peso(overview.executiveSummary.totalHousekeepingBonus)} sub="Night Clean Bonus total" />
+            <StatCard label="Bookings Closed" value={String(overview.executiveSummary.totalBookingsClosed)} sub="completed stays" />
+            <StatCard label="Active Employees" value={String(overview.executiveSummary.activeEmployees)} sub="on payroll" />
+          </div>
+        )}
+      </div>
+
+      {overview && (
+        <div className="card overflow-hidden p-0">
+          <div className="p-5 pb-3">
+            <h2 className="text-[15px] font-extrabold">Booker Performance</h2>
+            <p className="mt-0.5 text-[12px] text-[var(--gray)]">Sorted by successful bookings · top performer highlighted</p>
+          </div>
+          <div className="overflow-x-auto border-t border-[var(--line)]">
+            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-left text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+                  <th className="py-2 pl-5 pr-3">Booker</th>
+                  <th className="py-2 pr-3 text-right">Successful Bookings</th>
+                  <th className="py-2 pr-3 text-right">Commission/Booking</th>
+                  <th className="py-2 pr-3 text-right">Total Commission</th>
+                  <th className="py-2 pr-3 text-right">Fixed Salary</th>
+                  <th className="py-2 pr-3 text-right">Total Payroll</th>
+                  <th className="py-2 pr-5">Badge</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.bookerPerformance.length === 0 && (
+                  <tr><td colSpan={7} className="p-4 text-center text-[13px] text-[var(--gray)]">No bookers on file.</td></tr>
+                )}
+                {overview.bookerPerformance.map((r, i) => (
+                  <tr key={r.id} className={cn("border-b border-[var(--line)] last:border-0", i === 0 && r.successfulBookings > 0 && "bg-amber/5")}>
+                    <td className="py-2.5 pl-5 pr-3 font-bold">{r.name}{r.teamKey && <span className="ml-1.5 text-[11px] font-semibold text-[var(--gray)]">{TEAMS[r.teamKey]?.emoji} {TEAMS[r.teamKey]?.name}</span>}</td>
+                    <td className="py-2.5 pr-3 text-right font-bold">{r.successfulBookings}</td>
+                    <td className="py-2.5 pr-3 text-right">{peso(r.commissionPerBooking)}</td>
+                    <td className="py-2.5 pr-3 text-right">{peso(r.commissionTotal)}</td>
+                    <td className="py-2.5 pr-3 text-right">{peso(r.fixedSalary)}</td>
+                    <td className="py-2.5 pr-3 text-right font-extrabold">{peso(r.totalPayroll)}</td>
+                    <td className="py-2.5 pr-5 text-[12px] font-bold">{r.badge}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {overview && (
+        <div className="card overflow-hidden p-0">
+          <div className="p-5 pb-3">
+            <h2 className="text-[15px] font-extrabold">Housekeeping Summary</h2>
+            <p className="mt-0.5 text-[12px] text-[var(--gray)]">Actual completed cleaning records for the selected range</p>
+          </div>
+          <div className="overflow-x-auto border-t border-[var(--line)]">
+            <table className="w-full min-w-[640px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-left text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+                  <th className="py-2 pl-5 pr-3">Employee</th>
+                  <th className="py-2 pr-3 text-right">Total Cleans</th>
+                  <th className="py-2 pr-3 text-right">Night Cleans</th>
+                  <th className="py-2 pr-3 text-right">Night Clean Bonus</th>
+                  <th className="py-2 pr-3 text-right">Fixed Salary</th>
+                  <th className="py-2 pr-5 text-right">Total Payroll</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.housekeepingSummary.length === 0 && (
+                  <tr><td colSpan={6} className="p-4 text-center text-[13px] text-[var(--gray)]">No housekeeping staff on file.</td></tr>
+                )}
+                {overview.housekeepingSummary.map((r) => (
+                  <tr key={r.id} className="border-b border-[var(--line)] last:border-0">
+                    <td className="py-2.5 pl-5 pr-3 font-bold">{r.name}{r.teamKey && <span className="ml-1.5 text-[11px] font-semibold text-[var(--gray)]">{TEAMS[r.teamKey]?.emoji} {TEAMS[r.teamKey]?.name}</span>}</td>
+                    <td className="py-2.5 pr-3 text-right">{r.totalCleans}</td>
+                    <td className="py-2.5 pr-3 text-right">{r.nightCleans}</td>
+                    <td className="py-2.5 pr-3 text-right">{peso(r.nightCleanBonus)}</td>
+                    <td className="py-2.5 pr-3 text-right">{peso(r.fixedSalary)}</td>
+                    <td className="py-2.5 pr-5 text-right font-extrabold">{peso(r.totalPayroll)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {overview && <TeamPerformanceSection teams={overview.teams} />}
+
       <div className="card overflow-hidden p-0">
         <div className="p-5 pb-3">
-          <h2 className="text-[15px] font-extrabold">Team salary</h2>
-          <p className="mt-0.5 text-[12px] text-[var(--gray)]">{payrollEmployees.filter((e) => e.active).length} on staff · current payroll status</p>
+          <h2 className="text-[15px] font-extrabold">Staff &amp; Salary</h2>
+          <p className="mt-0.5 text-[12px] text-[var(--gray)]">{payrollEmployees.filter((e) => e.active).length} on staff · base salary settings</p>
           <p className="mt-1 text-[11.5px] text-[var(--gray)]">New staff are added from Admin &rarr; Users &amp; roles — booker, housekeeping, and auditor accounts show up here automatically.</p>
         </div>
 
         <div className="overflow-hidden border-t border-[var(--line)]">
           {payrollEmployees.length === 0 && <p className="p-4 text-sm text-[var(--gray)]">No staff on file yet.</p>}
           {payrollEmployees.map((emp) => {
-            const { amount: defaultAmount, label } = periodFor(emp);
-            const payment = paymentByEmployee.get(emp.id);
-            const status = payment?.status ?? "PENDING";
-            const amount = payment?.amount ?? defaultAmount;
+            const { amount, label } = periodFor(emp);
             const isEditing = editingId === emp.id;
             return (
               <div key={emp.id} className="border-t border-[var(--line)] first:border-0">
@@ -998,16 +1196,6 @@ function OwnerSummarySection({
                     <div className="text-[15px] font-extrabold">{peso(amount)}</div>
                     <div className="text-[11px] text-[var(--gray)]">{label}</div>
                   </div>
-                  <span className={cn("flex-none rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide", PAYROLL_STATUS_BADGE[status])}>{status}</span>
-                  {canMarkPayroll && (
-                  <button
-                    onClick={() => togglePayroll(emp, status === "GIVEN" ? "PENDING" : "GIVEN")}
-                    disabled={busyPaymentId === emp.id}
-                    className="btn-sm btn flex-none"
-                  >
-                    {status === "GIVEN" ? "Mark pending" : "Mark given"}
-                  </button>
-                  )}
                   <button onClick={() => (isEditing ? setEditingId(null) : startEdit(emp))} className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-[var(--line-2)] text-[var(--gray)] hover:border-rausch hover:text-rausch" aria-label="Edit">
                     <EditIcon className="h-4 w-4" />
                   </button>
@@ -1078,6 +1266,69 @@ function OwnerSummarySection({
         <h2 className="text-[15px] font-extrabold">Achievements & Rewards</h2>
         <p className="mt-0.5 mb-3 text-[12px] text-[var(--gray)]">Set what unlocks a badge, the ₱ reward, and a personal message shown once they hit it.</p>
         <AchievementsRewardsPanel employees={teamEmployees.filter((e) => isPayrollRole(e.role))} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Team A/B/C performance — real collaborative earning groups (Employee.
+ * teamKey), not the old role-based Booking/Housekeeping/Operations display
+ * split (TeamsSection.tsx, still shown as-is on the Individual View below).
+ * Ranked by successful bookings, then revenue, then occupancy contribution
+ * — same order the API already sorted them in, so `rank`/`isTopTeam` here
+ * are just read off the response, never recomputed client-side.
+ */
+function TeamPerformanceSection({ teams }: { teams: TeamRow[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  return (
+    <div className="card p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-[15px] font-extrabold">Team Performance</h2>
+        <span className="text-[12px] font-semibold text-[var(--gray)]">ranked by bookings → revenue → occupancy</span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {teams.map((t) => {
+          const isOpen = expanded === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setExpanded(isOpen ? null : t.key)}
+              className={cn("rounded-2xl border p-4 text-left transition", t.isTopTeam ? "border-amber/40 bg-amber/5" : "border-[var(--line)]")}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] font-extrabold">{t.emoji} {t.name}</span>
+                <span className="rounded-full px-2 py-0.5 text-[10.5px] font-extrabold text-[var(--gray)]" style={{ background: `${t.color}22`, color: t.color }}>#{t.rank}</span>
+              </div>
+              {t.isTopTeam && <div className="mt-1 text-[11px] font-extrabold text-amber">🏆 Team of the Week</div>}
+              <div className="mt-2 flex -space-x-2">
+                {t.members.map((m) => (
+                  <span key={m.id} title={m.name} className="grid h-7 w-7 place-items-center rounded-full text-[10.5px] font-bold text-white ring-2 ring-[var(--card)]" style={{ background: t.color }}>
+                    {initials(m.name)}
+                  </span>
+                ))}
+                {t.members.length === 0 && <span className="text-[11.5px] text-[var(--gray)]">No members assigned</span>}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
+                <div><div className="font-extrabold">{t.successfulBookings}</div><div className="text-[var(--gray)]">bookings</div></div>
+                <div><div className="font-extrabold">{peso(t.revenue)}</div><div className="text-[var(--gray)]">revenue</div></div>
+                <div><div className="font-extrabold">{peso(t.totalPayroll)}</div><div className="text-[var(--gray)]">payroll</div></div>
+                <div><div className="font-extrabold">{t.occupancyContribution}%</div><div className="text-[var(--gray)]">occupancy</div></div>
+              </div>
+              {isOpen && (
+                <div className="mt-3 space-y-1.5 border-t border-[var(--line)] pt-3">
+                  {t.members.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between text-[12px]">
+                      <span className="font-semibold">{m.name}</span>
+                      <span className="text-[var(--gray)]">{ROLE_LABEL[m.role] ?? m.role}</span>
+                    </div>
+                  ))}
+                  <div className="text-[11px] text-[var(--gray)]">Total incentives: {peso(t.totalIncentives)}</div>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

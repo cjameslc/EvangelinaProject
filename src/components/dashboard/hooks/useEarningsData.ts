@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { fmtDate } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL } from "@/lib/constants";
-import { nightsFor } from "@/lib/stayRange";
+import { nightsFor, occupiedRange } from "@/lib/stayRange";
 import { totalSalaryPayroll, type SalaryHistoryEntry } from "@/lib/payroll";
 import { collectedAmountPesos } from "@/lib/finance";
 import { periodRangeFor, manilaDayKey as dayOf } from "@/lib/analytics/period";
@@ -106,29 +106,83 @@ export function useEarningsData({
   const historicalIncome = rangeType === "monthly" && periodIncome <= 0 ? airbnbHistoricalMonthly?.[historicalMonthKey] : undefined;
   const displayedPeriodIncome = historicalIncome ?? periodIncome;
 
+  // Occupancy scoping is deliberately NOT periodBookings above: periodBookings
+  // only keeps bookings whose check-in date falls inside the selected range,
+  // which is correct for revenue attribution (a stay's income is recognized
+  // when the guest checked in) but wrong for occupancy — a Night/Full stay
+  // that checked in a day or two before the period started but is still
+  // occupying the room once the period begins was silently dropped from the
+  // occupancy count entirely, undercounting real occupied nights (a
+  // confirmed bug: a multi-night stay straddling a period boundary showed 0
+  // occupied nights for the portion inside the new period). Filters on real
+  // occupied-range overlap with the period instead, so any stay touching the
+  // window counts — computeOccupancy still clips each range to
+  // [periodStart, periodEnd) internally. A selected single day (selectedDate)
+  // narrows this to just that day, same as periodBookings does above.
+  const occupancyPeriodRange = useMemo(() => {
+    if (!selectedDate) return periodRange;
+    const start = new Date(selectedDate);
+    const end = new Date(start.getTime() + 86400000);
+    return { start, end };
+  }, [selectedDate, periodRange]);
+
+  const periodBookingsForOccupancy = useMemo(() => {
+    const unitIds = new Set(filteredUnits.map((u) => u.id));
+    return earningsBookings.filter((b) => {
+      if (!unitIds.has(b.unitId)) return false;
+      const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
+      return start.getTime() < occupancyPeriodRange.end.getTime() && end.getTime() > occupancyPeriodRange.start.getTime();
+    });
+  }, [earningsBookings, filteredUnits, occupancyPeriodRange]);
+
   // Occupancy/RevPAR/ADR for the Key metrics card — driven by the same
   // period+status filter as Earnings above (periodRange/filteredUnits),
-  // instead of a permanently-fixed "this week, every unit" snapshot. Uses
-  // periodBookings (already unit- and date-filtered) rather than
-  // earningsBookings directly, so a Status filter like "Occupied only"
-  // correctly narrows the unit count AND which bookings count toward it
-  // together. Realized/Forecast profit, Margin, and Cash Flow deliberately
-  // stay scoped to "this month" — they pull in bills/payroll/expense data
-  // the server only ever fetches for the current month, not an arbitrary
-  // selected period.
+  // instead of a permanently-fixed "this week, every unit" snapshot. A
+  // Status filter like "Occupied only" correctly narrows the unit count AND
+  // which bookings count toward it together. Realized/Forecast profit,
+  // Margin, and Cash Flow deliberately stay scoped to "this month" — they
+  // pull in bills/payroll/expense data the server only ever fetches for the
+  // current month, not an arbitrary selected period.
   const filteredOccupancyData = useMemo(
     () =>
       computeOccupancy({
         unitCount: filteredUnits.length,
-        periodStart: periodRange.start,
-        periodEnd: periodRange.end,
-        bookings: periodBookings,
+        periodStart: occupancyPeriodRange.start,
+        periodEnd: occupancyPeriodRange.end,
+        bookings: periodBookingsForOccupancy,
         maintenanceBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"),
         cleaningBlocks: calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"),
       }),
-    [filteredUnits.length, periodRange, periodBookings, calendarBlocksOccupancy]
+    [filteredUnits.length, occupancyPeriodRange, periodBookingsForOccupancy, calendarBlocksOccupancy]
   );
   const filteredOccupancy = filteredOccupancyData.occupancyPct;
+
+  // Daycation/Night/Full("21 hrs") split of the same occupied nights above —
+  // for the Key metrics card's note, so "Occupancy is X%" also says which
+  // stay types made up those nights. Each type's nights are clipped to the
+  // occupancy period the same way computeOccupancy clips internally; not
+  // deduped against the other two types on a shared unit-day (a Daycation
+  // and a Night stay can legitimately share one calendar day — see
+  // stayRange.ts's bookingsConflict), so this is a per-type breakdown, not a
+  // three-way split of the single headline number.
+  const occupancyByStayType = useMemo(() => {
+    const result: Record<"Daycation" | "Night" | "Full", { bookings: number; nights: number }> = {
+      Daycation: { bookings: 0, nights: 0 },
+      Night: { bookings: 0, nights: 0 },
+      Full: { bookings: 0, nights: 0 },
+    };
+    for (const b of periodBookingsForOccupancy) {
+      if (b.cancelledAt) continue;
+      if (b.stayType !== "Daycation" && b.stayType !== "Night" && b.stayType !== "Full") continue;
+      const { start, end } = occupiedRange(b.stayType, new Date(b.date), b.checkOutDate ? new Date(b.checkOutDate) : null);
+      const s = Math.max(start.getTime(), occupancyPeriodRange.start.getTime());
+      const e = Math.min(end.getTime(), occupancyPeriodRange.end.getTime());
+      if (e <= s) continue;
+      result[b.stayType].bookings += 1;
+      result[b.stayType].nights += Math.round((e - s) / 86400000);
+    }
+    return result;
+  }, [periodBookingsForOccupancy, occupancyPeriodRange]);
   const filteredRevpar = computeRevPAR(periodIncome * 100, filteredOccupancyData.availableNights);
   const filteredAdr = useMemo(
     () => computeADR(periodBookings, periodRange.start, periodRange.end),
@@ -264,6 +318,7 @@ export function useEarningsData({
     displayedPeriodIncome,
     filteredOccupancyData,
     filteredOccupancy,
+    occupancyByStayType,
     filteredRevpar,
     filteredAdr,
     previousPeriodRange,

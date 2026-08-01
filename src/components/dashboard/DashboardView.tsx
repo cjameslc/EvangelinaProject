@@ -172,6 +172,7 @@ export function DashboardView({
     displayedPeriodIncome,
     filteredOccupancyData,
     filteredOccupancy,
+    occupancyByStayType,
     filteredRevpar,
     filteredAdr,
     previousPeriodIncome,
@@ -275,6 +276,7 @@ export function DashboardView({
         cashFlow={cashFlow}
         cashFlowRaw={cashFlowRaw}
         filteredOccupancy={filteredOccupancy}
+        occupancyByStayType={occupancyByStayType}
         filteredRevpar={filteredRevpar}
         filteredAdr={filteredAdr}
         filteredUnitCount={filteredUnits.length}
@@ -288,11 +290,6 @@ export function DashboardView({
         forecastProfitCents={forecastProfitCents}
         monthIncome={monthIncome}
         bookingsMonth={bookingsMonth}
-        units={units}
-        weekRangeStart={weekRangeStart}
-        weekRangeEnd={weekRangeEnd}
-        bookingsWeek={bookingsWeek}
-        calendarBlocksOccupancy={calendarBlocksOccupancy}
       />
 
       <StayMixSection stayCounts={stayCounts} stayTotal={stayTotal} />

@@ -22,6 +22,7 @@ import type { AvailabilityResult } from "./AvailabilityChat";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import type { ConversationSummary } from "@/lib/chat/clientTypes";
 import { OpportunityPanel } from "./OpportunityPanel";
+import { MotivationBanner } from "./MotivationBanner";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
 import { manilaTodayISO } from "@/lib/manilaTime";
@@ -45,7 +46,6 @@ type Booking = {
   confirmationNumber?: string | null;
   confirmationOverrideUntil?: string | null;
 };
-type HkState = { unitId: string; status: string };
 
 // Business runs in Manila (UTC+8). Using toISOString() (UTC) to bucket days
 // would put "today" a full calendar day behind during Philippine early-morning
@@ -90,10 +90,10 @@ function effectiveRange(b: Booking) {
 }
 
 export function BookingsView({
-  role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, hkStates = [], rates, dailyRevenueGoal = null,
+  role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, rates, dailyRevenueGoal = null,
   currentUserId, initialConversations, initialSinceIso, initialFirstBookingIds,
 }: {
-  role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; hkStates?: HkState[]; rates: RateTable; dailyRevenueGoal?: number | null;
+  role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; rates: RateTable; dailyRevenueGoal?: number | null;
   currentUserId: string;
   initialConversations: ConversationSummary[];
   /** The lower date bound the initial `initialBookings` load was scoped to
@@ -338,6 +338,20 @@ export function BookingsView({
     () => bookings.filter((b) => b.date.slice(0, 10) === opportunitiesDate && !b.cancelledAt).reduce((s, b) => s + collectedAmountPesos(b), 0),
     [bookings, opportunitiesDate]
   );
+
+  // Today's occupied-unit count for the motivation banner — a unit counts
+  // once even if it has two same-day slots booked (e.g. Daycation + Night),
+  // matching effectiveRange's real occupied-window math (same helper the
+  // agenda list below already uses) rather than a naive check-in-date match.
+  const occupiedUnitsToday = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of bookings) {
+      if (b.cancelledAt) continue;
+      const { inIso, outIso } = effectiveRange(b);
+      if (inIso <= opportunitiesDate && opportunitiesDate <= outIso) ids.add(b.unitId);
+    }
+    return ids.size;
+  }, [bookings, opportunitiesDate]);
 
   // Every metric on this page (stat cards, Booking insights) is scoped to a
   // Booker's own bookings, always — independent of whichever list tab is
@@ -635,46 +649,6 @@ export function BookingsView({
   const agendaPageCount = Math.max(1, Math.ceil(agenda.length / AGENDA_PAGE_SIZE));
   const pagedAgenda = agenda.slice((agendaPage - 1) * AGENDA_PAGE_SIZE, agendaPage * AGENDA_PAGE_SIZE);
 
-  // Today's snapshot for every unit this user can see, independent of the
-  // date-range filter above — always reflects the actual current day.
-  const dailyReport = useMemo(() => {
-    const todayIso = dayOf(new Date());
-    return units.map((unit) => {
-      // A cancelled booking no longer occupies the unit — matches
-      // availabilityService's own cancelledAt: null exclusion server-side.
-      const unitBookings = bookings.filter((b) => b.unitId === unit.id && !b.cancelledAt);
-      const current = unitBookings.find((b) => {
-        const { inIso, outIso } = effectiveRange(b);
-        return inIso <= todayIso && todayIso < outIso;
-      });
-      const roomStatus = hkStates.find((s) => s.unitId === unit.id)?.status ?? null;
-      if (current) {
-        const outTime = fmtTimeStr(current.checkOutTime);
-        const { outIso } = effectiveRange(current);
-        const untilText = outTime
-          ? `until ${outTime}`
-          : outIso === todayIso
-            ? "checkout time not set"
-            : `until ${fmtDate(outIso, { month: "short", day: "numeric" })}`;
-        return {
-          unit, occupied: true,
-          detail: `${current.guests.join(", ") || "Guest"} · ${untilText}`,
-          arrival: current, departure: null, roomStatus,
-        };
-      }
-      const checkedOutToday = unitBookings.find((b) => effectiveRange(b).outIso === todayIso);
-      if (checkedOutToday) {
-        const outTime = fmtTimeStr(checkedOutToday.checkOutTime);
-        return {
-          unit, occupied: false,
-          detail: outTime ? `Available from ${outTime}` : "Checked out today · available now",
-          arrival: null, departure: checkedOutToday, roomStatus,
-        };
-      }
-      return { unit, occupied: false, detail: "Available all day", arrival: null, departure: null, roomStatus };
-    });
-  }, [bookings, units, hkStates]);
-
   async function markCheckedIn(booking: Booking) {
     const iso = new Date().toISOString();
     setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, checkedInAt: iso } : b)));
@@ -687,20 +661,10 @@ export function BookingsView({
     toast(queued ? "Checked in — will sync when back online" : "Guest checked in ✓");
   }
 
-  async function markCheckedOut(booking: Booking) {
-    const iso = new Date().toISOString();
-    setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, checkedOutAt: iso } : b)));
-    const { queued } = await fetchOrQueue({
-      url: `/api/bookings/${booking.id}`,
-      method: "PATCH",
-      bodyJson: { checkedOutAt: iso },
-      label: `Check-out — ${booking.guests[0] ?? booking.id}`,
-    });
-    toast(queued ? "Checked out — will sync when back online" : "Guest checked out ✓");
-  }
-
   return (
     <div className="mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
+      <MotivationBanner occupiedUnits={occupiedUnitsToday} totalUnits={units.length} onFillSlots={openAddBooking} canEdit={canEdit} />
+
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[28px] font-extrabold tracking-tight sm:text-[32px]">Bookings</h1>
@@ -738,60 +702,6 @@ export function BookingsView({
           <p className="mt-2 text-[12.5px] text-[var(--gray)]">Below are your assigned bookings.</p>
         </div>
       )}
-
-      <div className="card mb-5 p-5">
-        <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[16px] font-extrabold tracking-tight">Today&rsquo;s occupancy</h2>
-          <p className="text-[13px] font-semibold text-[var(--gray)]">
-            {fmtDate(new Date(), { month: "long", day: "numeric", timeZone: "Asia/Manila" })} · {dailyReport.filter((r) => r.occupied).length} of {units.length} units occupied
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {dailyReport.map((r) => (
-            <div
-              key={r.unit.id}
-              className={`flex flex-col gap-2 rounded-xl border p-3 ${r.occupied ? "border-rausch/25 bg-rausch/5" : "border-green/25 bg-green/5"}`}
-            >
-              <div className="flex items-center gap-3">
-                <span className={`h-2.5 w-2.5 flex-none rounded-full ${r.occupied ? "bg-rausch" : "bg-green"}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13.5px] font-extrabold">{formatUnitDisplay(r.unit.unitNumber)}</div>
-                  <div className="truncate text-[12px] text-[var(--gray)]">{r.detail}</div>
-                  <div className="truncate text-[11px] text-[var(--gray)]">Owner: {r.unit.owners?.length ? r.unit.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}</div>
-                </div>
-                <span className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide ${r.occupied ? "bg-rausch/15 text-rausch" : "bg-green/15 text-green"}`}>
-                  {r.occupied ? "Occupied" : "Open"}
-                </span>
-              </div>
-
-              {(r.roomStatus || r.arrival || r.departure) && (
-                <div className="flex flex-wrap items-center gap-1.5 pl-5">
-                  {r.roomStatus && (
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide",
-                        r.roomStatus === "clean" ? "bg-teal/15 text-teal" : r.roomStatus === "cleaning" ? "bg-amber/15 text-amber" : "bg-[var(--bg-2)] text-[var(--gray)]"
-                      )}
-                    >
-                      {r.roomStatus === "clean" ? "Room clean" : r.roomStatus === "cleaning" ? "Being cleaned" : "Needs cleaning"}
-                    </span>
-                  )}
-                  {canEdit && r.arrival && (
-                    r.arrival.checkedInAt
-                      ? <span className="text-[10.5px] font-bold text-teal">Checked in {fmtTime(r.arrival.checkedInAt)}</span>
-                      : <button onClick={() => markCheckedIn(r.arrival!)} className="btn-sm btn-ghost !px-2 !py-1 text-[11px]">Check in</button>
-                  )}
-                  {canEdit && r.departure && (
-                    r.departure.checkedOutAt
-                      ? <span className="text-[10.5px] font-bold text-teal">Checked out {fmtTime(r.departure.checkedOutAt)}</span>
-                      : <button onClick={() => markCheckedOut(r.departure!)} className="btn-sm btn-ghost !px-2 !py-1 text-[11px]">Check out</button>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
 
       <Accordion title="Upcoming check-ins" sub="by guest arrival">
         <div className="mb-4 inline-flex gap-1 rounded-full bg-[var(--bg-2)] p-1">

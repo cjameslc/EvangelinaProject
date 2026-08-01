@@ -5,6 +5,7 @@
 // @/lib/prisma from a client-bundled module breaks the client build.
 
 import { manilaDayKey } from "@/lib/manilaTime";
+import { getOccupiedWindow } from "@/lib/stayRange";
 
 export type GuestJourneyStage = "before_stay" | "check_in_day" | "during_stay" | "checkout_day" | "completed" | "cancelled";
 
@@ -52,8 +53,38 @@ export function guestJourneyStage(
   return "during_stay";
 }
 
-/** A booking counts toward gamification (Elite Booker Challenge tiers) once its stay has actually finished. Commission does NOT use this — see isCommissionEligible below. */
-export function isBookingCompleted(booking: { date: Date | string; checkOutDate: Date | string | null }, now: Date = new Date()): boolean {
+/**
+ * A booking counts toward gamification (Elite Booker Challenge tiers) once
+ * its stay has actually finished. Commission does NOT use this — see
+ * isCommissionEligible below.
+ *
+ * When the caller has stayType on hand, this uses the real occupied-window
+ * end (stayRange.ts's getOccupiedWindow — checkOutTime, or the stay
+ * type/Airbnb-aware default when it's unset) instead of a naive comparison
+ * against checkOutDate's stored midnight-UTC value. The naive version
+ * flagged a stay "completed" as soon as UTC rolled over past midnight on
+ * the checkout's calendar day — for a Daycation checking out 8pm Manila
+ * (noon UTC), that's a 12-hour window where the guest is still actively
+ * there but this already counted the booking as finished (a real gap: it
+ * fed Elite Booker Challenge tier crossings and My Earnings' completed-stay
+ * counts). Some call sites don't select stayType — for those this still
+ * falls back to the previous date-only comparison, exactly as before.
+ */
+export function isBookingCompleted(
+  booking: { date: Date | string; checkOutDate: Date | string | null; stayType?: string; checkInTime?: string | null; checkOutTime?: string | null; platform?: string },
+  now: Date = new Date()
+): boolean {
+  if (booking.stayType) {
+    const window = getOccupiedWindow({
+      stayType: booking.stayType,
+      date: new Date(booking.date),
+      checkOutDate: booking.checkOutDate ? new Date(booking.checkOutDate) : null,
+      checkInTime: booking.checkInTime,
+      checkOutTime: booking.checkOutTime,
+      platform: booking.platform,
+    });
+    return window.end.getTime() <= now.getTime();
+  }
   const end = booking.checkOutDate ? new Date(booking.checkOutDate) : new Date(booking.date);
   return end.getTime() <= now.getTime();
 }

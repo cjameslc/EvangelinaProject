@@ -1,9 +1,11 @@
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { peso } from "@/lib/format";
+import { STAY_TYPES } from "@/lib/constants";
 import { useKeyMetricsInsight } from "../hooks/useKeyMetricsInsight";
 import type { Booking } from "../types";
-import type { OccupancyBlock } from "@/lib/analytics/occupancy";
+
+type OccupancyByStayType = Record<"Daycation" | "Night" | "Full", { bookings: number; nights: number }>;
 
 export function KeyMetricsSection({
   netProfit,
@@ -16,6 +18,7 @@ export function KeyMetricsSection({
   // Read-only derived slice of the Earnings period filter — this card never
   // mutates the filter, so it never receives the setters.
   filteredOccupancy,
+  occupancyByStayType,
   filteredRevpar,
   filteredAdr,
   filteredUnitCount,
@@ -30,11 +33,6 @@ export function KeyMetricsSection({
   forecastProfitCents,
   monthIncome,
   bookingsMonth,
-  units,
-  weekRangeStart,
-  weekRangeEnd,
-  bookingsWeek,
-  calendarBlocksOccupancy,
 }: {
   netProfit: number;
   netProfitRaw: number;
@@ -44,6 +42,7 @@ export function KeyMetricsSection({
   cashFlow: number;
   cashFlowRaw: number;
   filteredOccupancy: number;
+  occupancyByStayType: OccupancyByStayType;
   filteredRevpar: number;
   filteredAdr: number;
   filteredUnitCount: number;
@@ -57,11 +56,6 @@ export function KeyMetricsSection({
   forecastProfitCents: number;
   monthIncome: number;
   bookingsMonth: Booking[];
-  units: { id: string }[];
-  weekRangeStart: string;
-  weekRangeEnd: string;
-  bookingsWeek: Booking[];
-  calendarBlocksOccupancy: OccupancyBlock[];
 }) {
   const { keyMetricsInsights, aiInsight } = useKeyMetricsInsight({
     overdueCentavos,
@@ -72,11 +66,7 @@ export function KeyMetricsSection({
     forecastProfitCents,
     monthIncome,
     bookingsMonth,
-    units,
-    weekRangeStart,
-    weekRangeEnd,
-    bookingsWeek,
-    calendarBlocksOccupancy,
+    occupancy: filteredOccupancy,
   });
 
   return (
@@ -110,6 +100,18 @@ export function KeyMetricsSection({
       {(aiInsight || keyMetricsInsights.length > 0) && (
         <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
           <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">{aiInsight ?? keyMetricsInsights.join(" ")}</p>
+          {(["Daycation", "Night", "Full"] as const).some((k) => occupancyByStayType[k].nights > 0) && (
+            <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--gray)]">
+              Occupied nights {periodPhrase} by stay type:{" "}
+              {(["Daycation", "Night", "Full"] as const).map((k, i) => (
+                <span key={k}>
+                  {i > 0 && ", "}
+                  <span className="font-bold" style={{ color: STAY_TYPES[k].color }}>{STAY_TYPES[k].label}</span> ({STAY_TYPES[k].hrs}): {occupancyByStayType[k].nights} night{occupancyByStayType[k].nights === 1 ? "" : "s"} / {occupancyByStayType[k].bookings} booking{occupancyByStayType[k].bookings === 1 ? "" : "s"}
+                </span>
+              ))}
+              .
+            </p>
+          )}
         </div>
       )}
     </Accordion>

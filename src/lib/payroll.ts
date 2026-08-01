@@ -13,7 +13,7 @@ export type PayrollRates = {
 
 export type TeamLineItem = { label: string; detail: string; amount: number; deduction?: boolean };
 
-type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; paid: boolean; cancelledAt?: string | null; dpAmount?: number | null; refundedAt?: string | null };
+type NormalizedBooking = { bookerId: string | null; cleanerId: string | null; unitId: string; stayType: string; date: string; checkOutDate: string | null; checkOutTime: string | null; checkInTime?: string | null; paid: boolean; cancelledAt?: string | null; dpAmount?: number | null; refundedAt?: string | null };
 type NormalizedExpense = { note: string; amount: number; targetEmployeeId: string | null };
 /** An Admin-approved ExpenseRequest — money this employee is owed back for
  * a business expense they paid out of pocket (TikTok ads, a unit repair),
@@ -28,10 +28,28 @@ export function isPayrollRole(role: string) {
 }
 
 export function computeTeamBreakdown(
-  emp: { id: string; role: string },
-  params: { cleaningDays: number; weekBookings: NormalizedBooking[]; weekExpenses: NormalizedExpense[]; weekExpenseRequests?: NormalizedExpenseRequest[]; rates: PayrollRates; periodWeeks?: number }
+  emp: { id: string; role: string; fixedSalaryCoversCleaning?: boolean },
+  params: {
+    cleaningDays: number;
+    weekBookings: NormalizedBooking[];
+    weekExpenses: NormalizedExpense[];
+    weekExpenseRequests?: NormalizedExpenseRequest[];
+    rates: PayrollRates;
+    periodWeeks?: number;
+    /** Portfolio-wide night-bonus inputs (optional, backward-compatible —
+     * when omitted, HOUSEKEEPING falls back to the old same-unit/day≥2 rule
+     * below). When supplied, replaces that rule with the real business rule:
+     * a ₱ bonus per additional cleaning beyond one-per-unit that day
+     * (totalCleaningsThatDay > totalUnits), gated to cleanings that checked
+     * out at/after 5PM. `portfolioBookings` must be ALL housekeeping-cleaned
+     * bookings for the period (every employee, not just this one) so the
+     * "total cleanings that day" count is real, not just this employee's
+     * share of it. */
+    portfolioBookings?: NormalizedBooking[];
+    totalUnits?: number;
+  }
 ): { total: number; items: TeamLineItem[]; subtitle: string } {
-  const { cleaningDays, weekBookings, weekExpenses, weekExpenseRequests = [], rates } = params;
+  const { cleaningDays, weekBookings, weekExpenses, weekExpenseRequests = [], rates, portfolioBookings, totalUnits } = params;
   // How many weeks the caller's booking/expense window actually spans —
   // 1 for the default "this week" case. Only the Auditor's flat weekly rate
   // needs this: every other line here (day-rate × cleaning days, commission
@@ -43,29 +61,66 @@ export function computeTeamBreakdown(
   let roleSubtitle = "";
 
   if (emp.role === "HOUSEKEEPING") {
-    const regularPay = cleaningDays * rates.housekeepingDayRate;
-    if (cleaningDays > 0) {
-      items.push({ label: "Regular pay", detail: `₱${rates.housekeepingDayRate}/day × ${cleaningDays} day${cleaningDays !== 1 ? "s" : ""}`, amount: regularPay });
+    // Justine (and anyone else flagged this way): fixed salary already pays
+    // for regular day-to-day cleaning, so no separate day-rate line — only
+    // qualifying Night Clean Bonuses show up as activity income for them.
+    if (!emp.fixedSalaryCoversCleaning) {
+      const regularPay = cleaningDays * rates.housekeepingDayRate;
+      if (cleaningDays > 0) {
+        items.push({ label: "Regular pay", detail: `₱${rates.housekeepingDayRate}/day × ${cleaningDays} day${cleaningDays !== 1 ? "s" : ""}`, amount: regularPay });
+      }
     }
-    // Evening incentive: a flat bonus, once per unit per calendar day, if
-    // this employee cleaned 2 or more bookings for that SAME unit that
-    // checked out at or after 5:00 PM that same day — scoped per unit, so
-    // two different units each hitting the threshold the same day both
-    // earn their own bonus; not scaled by how many qualified beyond 2.
-    const eveningCleansByUnitDay = new Map<string, number>();
-    weekBookings
-      .filter((b) => b.cleanerId === emp.id && !b.cancelledAt && !!b.checkOutTime && b.checkOutTime >= "17:00")
-      .forEach((b) => {
+
+    let incentiveCount = 0;
+    let bonusDetail = "";
+    if (portfolioBookings && typeof totalUnits === "number") {
+      // Real rule (as specified): a cleaning qualifies when (1) its
+      // booking's check-in time is at/after 5PM, AND (2) that calendar day's
+      // total portfolio cleanings exceed the number of available units —
+      // i.e. at least one unit got turned over more than once that day, and
+      // this was one of the late check-ins that forced the rushed turnover.
+      // Each employee's qualifying count is capped at how many "extra"
+      // cleanings the whole portfolio actually had that day, so the bonus
+      // pool for a day can never exceed the real number of above-one-per-
+      // unit cleanings, no matter how many staff worked it.
+      const allCleaningsByDay = new Map<string, number>();
+      const myEveningCleaningsByDay = new Map<string, number>();
+      for (const b of portfolioBookings) {
+        if (b.cancelledAt || !b.cleanerId) continue;
         const day = (b.checkOutDate ?? b.date).slice(0, 10);
-        const key = `${b.unitId}::${day}`;
-        eveningCleansByUnitDay.set(key, (eveningCleansByUnitDay.get(key) ?? 0) + 1);
-      });
-    const incentiveUnitDays = [...eveningCleansByUnitDay.values()].filter((n) => n >= 2).length;
-    const bonus = incentiveUnitDays * rates.housekeepingNightBonus;
-    if (incentiveUnitDays > 0) {
-      items.push({ label: "Evening incentive", detail: `₱${rates.housekeepingNightBonus} × ${incentiveUnitDays} (unit, day) (2+ bookings after 5PM, same unit)`, amount: bonus });
+        allCleaningsByDay.set(day, (allCleaningsByDay.get(day) ?? 0) + 1);
+        if (b.cleanerId === emp.id && !!b.checkInTime && b.checkInTime >= "17:00") {
+          myEveningCleaningsByDay.set(day, (myEveningCleaningsByDay.get(day) ?? 0) + 1);
+        }
+      }
+      for (const [day, mine] of myEveningCleaningsByDay) {
+        const extraThatDay = Math.max(0, (allCleaningsByDay.get(day) ?? 0) - totalUnits);
+        incentiveCount += Math.min(mine, extraThatDay);
+      }
+      bonusDetail = `₱${rates.housekeepingNightBonus} × ${incentiveCount} additional cleaning${incentiveCount !== 1 ? "s" : ""} (check-in 5PM+, on a day total cleanings exceeded available units)`;
+      roleSubtitle = emp.fixedSalaryCoversCleaning
+        ? `fixed salary + ₱${rates.housekeepingNightBonus} per qualifying Night Clean Bonus`
+        : `₱${rates.housekeepingDayRate}/day + ₱${rates.housekeepingNightBonus} per qualifying Night Clean Bonus`;
+    } else {
+      // Legacy fallback (no portfolio-wide data supplied by this caller):
+      // once per unit per calendar day, if this employee alone cleaned 2+
+      // bookings for that SAME unit checking out at/after 5PM that day.
+      const eveningCleansByUnitDay = new Map<string, number>();
+      weekBookings
+        .filter((b) => b.cleanerId === emp.id && !b.cancelledAt && !!b.checkOutTime && b.checkOutTime >= "17:00")
+        .forEach((b) => {
+          const day = (b.checkOutDate ?? b.date).slice(0, 10);
+          const key = `${b.unitId}::${day}`;
+          eveningCleansByUnitDay.set(key, (eveningCleansByUnitDay.get(key) ?? 0) + 1);
+        });
+      incentiveCount = [...eveningCleansByUnitDay.values()].filter((n) => n >= 2).length;
+      bonusDetail = `₱${rates.housekeepingNightBonus} × ${incentiveCount} (unit, day) (2+ bookings after 5PM, same unit)`;
+      roleSubtitle = `₱${rates.housekeepingDayRate}/day + ₱${rates.housekeepingNightBonus} evening incentive (2+ bookings after 5PM, same unit/day)`;
     }
-    roleSubtitle = `₱${rates.housekeepingDayRate}/day + ₱${rates.housekeepingNightBonus} evening incentive (2+ bookings after 5PM, same unit/day)`;
+    const bonus = incentiveCount * rates.housekeepingNightBonus;
+    if (incentiveCount > 0) {
+      items.push({ label: "Night Clean Bonus", detail: bonusDetail, amount: bonus });
+    }
   } else if (emp.role === "AUDITOR") {
     const auditorAmount = Math.round(rates.auditorWeeklyRate * periodWeeks);
     if (auditorAmount > 0) {

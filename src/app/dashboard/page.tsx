@@ -46,7 +46,7 @@ const getDashboardData = unstable_cache(
     // to 20MB+ for a business with a literal handful of bookings; this select
     // is the fix.
     const dashboardBookingSelect = {
-      id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true,
+      id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true,
       platform: true, amount: true, paid: true, dpAmount: true, guests: true,
       receivedById: true, dpReceivedById: true, cleanerId: true, bookerId: true, conflict: true, cancelledAt: true, refundedAt: true,
     };
