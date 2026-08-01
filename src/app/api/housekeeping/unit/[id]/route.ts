@@ -73,6 +73,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         update: logData,
         create: { ...logData, bookingId: body.bookingId },
       });
+      // Credit the booking to whoever actually did the clean — this was a
+      // real, confirmed gap: CleaningLog.employeeId (this real-time record)
+      // and Booking.cleanerId (what the Night Clean Bonus and cleaning
+      // counts actually read) were two disconnected sources of truth.
+      // Finishing a real clean through this tab never touched the
+      // booking's own cleanerId, so staff who did the work through here
+      // rather than being pre-assigned on the booking silently earned no
+      // bonus credit for it. Only fills a gap (cleanerId currently unset)
+      // — never overwrites an existing explicit assignment.
+      if (employee?.id) {
+        await prisma.booking.updateMany({ where: { id: body.bookingId, cleanerId: null }, data: { cleanerId: employee.id } });
+      }
     } else {
       await prisma.cleaningLog.create({ data: { ...logData, bookingId: null } });
     }
