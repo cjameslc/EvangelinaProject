@@ -168,6 +168,16 @@ export const expenseRequestReviewSchema = z.object({
   rejectionReason: z.string().nullable().optional(),
 });
 
+export const bookingActivityLogSchema = z.object({
+  type: z.enum(["cancelled", "rescheduled", "other"]),
+  unitId: z.string().nullable().optional(),
+  guestName: z.string().min(1),
+  contactNumber: z.string().nullable().optional(),
+  transactionDate: z.string().min(1),
+  amount: z.number().int().nonnegative().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
 export const employeeAchievementSchema = z.object({
   employeeId: z.string().min(1),
   label: z.string().min(1),

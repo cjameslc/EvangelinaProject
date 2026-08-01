@@ -18,6 +18,7 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
+import { BookingActivityLogPanel } from "./BookingActivityLogPanel";
 import type { AvailabilityResult } from "./AvailabilityChat";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import type { ConversationSummary } from "@/lib/chat/clientTypes";
@@ -891,6 +892,8 @@ export function BookingsView({
             <div id="log-new-booking-anchor" />
             <BookingForm units={units} employees={emps} defaultDpFee={defaultDpFee} rates={rates} onSubmit={createBooking} initial={bookingPrefill ?? undefined} ownEmployeeId={ownEmployeeId} />
           </Accordion>
+
+          <BookingActivityLogPanel units={units} role={role} />
         </>
       )}
 

@@ -140,6 +140,7 @@ model Unit {
   laundryOrders LaundryOrder[]
   feedbackResponses FeedbackResponse[]
   reserveAccessCodes ReserveAccessCode[]
+  bookingActivityLogs BookingActivityLog[]
 
   @@map("units")
 }
@@ -218,6 +219,7 @@ model Employee {
   expenseRequests     ExpenseRequest[]
   achievements        EmployeeAchievement[]
   laundryOrdersAssigned LaundryOrder[]
+  bookingActivityLogsCreated BookingActivityLog[]
 
   @@index([active])
   @@map("employees")
@@ -318,6 +320,32 @@ model ExpenseRequest {
   @@index([employeeId])
   @@index([date])
   @@map("expense_requests")
+}
+
+// Manual record of a booking-adjacent transaction that never became (or is
+// no longer) a real Booking row — a guest inquiry that cancelled before
+// staff ever logged it, a reschedule that was worked out over chat and
+// re-booked as a fresh entry, etc. A cancelled Booking already has its own
+// full record (Booking.cancelledAt) and belongs in the Bookings tab as-is;
+// this table exists specifically for the transactions that would otherwise
+// leave no trace at all, so month-end reporting can still see them.
+model BookingActivityLog {
+  id              String    @id @default(cuid())
+  type            String    // "cancelled" | "rescheduled" | "other"
+  unitId          String?
+  unit            Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  guestName       String
+  contactNumber   String?
+  transactionDate DateTime  // the date this would-have-been stay/transaction relates to
+  amount          Int?      // optional quoted/lost amount, whole pesos
+  note            String?
+  createdById     String?
+  createdBy       Employee? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+
+  @@index([transactionDate])
+  @@index([type])
+  @@map("booking_activity_logs")
 }
 
 // Record-keeping only — marks whether a given week's payroll (salary +
