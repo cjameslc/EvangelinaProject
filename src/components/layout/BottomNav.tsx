@@ -23,8 +23,32 @@ export function BottomNav() {
   const { theme, toggle } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
+  const [auditorOpenCount, setAuditorOpenCount] = useState(0);
 
   useEffect(() => { setSheetOpen(false); }, [pathname]);
+
+  // Escape closes the sheet — the backdrop already handles click/tap, this
+  // adds keyboard/external-keyboard parity with Navbar's dropdowns.
+  useEffect(() => {
+    if (!sheetOpen) return;
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setSheetOpen(false); }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [sheetOpen]);
+
+  // Same open-findings badge as Navbar's "More" menu — see
+  // /api/auditor-findings/open-count for why this is its own lightweight
+  // endpoint rather than reusing the full Auditor page query.
+  useEffect(() => {
+    if (!session || viewMode === "travel") return;
+    if (!visibleNavItems(session.user?.role).some((i) => i.href === "/auditor")) return;
+    const controller = new AbortController();
+    fetch("/api/auditor-findings/open-count", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((j) => setAuditorOpenCount(j.count ?? 0))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session, viewMode, pathname]);
 
   // Same lightweight badge fetch as Navbar (a sibling component — BottomNav
   // is staff-only, so it duplicates rather than shares that state, same as
@@ -133,16 +157,30 @@ export function BottomNav() {
             {overflowItems.map((item) => {
               const Icon = ICONS[item.icon];
               const on = pathname.startsWith(item.href);
+              const badge = item.href === "/auditor" ? auditorOpenCount : 0;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-3 text-[14px] font-semibold transition",
-                    on ? "bg-rausch/10 text-rausch" : "text-[var(--ink)] hover:bg-[var(--bg-2)]"
+                    "flex items-center gap-3 rounded-xl px-3 py-2.5 transition",
+                    on ? "bg-rausch/10" : "hover:bg-[var(--bg-2)]"
                   )}
                 >
-                  <Icon className="h-[17px] w-[17px] flex-none" /> {item.label}
+                  <span className={cn("grid h-9 w-9 flex-none place-items-center rounded-lg", on ? "bg-rausch/15 text-rausch" : "bg-[var(--bg-2)] text-[var(--gray)]")}>
+                    <Icon className="h-[17px] w-[17px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={cn("flex items-center gap-1.5 text-[14px] font-semibold", on ? "text-rausch" : "text-[var(--ink)]")}>
+                      {item.label}
+                      {badge > 0 && (
+                        <span className="grid h-[16px] min-w-[16px] place-items-center rounded-full bg-rausch px-[3px] text-[9.5px] font-extrabold text-white">
+                          {badge > 99 ? "99+" : badge}
+                        </span>
+                      )}
+                    </span>
+                    <span className="block truncate text-[11.5px] font-medium text-[var(--gray)]">{item.subtitle}</span>
+                  </span>
                 </Link>
               );
             })}

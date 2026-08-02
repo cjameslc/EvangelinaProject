@@ -13,14 +13,18 @@ export type NavItem = {
   href: string;
   label: string;
   icon: string; // lucide-ish key used by <NavIcon>
+  /** One-line "what's in here" shown under the label in the More menu — this app's roles mostly see 0-2 overflow items, so a labeled group header would sit over a single row; a subtitle carries the same "which business area" context without that. */
+  subtitle: string;
+  /** Loose grouping used only for the dynamic "More" trigger label (e.g. shows "Finance" instead of "More" once you're on My Earnings) — not rendered as a section header, see subtitle above. */
+  group: "Operations" | "Finance" | "Marketing" | "Insights" | "Administration";
 };
 
 // Which roles may see which nav tab / route.
 // OWNER_ADMIN implicitly sees everything.
 export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "grid", roles: ["OWNER_ADMIN", "CO_OWNER"] },
-  { href: "/analytics", label: "Analytics", icon: "chart", roles: ["OWNER_ADMIN", "CO_OWNER"] },
-  { href: "/bookings", label: "Bookings", icon: "file", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
+  { href: "/dashboard", label: "Dashboard", icon: "grid", subtitle: "Today at a glance", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER"] },
+  { href: "/analytics", label: "Analytics", icon: "chart", subtitle: "Performance & trends", group: "Insights", roles: ["OWNER_ADMIN", "CO_OWNER"] },
+  { href: "/bookings", label: "Bookings", icon: "file", subtitle: "Reservations & guests", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   // Team chat now lives inside Bookings > Check availability (Team
   // Collaboration panel) for every role that has a Bookings tab. Auditor is
   // the one role with chat access but no Bookings access (canSeeBookings
@@ -28,13 +32,13 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   // path to team chat. visibleNavItems() below special-cases this one item
   // so even OWNER_ADMIN (who otherwise sees every tab) doesn't get a
   // second, redundant "Chat" tab alongside Bookings.
-  { href: "/chat", label: "Chat", icon: "chat", roles: ["AUDITOR"] },
-  { href: "/calendar", label: "Calendar", icon: "calendar", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
-  { href: "/social", label: "Social", icon: "megaphone", roles: ["OWNER_ADMIN", "CO_OWNER", "BOOKER", "HOUSEKEEPING", "AUDITOR"] },
-  { href: "/housekeeping", label: "Housekeeping", icon: "home", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
-  { href: "/earnings", label: "My Earnings", icon: "wallet", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
-  { href: "/auditor", label: "Auditor", icon: "search", roles: ["OWNER_ADMIN", "AUDITOR", "CO_OWNER"] },
-  { href: "/admin", label: "Admin", icon: "settings", roles: ["OWNER_ADMIN"] },
+  { href: "/chat", label: "Chat", icon: "chat", subtitle: "Team messages", group: "Operations", roles: ["AUDITOR"] },
+  { href: "/calendar", label: "Calendar", icon: "calendar", subtitle: "Availability & schedule", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
+  { href: "/social", label: "Social", icon: "megaphone", subtitle: "Posts & promotions", group: "Marketing", roles: ["OWNER_ADMIN", "CO_OWNER", "BOOKER", "HOUSEKEEPING", "AUDITOR"] },
+  { href: "/housekeeping", label: "Housekeeping", icon: "home", subtitle: "Cleaning & turnovers", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
+  { href: "/earnings", label: "My Earnings", icon: "wallet", subtitle: "Payroll & performance", group: "Finance", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
+  { href: "/auditor", label: "Auditor", icon: "search", subtitle: "Quality & compliance", group: "Insights", roles: ["OWNER_ADMIN", "AUDITOR", "CO_OWNER"] },
+  { href: "/admin", label: "Admin", icon: "settings", subtitle: "Units, users & settings", group: "Administration", roles: ["OWNER_ADMIN"] },
 ];
 
 // Shared by Navbar (desktop) and BottomNav (mobile) so the two nav surfaces
