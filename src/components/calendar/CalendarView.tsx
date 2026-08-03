@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; icalImportUrl?: string | null; icalToken?: string | null; owners?: { user: { name: string } }[] };
 type BlockBooking = {
+  id: string; confirmationNumber: string | null;
   platform: string; amount: number; paid: boolean; dpAmount: number | null;
   checkInTime: string | null; checkOutTime: string | null; pax: number | null; contactNumber: string;
   method: string | null; dpMethod: string | null;
@@ -796,6 +797,12 @@ function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () =
             <div>
               <div className="text-[11px] font-bold text-[var(--gray)]">Payment method</div>
               <div className="font-extrabold">{PAYMENT_METHOD_LABEL[bk.method] ?? bk.method}</div>
+            </div>
+          )}
+          {bk && (
+            <div>
+              <div className="text-[11px] font-bold text-[var(--gray)]">Booking ID</div>
+              <div className="font-extrabold">{bk.confirmationNumber ?? bk.id.slice(0, 8)}</div>
             </div>
           )}
         </div>

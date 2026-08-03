@@ -14,6 +14,7 @@ export async function GET() {
       unit: { select: { id: true, name: true, unitNumber: true, shortName: true } },
       booking: {
         select: {
+          id: true, confirmationNumber: true,
           platform: true, amount: true, paid: true, dpAmount: true,
           checkInTime: true, checkOutTime: true, pax: true, contactNumber: true,
           method: true, dpMethod: true,
