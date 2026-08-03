@@ -11,7 +11,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!canEditHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
 
   const body = await req.json();
-  const existing = await prisma.housekeepingUnitState.findUnique({ where: { unitId: params.id } });
 
   const data: any = {};
   if (body.checked) data.checked = body.checked;
@@ -20,15 +19,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.start) data.startedAt = new Date();
   if (body.end) data.endedAt = new Date();
   if (body.photoUrls) data.photoUrls = body.photoUrls;
-  // Records WHICH booking's checkout this finished clean satisfies —
-  // accumulated (not overwritten), since a unit can have more than one
-  // checkout in a day and a single flat "clean" would otherwise wrongly
-  // cover every checkout that day, not just the one just cleaned. See the
-  // schema comment on cleanedBookingIds.
-  if (body.status === "clean" && body.end && body.bookingId) {
-    const prevIds: string[] = Array.isArray(existing?.cleanedBookingIds) ? (existing!.cleanedBookingIds as string[]) : [];
-    data.cleanedBookingIds = prevIds.includes(body.bookingId) ? prevIds : [...prevIds, body.bookingId];
-  }
   if (body.status === "todo") {
     data.startedAt = null;
     data.endedAt = null;
@@ -45,6 +35,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // follow-ups outside the transaction, same as this codebase's other write
   // paths (e.g. bookingService.ts) — they're not money/records-of-truth.
   const state = await prisma.$transaction(async (tx) => {
+    // Read-then-append, done inside the transaction rather than before it —
+    // this field accumulates (see the schema comment on cleanedBookingIds)
+    // rather than overwrites, so two different checkouts on the same unit
+    // finishing cleaning within moments of each other both need to see each
+    // other's append, not just whichever wrote last. Reading this outside
+    // the transaction (as it originally did) meant both requests could read
+    // the same stale array and one's append would silently overwrite the
+    // other's inside the upsert below.
+    if (body.status === "clean" && body.end && body.bookingId) {
+      const existing = await tx.housekeepingUnitState.findUnique({ where: { unitId: params.id }, select: { cleanedBookingIds: true } });
+      const prevIds: string[] = Array.isArray(existing?.cleanedBookingIds) ? (existing!.cleanedBookingIds as string[]) : [];
+      data.cleanedBookingIds = prevIds.includes(body.bookingId) ? prevIds : [...prevIds, body.bookingId];
+    }
+
     const state = await tx.housekeepingUnitState.upsert({
       where: { unitId: params.id },
       update: data,
