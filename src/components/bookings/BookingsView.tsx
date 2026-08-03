@@ -326,19 +326,24 @@ export function BookingsView({
     [bookings, opportunitiesDate]
   );
 
-  // Today's occupied-unit count for the motivation banner — a unit counts
-  // once even if it has two same-day slots booked (e.g. Daycation + Night),
-  // matching effectiveRange's real occupied-window math (same helper the
-  // agenda list below already uses) rather than a naive check-in-date match.
-  const occupiedUnitsToday = useMemo(() => {
-    const ids = new Set<string>();
-    for (const b of bookings) {
-      if (b.cancelledAt) continue;
-      const { inIso, outIso } = effectiveRange(b);
-      if (inIso <= opportunitiesDate && opportunitiesDate <= outIso) ids.add(b.unitId);
-    }
-    return ids.size;
-  }, [bookings, opportunitiesDate]);
+  // Today's occupied-unit count for the motivation banner — a unit counts as
+  // occupied only when it genuinely has no sellable slot left today, reusing
+  // `opportunities` (the same real conflict-window math — bookingsConflict,
+  // via computeOpportunities above) that already drives the Opportunities
+  // section on this same page. This used to be its own separate check
+  // (`effectiveRange`'s inIso <= today <= outIso), which only compares
+  // calendar *days* — a unit whose only booking today already checked out
+  // (e.g. an 11am checkout, no same-day Night booked since) still counted as
+  // "occupied" for the rest of the day, since its checkout day is still
+  // today. That's correct for effectiveRange's own purpose elsewhere on this
+  // page (which calendar days a booking's agenda row spans), but wrong for
+  // "can we still sell this unit today" — the two sections disagreeing is
+  // exactly what surfaced this: the banner said "fully booked" for a unit
+  // Opportunities (and a booker on the floor) could see was still bookable.
+  const occupiedUnitsToday = useMemo(
+    () => opportunities.filter((o) => o.slotsOpen === 0).length,
+    [opportunities]
+  );
 
   // Every metric on this page (stat cards, Booking insights) is scoped to a
   // Booker's own bookings, always — independent of whichever list tab is
