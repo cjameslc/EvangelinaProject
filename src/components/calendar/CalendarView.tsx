@@ -575,12 +575,21 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                     disabled={!!focusedUnit}
                     className={cn(
                       "group sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition",
-                      !focusedUnit && "cursor-pointer hover:bg-rausch/[0.06] active:bg-rausch/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
+                      !focusedUnit && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
                     )}
                     style={{ width: SIDEBAR_W }}
                     title={focusedUnit ? undefined : `View ${formatUnitDisplay(u.unitNumber, u.shortName)} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
                     aria-label={focusedUnit ? undefined : `Focus calendar on ${formatUnitDisplay(u.unitNumber, u.shortName)}`}
                   >
+                    {/* Separate opaque-over-opaque overlay, not a translucent
+                        override of bg-[var(--card)] above — this button is
+                        sticky over horizontally-scrolling calendar content,
+                        so a hover:bg-rausch/[0.06] on the same background-color
+                        property made the whole cell briefly see-through on
+                        hover instead of just tinting it. */}
+                    {!focusedUnit && (
+                      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-rausch opacity-0 transition group-hover:opacity-[0.06] group-active:opacity-10" />
+                    )}
                     <div className="flex w-full min-w-0 items-center gap-1.5">
                       <span className="truncate text-[13px] font-extrabold leading-tight group-hover:text-rausch group-hover:underline">{formatUnitDisplay(u.unitNumber, u.shortName)}</span>
                       {!focusedUnit && (
