@@ -185,9 +185,11 @@ export function BookingsView({
     if (eRes.ok) setEmps(await eRes.json());
   }
 
-  /** Explicit escape hatch for the rare case a search/tab needs a booking
-   * older than the default 90-day window — re-fetches the full unbounded
-   * history once and never re-narrows for the rest of the session. */
+  /** Re-fetches the full unbounded history once and never re-narrows for
+   * the rest of the session — used both by the "Show older bookings" button
+   * and automatically below whenever a search is typed, since a name/
+   * booking-ID search means the guest wants that one specific booking
+   * regardless of whether it falls inside the default 90-day window. */
   async function loadOlderBookings() {
     if (!sinceIso || loadingOlder) return;
     setLoadingOlder(true);
@@ -199,6 +201,11 @@ export function BookingsView({
       setLoadingOlder(false);
     }
   }
+
+  useEffect(() => {
+    if (search.trim()) loadOlderBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   async function createBooking(v: BookingFormValue) {
     let res: Response;
@@ -588,11 +595,17 @@ export function BookingsView({
   }, [tabScopedBookings, search, statusFilter, platformFilter, bookerFilter, unitFilter]);
 
   const filtered = useMemo(() => {
+    // A name/booking-ID search means the guest is looking for one specific
+    // booking, which could be months in the past or future — narrowing that
+    // down to whatever the date-range pill (default "week") happens to be
+    // set to would hide the very result they're searching for. Search wins
+    // over the pill; the pill still applies to plain browsing.
+    if (search) return nonDateFiltered;
     return nonDateFiltered.filter((b) => {
       const bDate = new Date(b.date);
       return bDate >= dateRange.start && bDate < dateRange.end;
     });
-  }, [nonDateFiltered, dateRange]);
+  }, [nonDateFiltered, dateRange, search]);
 
   // Group into a day-by-day agenda: each booking contributes a check-in row on
   // its start date and a check-out row on its end date. Any days strictly in
