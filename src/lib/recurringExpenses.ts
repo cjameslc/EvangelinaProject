@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ExpenseCategory } from "@/lib/prisma-enums";
+import { isUniqueConstraintError } from "@/lib/apiValidation";
 
 /** Maps a template's category to the underlying Bill.key so existing bill-key-based UI (icons, filters) keeps working without a rewrite. */
 export const CATEGORY_TO_BILL_KEY: Record<ExpenseCategory, string> = {
@@ -25,9 +26,14 @@ export function resolveDueDay(template: { dueDay: number | null; dueRule: string
 /**
  * Ensures every active RecurringExpenseTemplate has exactly one Bill for the
  * given month, creating any missing ones as Pending (paid: false). Idempotent
- * and safe to call from every page that reads bills — a template can never
- * end up with two bills for the same month because each generated bill is
- * looked up by templateId+month first.
+ * and safe to call from every page that reads bills — the findMany-then-
+ * create below is a plain check-then-write and by itself can't stop two
+ * concurrent callers from both seeing "no bill yet" and both inserting one;
+ * what actually guarantees "exactly one bill per template per month" is the
+ * @@unique([templateId, month]) constraint on Bill. createMany's
+ * skipDuplicates isn't supported on SQLite/libSQL, so each insert runs on
+ * its own and a constraint violation from losing that race is caught and
+ * ignored instead — the other caller's row already covers this template.
  */
 export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
   const templates = await prisma.recurringExpenseTemplate.findMany({ where: { active: true } });
@@ -45,18 +51,26 @@ export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
   const missing = templates.filter((t) => !haveBill.has(t.id));
   if (missing.length === 0) return;
 
-  await prisma.bill.createMany({
-    data: missing.map((t) => ({
-      unitId: t.unitId,
-      key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
-      label: t.description,
-      month,
-      dueDay: resolveDueDay(t, year, month0),
-      amountDue: Math.round(t.amountCentavos / 100),
-      amountDueCentavos: t.amountCentavos,
-      accountNumber: t.accountNumber,
-      paid: false,
-      templateId: t.id,
-    })),
-  });
+  await Promise.all(
+    missing.map((t) =>
+      prisma.bill
+        .create({
+          data: {
+            unitId: t.unitId,
+            key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
+            label: t.description,
+            month,
+            dueDay: resolveDueDay(t, year, month0),
+            amountDue: Math.round(t.amountCentavos / 100),
+            amountDueCentavos: t.amountCentavos,
+            accountNumber: t.accountNumber,
+            paid: false,
+            templateId: t.id,
+          },
+        })
+        .catch((e) => {
+          if (!isUniqueConstraintError(e)) throw e;
+        })
+    )
+  );
 }

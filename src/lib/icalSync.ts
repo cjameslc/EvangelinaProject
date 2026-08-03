@@ -1,7 +1,23 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { parseICS } from "@/lib/ical";
-import { occupiedRange, syncCalendarMirror, rangesOverlap, nightsFor } from "@/lib/calendarMirror";
+import { occupiedRange, rangesOverlap, nightsFor, getOccupiedWindow, lastOccupiedDay } from "@/lib/calendarMirror";
 import { AIRBNB_NIGHTLY_RATE, AIRBNB_DEFAULT_TIMES } from "@/lib/constants";
+
+/** Same upsert syncCalendarMirror does, but against a transaction's own `tx`
+ * client instead of the outer `prisma` singleton — so a booking write and
+ * its calendar-mirror row always land together. Kept local to this file
+ * rather than threading a client param through the shared helper, which
+ * every other call site (create/edit) still calls plainly. */
+async function mirrorCalendarBlockTx(tx: PrismaTransactionClient, booking: { id: string; unitId: string; stayType: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null; platform?: string; guests: string[] }) {
+  const window = getOccupiedWindow(booking);
+  const endDate = lastOccupiedDay(window);
+  const guest = booking.guests.join(", ") || "Guest";
+  await tx.calendarBlock.upsert({
+    where: { bookingId: booking.id },
+    update: { unitId: booking.unitId, type: booking.stayType as any, date: booking.date, endDate, guest },
+    create: { unitId: booking.unitId, type: booking.stayType as any, date: booking.date, endDate, guest, status: "confirmed", bookingId: booking.id },
+  });
+}
 
 /** Airbnb .ics events carry no price — revenue is nights x the fixed per-night rate. DTEND is exclusive, so this is exact. */
 function airbnbRevenue(start: Date, end: Date): number {
@@ -115,7 +131,10 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
   const feedUids = new Set(activeEvents.map((e) => e.uid));
 
   const [existingImported, others] = await Promise.all([
-    prisma.booking.findMany({ where: { unitId, source: "AIRBNB" } }),
+    prisma.booking.findMany({
+      where: { unitId, source: "AIRBNB" },
+      select: { id: true, externalUid: true, date: true, checkOutDate: true, amount: true, paid: true, conflict: true },
+    }),
     prisma.booking.findMany({
       where: { unitId, source: { not: "AIRBNB" } },
       select: { date: true, checkOutDate: true, stayType: true },
@@ -125,12 +144,13 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
   let imported = 0, updated = 0, removed = 0, conflicts = 0;
 
   // Airbnb no longer lists these — the guest cancelled or the block was
-  // removed upstream, so drop our copy too (cascades to its calendar mirror).
-  for (const b of existingImported) {
-    if (!b.externalUid || !feedUids.has(b.externalUid)) {
-      await prisma.booking.delete({ where: { id: b.id } });
-      removed++;
-    }
+  // removed upstream, so drop our copy too. One batched deleteMany instead
+  // of a per-row delete in a loop; CalendarBlock.bookingId is onDelete:
+  // Cascade, so each mirror row goes with its booking either way.
+  const staleIds = existingImported.filter((b) => !b.externalUid || !feedUids.has(b.externalUid)).map((b) => b.id);
+  if (staleIds.length > 0) {
+    await prisma.booking.deleteMany({ where: { id: { in: staleIds } } });
+    removed = staleIds.length;
   }
 
   for (const ev of activeEvents) {
@@ -148,14 +168,20 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
       // change something.
       const revenueStale = existing.amount !== revenue || !existing.paid;
       if (dateChanged || existing.conflict !== overlapsManual || revenueStale) {
-        const booking = await prisma.booking.update({
-          where: { id: existing.id },
-          // Dates moved (a guest's stay got modified upstream) — recompute
-          // revenue from the new night count so it never drifts from what's
-          // actually on the calendar.
-          data: { date: ev.start, checkOutDate: ev.end, conflict: overlapsManual, amount: revenue, paid: true },
+        // Booking write + its calendar-mirror upsert, atomically — a timeout
+        // between the two used to be able to leave a booking's dates moved
+        // with the calendar still showing the old ones (or vice versa) until
+        // the next sync happened to touch it again.
+        await prisma.$transaction(async (tx) => {
+          const booking = await tx.booking.update({
+            where: { id: existing.id },
+            // Dates moved (a guest's stay got modified upstream) — recompute
+            // revenue from the new night count so it never drifts from what's
+            // actually on the calendar.
+            data: { date: ev.start, checkOutDate: ev.end, conflict: overlapsManual, amount: revenue, paid: true },
+          });
+          await mirrorCalendarBlockTx(tx, booking);
         });
-        await syncCalendarMirror(booking);
         if (dateChanged) updated++;
       }
       continue;
@@ -166,25 +192,27 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
     // Airbnb collects payment off-platform and remits it directly, so an
     // imported booking counts as paid revenue as soon as it's synced — there's
     // no local payment step for staff to log.
-    const booking = await prisma.booking.create({
-      data: {
-        unitId,
-        date: ev.start,
-        checkOutDate: ev.end,
-        stayType: "Full",
-        checkInTime: AIRBNB_DEFAULT_TIMES.checkInTime,
-        checkOutTime: AIRBNB_DEFAULT_TIMES.checkOutTime,
-        guests: ["Airbnb guest"] as any,
-        contactNumber: "",
-        platform: "Airbnb",
-        amount: airbnbRevenue(ev.start, ev.end),
-        paid: true,
-        source: "AIRBNB",
-        externalUid: ev.uid,
-        conflict: overlapsManual,
-      },
+    await prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.create({
+        data: {
+          unitId,
+          date: ev.start,
+          checkOutDate: ev.end,
+          stayType: "Full",
+          checkInTime: AIRBNB_DEFAULT_TIMES.checkInTime,
+          checkOutTime: AIRBNB_DEFAULT_TIMES.checkOutTime,
+          guests: ["Airbnb guest"] as any,
+          contactNumber: "",
+          platform: "Airbnb",
+          amount: airbnbRevenue(ev.start, ev.end),
+          paid: true,
+          source: "AIRBNB",
+          externalUid: ev.uid,
+          conflict: overlapsManual,
+        },
+      });
+      await mirrorCalendarBlockTx(tx, booking);
     });
-    await syncCalendarMirror(booking);
     imported++;
     if (overlapsManual) conflicts++;
   }

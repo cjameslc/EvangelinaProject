@@ -748,11 +748,15 @@ model Bill {
   templateId String?
   template   RecurringExpenseTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
-  // Not unique: a unit can have any number of custom bills in the same
-  // month. The 5 built-in bill types are kept from duplicating themselves
-  // by a findFirst-then-create check in the API instead of a DB constraint.
+  // Custom/legacy bills (templateId null) aren't unique: a unit can have any
+  // number of those in the same month, and SQLite treats every NULL in a
+  // unique index as distinct from every other NULL, so this constraint only
+  // ever applies to template-generated bills — exactly one per template per
+  // month, enforced at the DB level instead of relying purely on the
+  // findMany-then-createMany check in ensureRecurringBillsForMonth (which is
+  // a real TOCTOU race if two staff load a Bills-scoped page at once).
   @@index([unitId, key, month])
-  @@index([templateId, month])
+  @@unique([templateId, month])
   @@map("bills")
 }
 

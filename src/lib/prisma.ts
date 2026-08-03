@@ -203,6 +203,12 @@ function makePrismaClient() {
 
 export const prisma = globalForPrisma.prisma ?? makePrismaClient();
 
+// The `tx` a `prisma.$transaction(async (tx) => ...)` callback receives —
+// pulled off the real (extended) client's own callback signature instead of
+// Prisma's plain Prisma.TransactionClient, since the json-string-fields
+// extensions above change what that type actually looks like here.
+export type PrismaTransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 // @prisma/adapter-libsql serializes every query issued on a given client
 // behind an internal mutex — so Promise.all-ing many independent reads
 // through the single `prisma` client above still runs them one network

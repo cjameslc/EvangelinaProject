@@ -37,59 +37,70 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data.photoUrls = [];
   }
 
-  const state = await prisma.housekeepingUnitState.upsert({
-    where: { unitId: params.id },
-    update: data,
-    create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [], photoUrls: body.photoUrls ?? [] },
+  // The state upsert and (when a clean finishes) the cleaning-log write and
+  // the booking's cleanerId credit are one unit of work — a failure between
+  // them used to be able to leave a unit showing "clean" with no log row and
+  // no payroll credit for whoever actually did it, silently under-crediting
+  // real work. The calendar-mirror calls and audit log below stay best-effort
+  // follow-ups outside the transaction, same as this codebase's other write
+  // paths (e.g. bookingService.ts) — they're not money/records-of-truth.
+  const state = await prisma.$transaction(async (tx) => {
+    const state = await tx.housekeepingUnitState.upsert({
+      where: { unitId: params.id },
+      update: data,
+      create: { unitId: params.id, checked: body.checked ?? [], status: body.status ?? "todo", byName: body.byName ?? null, cleanedBookingIds: data.cleanedBookingIds ?? [], photoUrls: body.photoUrls ?? [] },
+    });
+
+    // When a clean finishes, write a permanent log entry (attributed to
+    // whoever's logged in — the person actually doing the clean). One
+    // cleaning per checkout: if a log already exists for this booking's
+    // checkout (a double-click, or a repeated Start/Finish cycle on the same
+    // pending checkout), update that same row instead of inserting a new
+    // one. Only cleans with no bookingId (nothing scheduled) always create
+    // fresh — there's no id to dedupe on.
+    if (body.status === "clean" && body.end) {
+      const employee = await tx.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+      const logData = {
+        unitId: params.id,
+        employeeId: employee?.id ?? null,
+        startedAt: state.startedAt ?? new Date(),
+        endedAt: state.endedAt ?? new Date(),
+        photoUrls: (state.photoUrls.length ? state.photoUrls : null) as any,
+      };
+      if (body.bookingId) {
+        // bookingId is a unique column — this upsert is atomic, so even two
+        // Finish requests landing at the exact same moment (a genuine
+        // simultaneous double-click) still resolve to one row, not a race.
+        await tx.cleaningLog.upsert({
+          where: { bookingId: body.bookingId },
+          update: logData,
+          create: { ...logData, bookingId: body.bookingId },
+        });
+        // Credit the booking to whoever actually did the clean — this was a
+        // real, confirmed gap: CleaningLog.employeeId (this real-time record)
+        // and Booking.cleanerId (what the Night Clean Bonus and cleaning
+        // counts actually read) were two disconnected sources of truth.
+        // Finishing a real clean through this tab never touched the
+        // booking's own cleanerId, so staff who did the work through here
+        // rather than being pre-assigned on the booking silently earned no
+        // bonus credit for it. Only fills a gap (cleanerId currently unset)
+        // — never overwrites an existing explicit assignment.
+        if (employee?.id) {
+          await tx.booking.updateMany({ where: { id: body.bookingId, cleanerId: null }, data: { cleanerId: employee.id } });
+        }
+      } else {
+        await tx.cleaningLog.create({ data: { ...logData, bookingId: null } });
+      }
+    }
+
+    return state;
   });
 
   // Mirror onto the calendar so /calendar shows a unit is currently being
   // cleaned — same mirroring pattern used for bookings (syncCalendarMirror).
   if (body.start) await openCleaningCalendarBlock(params.id, data.startedAt, body.bookingId ?? null);
   if (body.status === "todo") await clearCleaningCalendarBlock(params.id);
-
-  // When a clean finishes, write a permanent log entry (attributed to
-  // whoever's logged in — the person actually doing the clean) and close
-  // off the calendar's in-progress marker. One cleaning per checkout: if a
-  // log already exists for this booking's checkout (a double-click, or a
-  // repeated Start/Finish cycle on the same pending checkout), update that
-  // same row instead of inserting a new one. Only cleans with no bookingId
-  // (nothing scheduled) always create fresh — there's no id to dedupe on.
-  if (body.status === "clean" && body.end) {
-    const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-    const logData = {
-      unitId: params.id,
-      employeeId: employee?.id ?? null,
-      startedAt: state.startedAt ?? new Date(),
-      endedAt: state.endedAt ?? new Date(),
-      photoUrls: (state.photoUrls.length ? state.photoUrls : null) as any,
-    };
-    if (body.bookingId) {
-      // bookingId is a unique column — this upsert is atomic, so even two
-      // Finish requests landing at the exact same moment (a genuine
-      // simultaneous double-click) still resolve to one row, not a race.
-      await prisma.cleaningLog.upsert({
-        where: { bookingId: body.bookingId },
-        update: logData,
-        create: { ...logData, bookingId: body.bookingId },
-      });
-      // Credit the booking to whoever actually did the clean — this was a
-      // real, confirmed gap: CleaningLog.employeeId (this real-time record)
-      // and Booking.cleanerId (what the Night Clean Bonus and cleaning
-      // counts actually read) were two disconnected sources of truth.
-      // Finishing a real clean through this tab never touched the
-      // booking's own cleanerId, so staff who did the work through here
-      // rather than being pre-assigned on the booking silently earned no
-      // bonus credit for it. Only fills a gap (cleanerId currently unset)
-      // — never overwrites an existing explicit assignment.
-      if (employee?.id) {
-        await prisma.booking.updateMany({ where: { id: body.bookingId, cleanerId: null }, data: { cleanerId: employee.id } });
-      }
-    } else {
-      await prisma.cleaningLog.create({ data: { ...logData, bookingId: null } });
-    }
-    await closeCleaningCalendarBlock(params.id, state.endedAt ?? new Date());
-  }
+  if (body.status === "clean" && body.end) await closeCleaningCalendarBlock(params.id, state.endedAt ?? new Date());
 
   await logAudit(user.id, "housekeeping.update", "HousekeepingUnitState", params.id, { status: body.status });
   return NextResponse.json(state);
