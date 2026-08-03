@@ -98,7 +98,12 @@ export function GuideHubView({
                         alt=""
                         className="absolute inset-0 h-full w-full transition-transform duration-500 group-hover:scale-110"
                         sizes="200px"
-                        attributionClassName="text-[8px] px-1 py-0.5 bottom-1 right-1"
+                        // This tile is itself a TransitionLink (renders an <a>);
+                        // UnsplashImage's attribution is also an <a>, and a
+                        // nested anchor is invalid HTML that breaks hydration.
+                        // Full-size, non-linked usages (GuidePageHeader) still
+                        // show it.
+                        showAttribution={false}
                       />
                     ) : tile.art ? (
                       <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-110">
