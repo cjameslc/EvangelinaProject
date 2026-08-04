@@ -71,6 +71,8 @@ function makePrismaClient() {
         },
         cleaningLog: {
           create: ({ args, query }) => { stringifyField(args.data as any, "photoUrls"); return query(args); },
+          update: ({ args, query }) => { stringifyField(args.data as any, "photoUrls"); return query(args); },
+          upsert: ({ args, query }) => { stringifyField(args.create as any, "photoUrls"); stringifyField(args.update as any, "photoUrls"); return query(args); },
         },
         settings: {
           update: ({ args, query }) => {

@@ -119,12 +119,27 @@ export function HousekeepingView({
     // patch to IndexedDB and replays it once the connection comes back,
     // instead of just failing. The optimistic setStates() above already
     // reflects the change locally either way.
-    const { queued } = await fetchOrQueue({
+    const { queued, response } = await fetchOrQueue({
       url: `/api/housekeeping/unit/${unitId}`,
       method: "PATCH",
       bodyJson: patch,
       label: `Housekeeping update — ${unitId}`,
     });
+    // A non-OK response (e.g. a server error) used to fall straight
+    // through to the success toast below with no check at all — the
+    // optimistic update above already showed the room as clean, so the
+    // failure was invisible until the follow-up refreshHk() silently
+    // reverted it back, looking exactly like "clicking Mark clean does
+    // nothing" with no explanation. Confirmed via a real reproduction: a
+    // finished clean with photos attached threw a 500 (unrelated Prisma
+    // serialization gap, now also fixed), and this is what made that
+    // failure invisible rather than the room just staying un-clean with
+    // a visible error.
+    if (!queued && response && !response.ok) {
+      await refreshHk().catch(() => {});
+      toast("Couldn't save — please try again.", true);
+      return;
+    }
     if (patch.status) {
       const base = patch.status === "clean" ? "Room marked clean ✓" : patch.status === "cleaning" ? "Cleaning started" : "Reset to to-do";
       toast(queued ? `${base} — will sync when back online` : base);
