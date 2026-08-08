@@ -1,13 +1,13 @@
 import { unstable_cache } from "next/cache";
 import { prismaPool } from "@/lib/prisma";
 import { dashboardUnitIdWhere } from "@/lib/session";
-import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
+import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, manilaNowPlaceholder, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, occupancyCalendarGrid, OCCUPANCY_CALENDAR_MAX_DAYS, type CalendarCell } from "@/lib/analytics/occupancy";
 import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
 import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
-import { netProfitCentavos, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos, accruedOperationalCostsCentavos } from "@/lib/analytics/financials";
+import { netProfitCentavos, marginPct, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos, accruedOperationalCostsCentavos } from "@/lib/analytics/financials";
 import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot } from "@/lib/analytics/housekeeping";
 import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
@@ -131,8 +131,27 @@ const cachedFetchKpiData = unstable_cache(fetchKpiData, ["analytics-kpis"], { re
 
 export type ExecutiveKPIs = {
   totalRevenueCentavos: number;
+  // Revenue/profit *through today* within the current period — used for
+  // growth-% comparisons (see revenueGrowthPct below) and the Hero card's
+  // headline. Distinct from totalRevenueCentavos, which is the full
+  // nominal-period total (e.g. all of August, including already-confirmed
+  // future-dated bookings) — that stays unchanged for the existing KPI
+  // row's own display. Equal to totalRevenueCentavos whenever the period
+  // has already fully elapsed (Today, Yesterday, a past custom range).
+  mtdRevenueCentavos: number;
+  mtdNetProfitCentavos: number;
+  // Human-readable label for exactly what mtd*/growth% were compared
+  // against — e.g. "Jul 1–8" — so a comparison badge is never shown
+  // without saying what it's relative to.
+  comparisonPeriodLabel: string;
   netProfitCentavos: number;
   netProfitNote: string;
+  // Percentage-point delta (not a growth %) — a margin's own unit is
+  // already a percent, so "up 2.3 points" reads correctly where "up 2.3%"
+  // would be ambiguous (2.3% of what — the margin itself, or revenue?).
+  marginPct: number;
+  marginPctPointsDelta: number | null;
+  bookingsGrowthPct: number | null;
   occupancyPct: number;
   adrCentavos: number;
   revparCentavos: number;
@@ -230,10 +249,45 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   const monthlyTotals = trailingMonthBookings.map((rows: any[]) => collectedRevenueCentavos(rows));
   const forecast = trailingAverageForecast(monthlyTotals);
 
+  // Growth-% and the Hero card's headline must compare like-for-like — "Aug
+  // 1-8" against "Jul 1-8", never "all of August" (which, unlike a plain
+  // calendar boundary, already includes real revenue from confirmed
+  // future-dated bookings within the month) against a necessarily-shorter
+  // clipped previous window. previousBookings/previousNetProfit are
+  // already correctly elapsed-clipped (see previousPeriodRangeFor in
+  // period.ts); this mirrors that same clipping onto `current`, filtering
+  // the already-fetched currentBookings array in memory — no extra query.
+  // accruedOperationalCostsCentavos already internally clamps periodEnd to
+  // "now" regardless of what's passed in, and a bill's paidAt can't be a
+  // future date by definition, so currentOtherCostsCents/
+  // currentPaidExpensesCents need no separate clipping here.
+  const elapsedCutoff = new Date(Math.min(manilaNowPlaceholder().getTime(), currentEnd.getTime()));
+  const elapsedCurrentBookings = currentBookings.filter((b: any) => new Date(b.date).getTime() < elapsedCutoff.getTime());
+  const mtdRevenueCentavos = collectedRevenueCentavos(elapsedCurrentBookings);
+  const mtdNetProfitCentavos = netProfitCentavos({ revenueCentavos: mtdRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents, otherPaidCostsCentavos: currentOtherCostsCents });
+  const comparisonPeriodLabel = formatDateRangeShort(previousStart, new Date(previousEnd.getTime() - 86400000));
+  const currentMarginPct = marginPct(mtdNetProfitCentavos, mtdRevenueCentavos);
+  const previousMarginPct = marginPct(previousNetProfit, previousRevenueCentavos);
+  // Bookings growth is cheap and honest to compute (both arrays are already
+  // fetched, no elapsed-clipping needed — a booking either exists or it
+  // doesn't, there's no "future portion" ambiguity the way revenue has).
+  // Occupancy/ADR/RevPAR growth is deliberately NOT computed here — a fair
+  // previous-period occupancy would need previous-period Maintenance/
+  // Cleaning blocks too, which aren't fetched (only the current window's
+  // are) — rather than approximate it without them, this stays an honest
+  // "no prior period" in the UI until that query is added.
+  const bookingsGrowthPct = revenueGrowthPct(currentBookings.length, previousBookings.length);
+
   return {
     totalRevenueCentavos,
+    mtdRevenueCentavos,
+    mtdNetProfitCentavos,
+    comparisonPeriodLabel,
     netProfitCentavos: netProfit,
     netProfitNote: "Revenue minus paid bills, accrued staff payroll, and approved expenses for this period.",
+    marginPct: currentMarginPct,
+    marginPctPointsDelta: previousRevenueCentavos > 0 ? currentMarginPct - previousMarginPct : null,
+    bookingsGrowthPct,
     occupancyPct: occ.occupancyPct,
     adrCentavos: adr * 100,
     revparCentavos: revpar * 100,
@@ -242,13 +296,21 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     avgStayLengthNights: avgStayLengthNights(currentBookings),
     repeatGuestRatePct: repeat.repeatRatePct,
     repeatGuestBasis: repeat.basis,
-    revenueGrowthPct: revenueGrowthPct(rawRevenueCentavos, previousRevenueCentavos),
-    profitGrowthPct: revenueGrowthPct(netProfit, previousNetProfit),
+    revenueGrowthPct: revenueGrowthPct(mtdRevenueCentavos, previousRevenueCentavos),
+    profitGrowthPct: revenueGrowthPct(mtdNetProfitCentavos, previousNetProfit),
     monthlyForecastCentavos: forecast.forecastCentavos,
     forecastMethod: forecast.method,
     forecastConfidence: forecast.confidence,
     unitCount: units.length,
   };
+}
+
+/** "Jul 1–8" — a short, human comparison-period label spanning [start, inclusiveEnd]. */
+function formatDateRangeShort(start: Date, inclusiveEnd: Date): string {
+  const fmt = (d: Date, withMonth: boolean) =>
+    `${withMonth ? d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }) + " " : ""}${d.getUTCDate()}`;
+  const sameMonth = start.getUTCMonth() === inclusiveEnd.getUTCMonth() && start.getUTCFullYear() === inclusiveEnd.getUTCFullYear();
+  return sameMonth ? `${fmt(start, true)}–${fmt(inclusiveEnd, false)}` : `${fmt(start, true)}–${fmt(inclusiveEnd, true)}`;
 }
 
 /** day for short periods, week for a quarter, month for a year+ — keeps a trend chart from either showing one bar (a year bucketed by day) or a flat line (a day bucketed by month). */

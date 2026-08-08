@@ -9,6 +9,30 @@ import type { DashboardPeriodType } from "@/lib/payroll";
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
+/**
+ * "Now," represented the same UTC-placeholder way every period boundary in
+ * this file already is (see manilaDayStart's doc comment in format.ts) —
+ * Manila's Y/M/D/H/M/S, reinterpreted as if they were UTC. Every period
+ * boundary below (current.start/end) is this same kind of placeholder, not
+ * a true UTC instant; subtracting a *true* UTC Date.now() from one of them
+ * (as previousPeriodRangeFor used to) silently mixes the two, and Manila
+ * being UTC+8 means true-UTC-now sits up to 8 hours *behind* its own
+ * placeholder for most of the Manila day — enough to round a genuinely
+ * elapsed calendar day down to the previous one depending on what time it
+ * is. Caught via live testing (a "This Month" comparison label read "Jul
+ * 1–7" instead of "Jul 1–8" on the 9th), not by inspection.
+ */
+export function manilaNowPlaceholder(d: Date = new Date()): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  // Intl can format midnight as hour "24" with hour12:false in some engines.
+  const hour = get("hour") % 24;
+  return new Date(Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second")));
+}
+
 /** The Manila calendar day (YYYY-MM-DD) a given instant falls on — exported for chart bucketing (revenueSeries etc.), which needs the same timezone rule every period boundary already uses. */
 export const manilaDayKey = dayOf;
 
@@ -77,23 +101,43 @@ export function periodRangeFor(
 }
 
 /**
- * The immediately-preceding period of the same length — powers every
- * Growth % KPI and period-over-period chart comparison. "Custom" has no
- * natural "previous" cadence, so it's approximated as the same-length
- * window immediately before the selected range (matches the logic this
- * was extracted from in DashboardView.tsx).
+ * The comparison window for every Growth % KPI and period-over-period
+ * chart — same length as `current`, but LIKE-FOR-LIKE: if `current` hasn't
+ * finished yet (its end is still in the future relative to right now), the
+ * previous window is clipped to the same elapsed portion instead of the
+ * full prior period. Comparing 6 days of this August against all 31 days
+ * of July is not a valid comparison — the growth % it produces is
+ * meaningless (usually reads as a steep, fake "decline" for no real
+ * reason) and, because Analytics' AI Executive Insight is fed this exact
+ * number and told to narrate it, an invalid comparison used to turn into a
+ * confidently-wrong sentence, not just a misleading badge.
+ *
+ * A period that's already fully closed (e.g. "Yesterday", or any period
+ * being viewed after it ended) is unaffected — full period vs. full period
+ * is already the correct comparison there, so this only ever narrows the
+ * window, never widens a currently-correct one. "Custom" still has no
+ * natural cadence, so its full-length previous window is derived the same
+ * way as before; it goes through the same elapsed-clipping afterward.
  */
 export function previousPeriodRangeFor(
   rangeType: AnalyticsPeriodType,
   offset: number,
   custom?: { start: string; end: string }
 ): { start: Date; end: Date } {
-  if (rangeType === "custom") {
-    const current = periodRangeFor(rangeType, offset, custom);
-    const lengthMs = current.end.getTime() - current.start.getTime();
-    return { start: new Date(current.start.getTime() - lengthMs), end: new Date(current.start) };
-  }
-  return periodRangeFor(rangeType, offset - 1, custom);
+  const current = periodRangeFor(rangeType, offset, custom);
+  const previousFull =
+    rangeType === "custom"
+      ? (() => {
+          const lengthMs = current.end.getTime() - current.start.getTime();
+          return { start: new Date(current.start.getTime() - lengthMs), end: new Date(current.start) };
+        })()
+      : periodRangeFor(rangeType, offset - 1, custom);
+
+  const now = manilaNowPlaceholder().getTime();
+  if (current.end.getTime() <= now) return previousFull;
+
+  const elapsedMs = Math.max(0, Math.min(now, current.end.getTime()) - current.start.getTime());
+  return { start: previousFull.start, end: new Date(previousFull.start.getTime() + elapsedMs) };
 }
 
 /** Whole days spanned by a period — e.g. for prorating a salary or scaling a flat weekly rate. */
@@ -136,6 +180,6 @@ export function resolveAnalyticsPeriod(
   const { rangeType, offset } = map[preset];
   return {
     current: periodRangeFor(rangeType, offset),
-    previous: periodRangeFor(rangeType, offset - 1),
+    previous: previousPeriodRangeFor(rangeType, offset),
   };
 }

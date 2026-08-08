@@ -14,6 +14,7 @@ export {
 } from "@/lib/finance";
 
 import { totalSalaryPayroll, type SalaryHistoryEntry } from "@/lib/payroll";
+import { manilaNowPlaceholder } from "@/lib/analytics/period";
 
 export type OutstandingBooking = { amount: number; paid: boolean; dpAmount: number | null; cancelledAt?: string | Date | null };
 
@@ -51,7 +52,12 @@ export function accruedOperationalCostsCentavos(params: {
   periodEnd: Date;
   now?: Date;
 }): number {
-  const now = params.now ?? new Date();
+  // params.periodEnd is a Manila-UTC-placeholder (see manilaNowPlaceholder's
+  // doc comment in period.ts), so the default "now" to compare it against
+  // must be the same kind of placeholder, not a true UTC instant — the same
+  // fix as previousPeriodRangeFor's, applied here since this function has
+  // the identical now-vs-placeholder comparison.
+  const now = params.now ?? manilaNowPlaceholder();
   const effectiveEnd = params.periodEnd.getTime() < now.getTime() ? params.periodEnd : now;
   const accruedDays = Math.max(0, Math.round((effectiveEnd.getTime() - params.periodStart.getTime()) / 86400000));
   const payrollCentavos = totalSalaryPayroll(params.employees, params.salaryHistory, "custom", params.periodStart, accruedDays) * 100;
