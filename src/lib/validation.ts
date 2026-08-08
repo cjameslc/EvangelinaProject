@@ -161,7 +161,7 @@ export const expenseRequestSchema = z
     date: z.string().min(1),
     amount: z.number().int().positive(),
     note: z.string().min(1),
-    category: z.enum(["TIKTOK_ADS", "UNIT_EXPENSE"]),
+    category: z.enum(["TIKTOK_ADS", "UNIT_EXPENSE", "PASA_GUEST", "OTHER"]),
     unitId: z.string().nullable().optional(),
     receiptUrl: z.string().nullable().optional(),
   })
@@ -207,6 +207,18 @@ export const userSchema = z.object({
   ownedUnitIds: z.array(z.string()).optional(),
   active: z.boolean().optional(),
   showOnGuestGuide: z.boolean().optional(),
+});
+
+// Platform Admin's "Create New Owner" form (multi-owner brief, section
+// 26) — creates both the Owner (tenant) row and that owner's first
+// OWNER_ADMIN login in one step; see POST /api/platform/owners.
+export const createOwnerSchema = z.object({
+  businessName: z.string().min(1).max(120),
+  ownerName: z.string().min(1).max(120),
+  email: z.string().email(),
+  phone: z.string().max(32).optional(),
+  primaryColor: z.string().max(20).optional(),
+  logoUrl: z.string().max(2000).nullable().optional(),
 });
 
 export const billUpdateSchema = z.object({
@@ -315,6 +327,13 @@ export const settingsSchema = z.object({
   emergencyContacts: z.array(emergencyContactSchema).nullable().optional(),
   staffContacts: z.array(emergencyContactSchema).nullable().optional(),
   faqs: z.array(faqCategorySchema).nullable().optional(),
+  // Seasonal Skin System (src/lib/skins/) — manual override id, or null to
+  // clear it (falls back to whatever's automatically scheduled, or the
+  // Evangelina Violet default). Any unrecognized id is harmless: resolveActiveSkinId
+  // silently falls back to automatic/default rather than erroring, so this
+  // deliberately stays a plain string rather than a Zod enum that would
+  // need updating every time a skin is added to the registry.
+  activeSeasonalSkinId: z.string().nullable().optional(),
 });
 
 export const auditFindingCreateSchema = z.object({
@@ -415,4 +434,35 @@ export const laundryServiceBaseSchema = z.object({
 export const laundryServiceSchema = laundryServiceBaseSchema.refine((v) => (v.pricePerKg ?? 0) > 0 || (v.pricePerItem ?? 0) > 0, {
   message: "Set a price per kilogram or per item (or both).",
   path: ["pricePerKg"],
+});
+
+const isValidDateTimeString = (v: string) => !Number.isNaN(new Date(v).getTime());
+
+export const deploymentEventCreateSchema = z.object({
+  title: z.string().min(1, "Enter a title."),
+  description: z.string().min(1, "Enter a description."),
+  // Every other status is reached via a lifecycle action (Start Now, Mark
+  // Completed, …), never at creation — except EMERGENCY, which by
+  // definition has no advance-notice "Scheduled" phase.
+  status: z.enum(["SCHEDULED", "EMERGENCY"]).optional(),
+  severity: z.enum(["INFO", "WARNING", "CRITICAL"]).optional(),
+  startsAt: z.string().refine(isValidDateTimeString, "Invalid start date/time."),
+  endsAt: z.string().refine(isValidDateTimeString, "Invalid end date/time.").nullable().optional(),
+  affectedModules: z.array(z.string()).nullable().optional(),
+  releaseNotes: z.string().nullable().optional(),
+  fullMaintenanceMode: z.boolean().optional(),
+  notifyEmail: z.boolean().optional(),
+});
+
+// Two shapes in one PUT body (matches how POST /api/bookings/[id]/confirmation
+// already overloads action-vs-update in this codebase): a plain field patch,
+// or a lifecycle action. Kept as separate schemas (not one big optional
+// object) so a route can `safeParse` the action shape first and fall back to
+// the field-update shape, giving a precise error either way.
+export const deploymentEventActionSchema = z.object({
+  action: z.enum(["start", "complete", "cancel", "restore", "rollback"]),
+  outcome: z.enum(["SUCCESS", "FAILED"]).optional(),
+});
+export const deploymentEventUpdateSchema = deploymentEventCreateSchema.partial().extend({
+  enabled: z.boolean().optional(),
 });

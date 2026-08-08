@@ -2,14 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireUser, unitIdWhere, logAudit } from "@/lib/session";
+import { ownerUnitWhere } from "@/lib/ownerScope";
 import { unitSchema } from "@/lib/validation";
 
 export async function GET() {
   const { user, error } = await requireUser();
   if (error) return error;
 
+  // Reference implementation of owner-scoping (see src/lib/ownerScope.ts) —
+  // for Evangelina's own staff this is a no-op (every existing unit was
+  // backfilled to Evangelina's Owner row, so the filter matches every row
+  // it always did), but it's what actually stops one owner's staff from
+  // ever seeing another owner's units at the query level once a second
+  // owner exists.
   const units = await prisma.unit.findMany({
-    where: unitIdWhere(user),
+    where: { ...unitIdWhere(user), ...ownerUnitWhere(user) },
     orderBy: { sortOrder: "asc" },
     include: { owners: { include: { user: { select: { id: true, name: true } } } } },
   });

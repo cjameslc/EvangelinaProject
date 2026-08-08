@@ -11,6 +11,47 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── Multi-Owner Platform (foundational layer) ─────────────────────────
+// Owner is the tenant root. Unit/User/Employee carry ownerId directly
+// (the three entities everything else keys off of); every other model
+// (Booking, CalendarBlock, AccessCredential, HousekeepingUnitState, Bill,
+// Stock, etc.) derives its owner transitively via unit.ownerId — a JOIN,
+// not a denormalized column — since unitId is already required and
+// non-null on all of them. This keeps the initial migration small
+// (three tables touched, not dozens) while still being real database-
+// level scoping: every query that needs tenant isolation filters through
+// unit.ownerId (or user.ownerId for staff-only lookups), never just a
+// frontend show/hide. See src/lib/ownerScope.ts for the one shared helper
+// every scoped query should go through.
+//
+// Evangelina's Staycation is migrated in as the first Owner row (see
+// scratch/migrate-owner-foundation.mjs) — nothing about its existing
+// behavior changes; ownerId is simply now populated on its own
+// units/staff, same as any future owner's would be.
+model Owner {
+  id             String   @id @default(cuid())
+  businessName   String
+  slug           String   @unique
+  logoUrl        String?
+  primaryColor   String?
+  secondaryColor String?
+  heroImageUrl   String?
+  footerText     String?
+  // ACTIVE | SUSPENDED — a Platform Admin action (see section 24 of the
+  // multi-owner brief); a suspended owner's staff can't sign in and its
+  // booking page stops accepting new bookings, but existing data is never
+  // deleted.
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  units     Unit[]
+  users     User[]
+  employees Employee[]
+
+  @@map("owners")
+}
+
 // ── Roles ──────────────────────────────────────────────
 // OWNER_ADMIN  — sees every unit and every feature, manages the whole site
 // CO_OWNER     — sees only the units assigned to them, same feature set as owner but scoped
@@ -24,6 +65,22 @@ model User {
   email              String?  @unique
   passwordHash       String
   role               String     @default("BOOKER")
+  // Nullable during the foundational rollout — every existing user is
+  // backfilled to Evangelina's Owner row by the migration script, but the
+  // column stays optional at the schema level rather than a hard
+  // NOT NULL/onDelete: Restrict FK, so a not-yet-migrated or
+  // platform-admin-only account (ownerId null, isPlatformAdmin true)
+  // remains a valid, unexceptional state rather than a constraint violation.
+  ownerId            String?
+  owner              Owner?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  // James, not a per-owner role — see src/lib/ownerScope.ts's
+  // requirePlatformAdmin(). Deliberately a separate boolean rather than
+  // overloading the existing `role` string: every existing role-based
+  // check (role === "OWNER_ADMIN", canEditBookings(role), etc.) keeps
+  // working completely unchanged for a regular owner's OWNER_ADMIN: this
+  // flag only ever *adds* platform-level access on top, never redefines
+  // what an existing role string means.
+  isPlatformAdmin    Boolean  @default(false)
   avatarColor        String   @default("#FF385C")
   avatarUrl          String?  // profile picture, data-URL — kept out of the NextAuth session/JWT (would blow the cookie size limit), fetched fresh from the DB wherever it's shown
   // Guest Experience module — opt-in only: a staff member appears on the
@@ -40,6 +97,7 @@ model User {
   ownedUnits   UnitOwner[]
   employee     Employee?
   auditLogs    AuditLog[]
+  deploymentEventsCreated DeploymentEvent[]
   shifts       Shift[]
   weeklyExpensesAdded WeeklyExpense[]
   reviewedExpenseRequests ExpenseRequest[]
@@ -47,13 +105,9 @@ model User {
   laundryOrdersCreated LaundryOrder[]
   laundryStatusChanges LaundryStatusHistory[]
   laundryPaymentsReceived LaundryPayment[]
-
-  chatConversationMemberships ChatConversationMember[]
-  chatMessagesSent            ChatMessage[]
-  chatReactions                ChatReaction[]
-  chatAnnouncementsCreated    ChatAnnouncement[]
-  chatAnnouncementDismissals  ChatAnnouncementDismissal[]
-  presence                    UserPresence?
+  accessCredentialsCreated AccessCredential[] @relation("AccessCredentialCreatedBy")
+  accessCredentialsRevoked AccessCredential[] @relation("AccessCredentialRevokedBy")
+  staffNotifications StaffNotification[]
 
   @@map("users")
 }
@@ -72,6 +126,12 @@ model UnitOwner {
 
 model Unit {
   id          String   @id @default(cuid())
+  // See the Owner model's doc comment — the tenant root every other
+  // booking/calendar/access/housekeeping record derives its owner from via
+  // this relation, rather than each of those tables carrying its own
+  // ownerId. Nullable for the same backfill-safety reason as User.ownerId.
+  ownerId     String?
+  owner       Owner?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   name        String
   unitNumber  String
   shortName   String
@@ -140,6 +200,7 @@ model Unit {
   laundryOrders LaundryOrder[]
   feedbackResponses FeedbackResponse[]
   reserveAccessCodes ReserveAccessCode[]
+  accessCredentials AccessCredential[]
 
   @@map("units")
 }
@@ -170,6 +231,13 @@ model IcalSyncLog {
 // May optionally be linked to a login-capable User.
 model Employee {
   id           String   @id @default(cuid())
+  // Employee is the real tenant root for staff attribution on Booking
+  // (bookerId/cleanerId/etc. below all reference Employee, not User) — and
+  // userId is optional (a payroll-only record can exist with no login
+  // account), so Employee needs its own ownerId rather than always being
+  // derivable via employee.user.ownerId.
+  ownerId      String?
+  owner        Owner?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   name         String
   role         String     @default("BOOKER")
   payRateNote  String?
@@ -218,6 +286,7 @@ model Employee {
   expenseRequests     ExpenseRequest[]
   achievements        EmployeeAchievement[]
   laundryOrdersAssigned LaundryOrder[]
+  assignedAccessCredentials AccessCredential[]
 
   @@index([active])
   @@map("employees")
@@ -300,7 +369,7 @@ model ExpenseRequest {
   id              String    @id @default(cuid())
   employeeId      String
   employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  category        String    // "TIKTOK_ADS" | "UNIT_EXPENSE"
+  category        String    // "TIKTOK_ADS" | "UNIT_EXPENSE" | "PASA_GUEST" | "OTHER"
   unitId          String?   // required for UNIT_EXPENSE, null for TIKTOK_ADS
   unit            Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
   amount          Int
@@ -504,23 +573,17 @@ model Booking {
   couponCode                String?
   couponDiscountAmount      Int?
 
-  // Guest self-check-in access code — assigned best-effort right after a
-  // guest-portal booking is created (never blocks the booking itself; see
-  // src/lib/ttlock/reliability.ts). "ttlock" = a real dynamic passcode
-  // created live on the lock; "reserve" = one of the 10 pre-provisioned
-  // permanent emergency codes per unit, used when the TTLock API call
-  // failed after retries. accessCodeKeyboardPwdId is only set for the
-  // "ttlock" case, so it can be deleted from the lock on release.
-  accessCode                String?
-  accessCodeSource          String? // "ttlock" | "reserve"
-  accessCodeKeyboardPwdId   Int?
-  accessCodeAssignedAt      DateTime?
-
   calendarBlock   CalendarBlock?  @relation("BookingCalendarBlock")
   cleaningBlock   CalendarBlock?  @relation("BookingCleaningBlock")
   cleaningLogs    CleaningLog[]
   guestRequests   GuestRequest[]
   reserveAccessCode ReserveAccessCode?
+  // Guest self-check-in credential history for this booking — see
+  // AccessCredential below. The "current" one is whichever row has
+  // status = ACTIVE (at most one at a time; enforced in application code,
+  // not the schema, since a booking can cycle through a FAILED attempt
+  // before a working credential is assigned).
+  accessCredentials AccessCredential[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -661,6 +724,16 @@ model HousekeepingUnitState {
   // receipts) — a new, taken-every-day photo feature must not repeat that.
   photoUrls String @default("[]") // JSON-encoded string[] — see src/lib/prisma.ts extension
   updatedAt DateTime @updatedAt
+  // Set once, the moment an "Overdue" notification fires for the *current*
+  // cleaning session (elapsed > the 2-hour max) — guards against
+  // re-notifying the Owner/Booker on every subsequent request while the
+  // clean is still running. Reset to null on every new Start (see the
+  // `body.start` branch in src/app/api/housekeeping/unit/[id]/route.ts) so
+  // the next session can be flagged independently. Checked lazily, in
+  // GET /api/housekeeping — no free cron slot for a real-time watcher (see
+  // that route's comment), so this only actually fires the next time
+  // someone loads the housekeeping page while a clean is overdue.
+  overdueNotifiedAt DateTime?
 
   @@map("housekeeping_unit_state")
 }
@@ -686,6 +759,12 @@ model CleaningLog {
   // (legacy rows, or a room cleaned with nothing scheduled).
   bookingId  String?   @unique
   booking    Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  // The one HOUSEKEEPING-type AccessCredential (if any) issued for this
+  // specific cleaning session — see src/lib/access/service.ts. Nullable:
+  // most cleans still happen with no pre-generated code (self-service,
+  // unchanged from before this feature), only set when an Owner/Booker
+  // actually generated one ahead of time.
+  accessCredential AccessCredential?
 
   @@index([unitId, startedAt])
   @@index([employeeId])
@@ -700,6 +779,12 @@ model Shift {
   user       User?     @relation(fields: [userId], references: [id])
   clockIn    DateTime
   clockOut   DateTime?
+  // "Scheduled Logout" | "Manual Logout" | "Session Expired" | "Admin Logout"
+  // — null for shifts closed before this field existed, or a legacy manual
+  // clock-out that predates the distinction mattering. Set by whichever
+  // clockOut path actually closes the shift — see
+  // src/app/api/housekeeping/shift/route.ts.
+  logoutReason String?
 
   @@map("shifts")
 }
@@ -936,6 +1021,13 @@ model Settings {
   // never a guessed number). See src/lib/places/.
   propertyLat Float?
   propertyLng Float?
+
+  // Seasonal Skin System — manual override for the active global skin (see
+  // src/lib/skins/). Null = no manual override, so the automatic
+  // date-scheduled skin (or the Evangelina Violet default, if no schedule
+  // matches today) applies instead. See resolveActiveSkinId's Manual >
+  // Scheduled > Default priority order.
+  activeSeasonalSkinId String?
 
   updatedAt     DateTime @updatedAt
 
@@ -1189,27 +1281,84 @@ model ReserveAccessCode {
   @@map("reserve_access_codes")
 }
 
-// One row logged per fallback activation — a real TTLock API failure that
-// caused a reserve code to be used instead of a live-generated passcode.
-// Kept separate from ReserveAccessCode itself so the audit trail survives
-// even after that code is released/reassigned to a later booking.
-model TtlockFallbackLog {
-  id           String   @id @default(cuid())
-  bookingId    String?
-  unitId       String?
-  guestId      String?
-  errorMessage String
-  reserveCodeId String?
-  createdAt    DateTime @default(now())
+// The single source of truth for every physical-access credential the app
+// hands out — the "Access Control Service" is this model plus
+// src/lib/access/service.ts, the only module allowed to call TTLock for
+// credential lifecycle (src/lib/ttlock/client.ts remains the low-level
+// HTTP adapter it calls into). Scoped to the two credential types that
+// actually exist in this app today:
+//   GUEST                — a per-booking self-check-in code (real dynamic
+//                           TTLock passcode, or a pre-provisioned
+//                           ReserveAccessCode when TTLock is down)
+//   OWNER_ADMIN_EMERGENCY — a manually-triggered code for OWNER_ADMIN,
+//                           always logged with a reason
+// Every state transition is recorded to the existing AuditLog (action
+// "access.credential.*", entity "AccessCredential", entityId = this row's
+// id) rather than a bespoke log table — one audit trail for the app, not two.
+model AccessCredential {
+  id        String    @id @default(cuid())
+  type      String    // "GUEST" | "OWNER_ADMIN_EMERGENCY" | "HOUSEKEEPING"
+  unitId    String
+  unit      Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  bookingId String?
+  booking   Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  // Denormalized, no FK — same convention as ReserveAccessCode.guestId
+  // above (a guest record can be deleted/anonymized independent of the
+  // credential's own history).
+  guestId   String?
+  // HOUSEKEEPING-type only — the specific cleaning session this code is
+  // for. Unique (one credential per clean, per spec's "never reusable").
+  // Nullable and set on create (Owner/Booker generates ahead of the clean)
+  // or backfilled the moment the assigned housekeeper taps Start Cleaning
+  // (src/app/api/housekeeping/unit/[id]/route.ts) — see createHousekeepingCredential.
+  cleaningLogId String? @unique
+  cleaningLog   CleaningLog? @relation(fields: [cleaningLogId], references: [id], onDelete: SetNull)
+  // HOUSEKEEPING-type only — who this code was actually issued for (an
+  // Employee, not the createdByUserId Owner/Booker who generated it). The
+  // one field a housekeeper's own "my code" lookup filters on.
+  assignedEmployeeId String?
+  assignedEmployee   Employee? @relation(fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
 
+  code      String
+  // "ttlock" = a real dynamic passcode created live on the lock;
+  // "reserve" = one of the pre-provisioned ReserveAccessCode pool, used
+  // when the TTLock API call failed after retries; "manual" = an
+  // OWNER_ADMIN emergency code entered/generated outside the pool.
+  source    String
+  ttlockKeyboardPwdId Int?
+  // Set only when source = "reserve" — which pool row this credential is
+  // currently occupying, so release can put it back to AVAILABLE.
+  reserveCodeId String?
+
+  // PENDING (being generated) -> ACTIVE (usable) -> EXPIRED | REVOKED.
+  // FAILED = generation itself failed (TTLock down AND reserve pool
+  // exhausted) — the booking proceeds with no working credential, flagged
+  // for staff follow-up same as the old TtlockFallbackLog did.
+  status     String    @default("PENDING")
+  validFrom  DateTime?
+  validUntil DateTime?
+
+  createdAt       DateTime  @default(now())
+  createdByUserId String?
+  createdBy       User?     @relation("AccessCredentialCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedBy       User?     @relation("AccessCredentialRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  // Fallback/failure reason (TtlockFallbackLog's old errorMessage) or an
+  // OWNER_ADMIN's required emergency-access justification.
+  reason          String?
+
+  @@index([bookingId])
+  @@index([unitId, status])
   @@index([createdAt])
-  @@map("ttlock_fallback_logs")
+  @@index([assignedEmployeeId, status])
+  @@map("access_credentials")
 }
 
 // Singleton (id always 1) — the Owner Dashboard's "TTLock API connection
 // status" / "Last API failure" fields read this rather than pinging TTLock
 // live on every page load. Updated by every real call in
-// src/lib/ttlock/reliability.ts's retry wrapper, success or failure.
+// src/lib/access/service.ts's retry wrapper, success or failure.
 model TtlockStatus {
   id                 Int       @id @default(1)
   lastSuccessAt      DateTime?
@@ -1280,8 +1429,19 @@ model FeedbackResponse {
 
   createdAt DateTime @default(now())
 
+  // Public-display fields — separate from the private survey above. Every
+  // row here can only exist for a completed booking (submission is gated
+  // on isBookingCompleted), so "Verified Stay" needs no extra check at
+  // render time; it's true by construction.
+  publicReviewText     String? // distinct from improveComment (private) — what the guest is comfortable being quoted saying
+  publicDisplayConsent Boolean @default(false) // guest opts in during submission; off by default
+  approved             Boolean @default(false) // admin gate — nothing shows publicly until this flips true
+  featured             Boolean @default(false)
+  pinnedAt             DateTime? // set = always sorts first; null = normal recency order
+
   @@index([guestId])
   @@index([unitId])
+  @@index([approved, publicDisplayConsent])
   @@map("feedback_responses")
 }
 
@@ -1303,6 +1463,30 @@ model GuestNotification {
 
   @@index([guestId, createdAt])
   @@map("guest_notifications")
+}
+
+// Staff-facing counterpart to GuestNotification above — same shape,
+// deliberately, since nothing staff-facing existed before this (notify()
+// only ever wrote to Guest inboxes). Targets a User (Owner/Booker), not an
+// Employee, since it's read through the same NextAuth session every other
+// staff page already uses. Written by notifyStaff() in
+// src/lib/bookingEngine/notificationService.ts, for housekeeping events
+// only for now (cleaning started/late/overdue/completed, code generated/
+// expiring/copied, auto logout) — see that file for the event union.
+model StaffNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  unitId    String?
+  bookingId String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, read])
+  @@map("staff_notifications")
 }
 
 // One-time-use email magic-link tokens. Deliberately its own tiny table
@@ -1482,125 +1666,40 @@ model LaundryPayment {
   @@map("laundry_payments")
 }
 
-// ── Team Communication Hub ─────────────────────────────
-// TEAM = one fixed all-staff conversation (auto-provisioned, every active
-// staff member is a member). GROUP = a fixed set of role-based rooms
-// (Bookers/Housekeeping/Admins — seeded from this app's real roles, not
-// invented departments). DM = exactly 2 members, no `name` (derived from
-// the other participant client-side).
-model ChatConversation {
-  id        String   @id @default(cuid())
-  type      String   // "TEAM" | "GROUP" | "DM"
-  name      String?
-  createdAt DateTime @default(now())
-
-  members  ChatConversationMember[]
-  messages ChatMessage[]
-
-  @@map("chat_conversations")
-}
-
-// lastReadAt is the one thing that makes unread badges/read-receipts work
-// without a per-message-per-user row: "read" means every message with
-// createdAt <= lastReadAt.
-model ChatConversationMember {
-  id             String    @id @default(cuid())
-  conversationId String
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lastReadAt     DateTime?
-  favorited      Boolean   @default(false)
-  muted          Boolean   @default(false)
-  joinedAt       DateTime  @default(now())
-
-  @@unique([conversationId, userId])
-  @@index([userId])
-  @@map("chat_conversation_members")
-}
-
-model ChatMessage {
-  id             String   @id @default(cuid())
-  conversationId String
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderId       String
-  sender         User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  body           String
-  // A #EVA-XXXXXXX-shaped confirmation number found in `body` at send time
-  // — resolved server-side once, so the rich booking card never has to
-  // re-parse free text on every render and can't drift from what the
-  // sender actually typed.
-  bookingRef     String?
-  replyToId      String?
-  replyTo        ChatMessage? @relation("ChatMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        ChatMessage[] @relation("ChatMessageReplies")
-  imageUrl       String?  // Vercel Blob URL, same upload pattern as everywhere else in this app
-  editedAt       DateTime?
-  deletedAt      DateTime? // soft delete — the row (and its audit trail) is never actually removed
-  pinned         Boolean  @default(false)
-  createdAt      DateTime @default(now())
-
-  reactions ChatReaction[]
-
-  @@index([conversationId, createdAt])
-  @@map("chat_messages")
-}
-
-model ChatReaction {
-  id        String   @id @default(cuid())
-  messageId String
-  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  emoji     String
-  createdAt DateTime @default(now())
-
-  @@unique([messageId, userId, emoji])
-  @@map("chat_reactions")
-}
-
-// Admin broadcasts — pinned team-wide until each recipient dismisses their
-// own copy (ChatAnnouncementDismissal), never edited/deleted from under
-// anyone.
-model ChatAnnouncement {
+// One row per deployment/maintenance notice, driving the app-wide status
+// banner (src/components/layout/DeploymentBanner.tsx) and the Admin >
+// Deployment history table. Also doubles as the "is exactly one event
+// active" source of truth — enforced at the API layer (only one row at a
+// time may have a non-terminal status), not here.
+model DeploymentEvent {
   id          String   @id @default(cuid())
-  body        String
-  category    String   @default("ANNOUNCEMENT") // ANNOUNCEMENT | URGENT | MAINTENANCE | POLICY
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  title       String
+  description String
+  status      String   // "SCHEDULED" | "STARTING" | "IN_PROGRESS" | "COMPLETED" | "EMERGENCY" | "RESTORED" | "CANCELLED"
+  severity    String   @default("INFO") // "INFO" | "WARNING" | "CRITICAL"
 
-  dismissals ChatAnnouncementDismissal[]
+  startsAt    DateTime // scheduled start
+  endsAt      DateTime? // scheduled end
+  startedAt   DateTime? // actual transition timestamp (manual or lazy auto-transition)
+  completedAt DateTime?
+  cancelledAt DateTime?
 
-  @@map("chat_announcements")
+  affectedModules String? // JSON-encoded string[], e.g. ["Bookings","Calendar"] — parsed manually at the API boundary, same as AuditLog.meta
+  releaseNotes    String?
+  fullMaintenanceMode Boolean @default(false)
+  notifyEmail         Boolean @default(false)
+  enabled             Boolean @default(true) // admin can hide the banner without deleting the event
+
+  outcome    String?  // "SUCCESS" | "FAILED", set on completion
+  rolledBack Boolean  @default(false)
+
+  createdByUserId String?
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([startsAt])
+  @@map("deployment_event")
 }
 
-model ChatAnnouncementDismissal {
-  id             String   @id @default(cuid())
-  announcementId String
-  announcement   ChatAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dismissedAt    DateTime @default(now())
-
-  @@unique([announcementId, userId])
-  @@map("chat_announcement_dismissals")
-}
-
-// One row per user — status is the last explicit state (manual, or "ONLINE"
-// promoted by a heartbeat ping); lastActiveAt is what actually decides
-// whether someone reads as online/away/offline at render time (see
-// presenceStatus() in src/lib/chat/presence.ts) — a stale ping always wins
-// over a stored "ONLINE" from before someone closed their laptop.
-model UserPresence {
-  userId                 String    @id
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status                 String    @default("OFFLINE") // ONLINE | BUSY | AWAY | DND | MEETING | OFFLINE
-  statusNote             String?
-  device                 String?   // "desktop" | "mobile" — from the heartbeat's own client hint
-  lastActiveAt           DateTime  @default(now())
-  typingInConversationId String?
-  typingAt               DateTime?
-
-  @@map("user_presence")
-}

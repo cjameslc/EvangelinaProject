@@ -14,6 +14,8 @@ type RealUserSnapshot = {
   ownedUnitIds: string[];
   avatarColor: string;
   mustChangePassword: boolean;
+  ownerId: string | null;
+  isPlatformAdmin: boolean;
 };
 
 declare module "next-auth" {
@@ -27,6 +29,14 @@ declare module "next-auth" {
       ownedUnitIds: string[];
       avatarColor: string;
       mustChangePassword: boolean;
+      // Multi-owner platform layer (see src/lib/ownerScope.ts) — ownerId is
+      // null only for a platform-admin-only account with no owner of its
+      // own; every regular staff account has one after the foundational
+      // migration backfill. Deliberately separate from the pre-existing
+      // CO_OWNER/ownedUnitIds concept above, which scopes a subset of
+      // *one* owner's units, not which tenant a user belongs to.
+      ownerId: string | null;
+      isPlatformAdmin: boolean;
       impersonating?: boolean;
       impersonationSessionId?: string;
       impersonationStartedAt?: number;
@@ -45,6 +55,8 @@ declare module "next-auth" {
     ownedUnitIds: string[];
     avatarColor: string;
     mustChangePassword: boolean;
+    ownerId: string | null;
+    isPlatformAdmin: boolean;
   }
 }
 
@@ -56,6 +68,8 @@ declare module "next-auth/jwt" {
     ownedUnitIds: string[];
     avatarColor: string;
     mustChangePassword: boolean;
+    ownerId: string | null;
+    isPlatformAdmin: boolean;
     impersonating?: boolean;
     impersonationSessionId?: string;
     impersonationStartedAt?: number;

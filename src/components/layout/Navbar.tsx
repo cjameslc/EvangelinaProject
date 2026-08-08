@@ -12,7 +12,7 @@ import { useViewMode } from "@/components/layout/ViewModeProvider";
 import type { ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MessageIcon, MegaphoneIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MegaphoneIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
 // a "More" dropdown — chosen from real measurement: a role seeing all 7
@@ -34,7 +34,6 @@ export const ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   settings: SettingsIcon,
   wallet: WalletIcon,
   chart: ChartIcon,
-  chat: MessageIcon,
   megaphone: MegaphoneIcon,
 };
 
@@ -48,7 +47,6 @@ export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [guestUnread, setGuestUnread] = useState(0);
-  const [chatUnread, setChatUnread] = useState(0);
   const [auditorOpenCount, setAuditorOpenCount] = useState(0);
   const moreRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -75,27 +73,6 @@ export function Navbar() {
     return () => controller.abort();
   }, [isStaffNav, pathname]);
 
-  // Chat's own page already polls every few seconds while open — this is
-  // just the badge for every OTHER page, so a much lighter cadence is
-  // enough. Aborted per-tick same as the guest unread-count fetch above.
-  useEffect(() => {
-    if (!isStaffNav) return;
-    let cancelled = false;
-    let controller: AbortController | null = null;
-    async function tick() {
-      controller?.abort();
-      controller = new AbortController();
-      try {
-        const res = await fetch("/api/chat/unread-count", { signal: controller.signal });
-        if (res.ok && !cancelled) setChatUnread((await res.json()).count ?? 0);
-      } catch {
-        // aborted or transient — next tick retries
-      }
-    }
-    tick();
-    const id = setInterval(tick, 30000);
-    return () => { cancelled = true; clearInterval(id); controller?.abort(); };
-  }, [isStaffNav, pathname]);
 
   const role = session?.user?.role;
   const items = visibleNavItems(role);
@@ -191,11 +168,6 @@ export function Navbar() {
                 >
                   <span className="relative">
                     <Icon className="h-[15px] w-[15px]" />
-                    {(item.icon === "chat" || item.icon === "file") && chatUnread > 0 && (
-                      <span className="absolute -right-1.5 -top-1.5 grid h-[15px] min-w-[15px] animate-pop-in place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
-                        {chatUnread > 99 ? "99+" : chatUnread}
-                      </span>
-                    )}
                   </span>
                   <span>{item.label}</span>
                 </Link>
@@ -334,6 +306,19 @@ export function Navbar() {
                   >
                     <HomeIcon className="h-4 w-4" /> {isStaffNav ? "Switch to Travel mode" : "Switch to Staff mode"}
                   </button>
+                  {/* Platform Admin only (multi-owner brief) — James's own
+                      day-to-day nav is otherwise identical to any other
+                      owner's OWNER_ADMIN, this is the one addition on top. */}
+                  {session.user.isPlatformAdmin && (
+                    <Link
+                      href="/platform"
+                      role="menuitem"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rausch/40"
+                    >
+                      <GridIcon className="h-4 w-4" /> Platform Admin
+                    </Link>
+                  )}
                   <div className="my-1 h-px bg-[var(--line)]" />
                   <button
                     onClick={() => { clearQueuedMutations().catch(() => {}); signOut({ callbackUrl: "/login" }); }}

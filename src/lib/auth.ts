@@ -60,6 +60,8 @@ export const authOptions: NextAuthOptions = {
           ownedUnitIds: user.ownedUnits.map((o) => o.unitId),
           avatarColor: user.avatarColor,
           mustChangePassword: user.mustChangePassword,
+          ownerId: user.ownerId,
+          isPlatformAdmin: user.isPlatformAdmin,
         };
       },
     }),
@@ -75,6 +77,8 @@ export const authOptions: NextAuthOptions = {
         token.mustChangePassword = user.mustChangePassword;
         token.name = user.name;
         token.email = user.email ?? undefined;
+        token.ownerId = user.ownerId;
+        token.isPlatformAdmin = user.isPlatformAdmin;
       }
       // Lets the Profile page push name/email/avatar edits, and the forced
       // change-password screen clear its flag, into the live session (via
@@ -103,6 +107,7 @@ export const authOptions: NextAuthOptions = {
               token.realUser = {
                 id: token.id, name: token.name as string, username: token.username, email: (token.email as string | undefined) ?? null,
                 role: token.role, ownedUnitIds: token.ownedUnitIds, avatarColor: token.avatarColor, mustChangePassword: token.mustChangePassword,
+                ownerId: token.ownerId, isPlatformAdmin: token.isPlatformAdmin,
               };
               token.id = target.id;
               token.name = target.name;
@@ -112,6 +117,13 @@ export const authOptions: NextAuthOptions = {
               token.ownedUnitIds = target.ownedUnits.map((o) => o.unitId);
               token.avatarColor = target.avatarColor;
               token.mustChangePassword = false; // never force the impersonated view into the change-password screen
+              // Impersonation means experiencing exactly what the target
+              // sees — their owner's tenant scope, not the real admin's.
+              // isPlatformAdmin naturally comes through false here: the
+              // guard just above already forbids impersonating another
+              // OWNER_ADMIN, and platform admins are OWNER_ADMINs.
+              token.ownerId = target.ownerId;
+              token.isPlatformAdmin = target.isPlatformAdmin;
               token.impersonating = true;
               token.impersonationSessionId = sessionId;
               token.impersonationStartedAt = Date.now();
@@ -139,6 +151,8 @@ export const authOptions: NextAuthOptions = {
           token.ownedUnitIds = real.ownedUnitIds;
           token.avatarColor = real.avatarColor;
           token.mustChangePassword = real.mustChangePassword;
+          token.ownerId = real.ownerId;
+          token.isPlatformAdmin = real.isPlatformAdmin;
           delete token.realUser;
           delete token.impersonating;
           delete token.impersonationSessionId;
@@ -158,6 +172,8 @@ export const authOptions: NextAuthOptions = {
       session.user.ownedUnitIds = token.ownedUnitIds;
       session.user.avatarColor = token.avatarColor;
       session.user.mustChangePassword = token.mustChangePassword;
+      session.user.ownerId = token.ownerId;
+      session.user.isPlatformAdmin = token.isPlatformAdmin;
       if (token.impersonating) {
         session.user.impersonating = true;
         session.user.impersonationSessionId = token.impersonationSessionId;
