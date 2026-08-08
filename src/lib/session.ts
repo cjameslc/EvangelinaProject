@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { unitScope } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 
 // Re-exported so existing `import { logAudit } from "@/lib/session"` call
 // sites keep working. Lives in its own module (not here) because auth.ts
@@ -65,10 +66,24 @@ export function unitIdWhere(user: OwnerScopedUser) {
  * edit/delete an existing row that belongs to it), since there's no list to
  * filter. Every write route that accepts a unitId, or looks one up off an
  * existing row before mutating it, must check this explicitly.
+ *
+ * Async, unlike the old in-memory-only version — the CO_OWNER unit-subset
+ * check stays a cheap array lookup, but the tenant boundary (see
+ * src/lib/ownerScope.ts) can only be verified against the unit's real
+ * ownerId, which means one lookup. Without this, "all" (what every
+ * OWNER_ADMIN's role resolves to) meant literally every unit across every
+ * owner was writable by unitId alone — the read-side equivalent of this
+ * exact gap was a live, confirmed leak (see the Analytics
+ * effectiveUnitIds() fix); this is the same class of bug on the write
+ * path, closed the same way rather than left for someone to find by
+ * crafting a request.
  */
-export function isUnitInScope(user: { role: string; ownedUnitIds: string[] }, unitId: string | null | undefined): boolean {
+export async function isUnitInScope(user: OwnerScopedUser, unitId: string | null | undefined): Promise<boolean> {
+  if (!unitId) return false;
   const scope = unitScope(user.role as any, user.ownedUnitIds);
-  return scope === "all" || (!!unitId && scope.includes(unitId));
+  if (scope !== "all" && !scope.includes(unitId)) return false;
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { ownerId: true } });
+  return !!unit && unit.ownerId === user.ownerId;
 }
 
 /**

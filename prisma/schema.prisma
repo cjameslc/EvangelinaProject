@@ -48,6 +48,7 @@ model Owner {
   units     Unit[]
   users     User[]
   employees Employee[]
+  coupons   Coupon[]
 
   @@map("owners")
 }
@@ -1376,6 +1377,19 @@ model TtlockStatus {
 // alters historical booking records.
 model Coupon {
   id          String    @id @default(cuid())
+  // Coupon has no unit/user relation to derive ownership from (it's not
+  // tied to a specific unit), so it needs this directly — same as Unit/
+  // User/Employee. Nullable for the same backfill-safety reason as those.
+  // NOTE: this scopes the Admin list/create paths only. The guest-facing
+  // checkCoupon() (used at actual checkout, src/lib/bookingEngine/
+  // couponService.ts) still looks a code up globally by its unique code
+  // with no owner check — a real remaining gap, deliberately not closed
+  // here since fixing it means threading unitId through the guest coupon-
+  // check API and its frontend caller, not just a backend query. Zero
+  // present-day impact (only one owner exists), documented rather than
+  // silently left implicit.
+  ownerId     String?
+  owner       Owner?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   code        String    @unique
   // "percent" (value = 1-100) or "fixed" (value = a peso amount)
   type        String

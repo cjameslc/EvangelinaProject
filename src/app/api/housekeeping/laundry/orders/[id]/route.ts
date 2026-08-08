@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const order = await getLaundryOrder(params.id);
   if (!order) return NextResponse.json({ error: "Laundry order not found." }, { status: 404 });
-  if (!isUnitInScope(user, order.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, order.unitId)) return new Response("Forbidden", { status: 403 });
 
   return NextResponse.json(withDerived(order));
 }
@@ -25,12 +25,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const existing = await getLaundryOrder(params.id);
   if (!existing) return NextResponse.json({ error: "Laundry order not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   if (existing.status === "Cancelled") return NextResponse.json({ error: "This order is cancelled and can't be edited." }, { status: 400 });
 
   const parsed = parseOrError(laundryOrderSchema, await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
-  if (parsed.data.unitId && !isUnitInScope(user, parsed.data.unitId)) return new Response("Forbidden", { status: 403 });
+  if (parsed.data.unitId && !await isUnitInScope(user, parsed.data.unitId)) return new Response("Forbidden", { status: 403 });
 
   try {
     const order = await updateLaundryOrder(params.id, user.id, parsed.data);

@@ -5,9 +5,9 @@ import { couponSchema } from "@/lib/validation";
 import { parseOrError, isUniqueConstraintError } from "@/lib/apiValidation";
 
 export async function GET() {
-  const { error } = await requireUser(["OWNER_ADMIN"]);
+  const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
-  const coupons = await prisma.coupon.findMany({ orderBy: { createdAt: "desc" } });
+  const coupons = await prisma.coupon.findMany({ where: { ownerId: user.ownerId }, orderBy: { createdAt: "desc" } });
   return NextResponse.json(coupons);
 }
 
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
         active: body.active ?? true,
         description: body.description || null,
+        ownerId: user.ownerId,
       },
     });
     await logAudit(user.id, "coupon.create", "Coupon", coupon.id, { code: coupon.code });

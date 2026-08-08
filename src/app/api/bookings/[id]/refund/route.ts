@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     select: { unitId: true, bookerId: true, refundedAt: true, paid: true, dpAmount: true },
   });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   if (user.role === "BOOKER") {
     const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
     if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployee?.id)) {

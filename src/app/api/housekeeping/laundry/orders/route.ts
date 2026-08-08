@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = parseOrError(laundryOrderSchema, await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
-  if (parsed.data.unitId && !isUnitInScope(user, parsed.data.unitId)) {
+  if (parsed.data.unitId && !await isUnitInScope(user, parsed.data.unitId)) {
     return new Response("Forbidden", { status: 403 });
   }
 

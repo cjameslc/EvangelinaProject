@@ -162,7 +162,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
  * booking, it calls this (staff) or createGuestBooking (Guest Portal).
  */
 export async function createBookingRecord(
-  user: { id: string; role: string; ownedUnitIds: string[] },
+  user: { id: string; role: string; ownedUnitIds: string[]; ownerId: string | null },
   body: BookingInput
 ): Promise<CreateBookingResult> {
   // A Co-owner can only ever be scoped to their own units on reads (every
@@ -170,7 +170,7 @@ export async function createBookingRecord(
   // equivalent: canEditBookings() lets a Co-owner call this endpoint at
   // all, but nothing stopped them creating a booking for a unit that isn't
   // theirs until this check existed.
-  if (!isUnitInScope(user, body.unitId)) {
+  if (!await isUnitInScope(user, body.unitId)) {
     return { ok: false, error: "You don't have access to that unit." };
   }
 

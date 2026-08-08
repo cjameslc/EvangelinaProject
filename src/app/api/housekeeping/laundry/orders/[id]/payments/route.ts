@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const existing = await getLaundryOrder(params.id);
   if (!existing) return NextResponse.json({ error: "Laundry order not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   if (existing.status === "Cancelled") return NextResponse.json({ error: "This order is cancelled." }, { status: 400 });
 
   const parsed = parseOrError(laundryPaymentSchema, await req.json().catch(() => ({})));

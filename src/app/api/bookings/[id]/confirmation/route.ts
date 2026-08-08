@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { id: true, unitId: true, confirmationNumber: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const action = body.action === "regenerate" ? "regenerate" : body.action === "reactivate" ? "reactivate" : null;

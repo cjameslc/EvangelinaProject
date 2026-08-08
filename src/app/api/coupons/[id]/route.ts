@@ -16,8 +16,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   try {
-    const coupon = await prisma.coupon.update({
-      where: { id: params.id },
+    // updateMany + ownerId in the where, not a plain update(where:{id}) —
+    // the write-path tenant check (same principle as isUnitInScope in
+    // session.ts): without this, any owner's admin could edit another
+    // owner's coupon just by knowing/guessing its id.
+    const result = await prisma.coupon.updateMany({
+      where: { id: params.id, ownerId: user.ownerId },
       data: {
         ...(body.code !== undefined && { code: body.code }),
         ...(body.type !== undefined && { type: body.type }),
@@ -28,7 +32,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(body.description !== undefined && { description: body.description || null }),
       },
     });
-    await logAudit(user.id, "coupon.update", "Coupon", coupon.id, { code: coupon.code });
+    if (result.count === 0) return NextResponse.json({ error: "Coupon not found." }, { status: 404 });
+    const coupon = await prisma.coupon.findUnique({ where: { id: params.id } });
+    await logAudit(user.id, "coupon.update", "Coupon", params.id, { code: coupon?.code });
     return NextResponse.json(coupon);
   } catch (e: any) {
     if (isUniqueConstraintError(e)) return NextResponse.json({ error: "That coupon code already exists." }, { status: 409 });
@@ -42,7 +48,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // No FK from Booking — couponCode/couponDiscountAmount are a denormalized
   // snapshot there (see schema.prisma), so deleting a Coupon never touches
   // historical bookings that used it.
-  await prisma.coupon.delete({ where: { id: params.id } });
+  const result = await prisma.coupon.deleteMany({ where: { id: params.id, ownerId: user.ownerId } });
+  if (result.count === 0) return NextResponse.json({ error: "Coupon not found." }, { status: 404 });
   await logAudit(user.id, "coupon.delete", "Coupon", params.id);
   return NextResponse.json({ ok: true });
 }

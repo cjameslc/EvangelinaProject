@@ -9,7 +9,7 @@ import { rateLimit } from "@/lib/rateLimit";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
 import { checkAvailability } from "@/lib/bookingEngine/availabilityService";
 import { notify } from "@/lib/bookingEngine/notificationService";
-import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
+import { releaseAccessCodeForBooking } from "@/lib/access/service";
 
 // Thrown inside the $transaction below to abort/roll back on a genuine
 // scheduling conflict — caught just outside to turn back into a 409.
@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // about which unit's bookings they may touch — that's this check. A
   // unitId change (moving the booking to a different unit) is checked
   // against the new unit too, once `body` is parsed below.
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   // A Booker may only edit the specific booking they themselves logged, not
   // a peer's — the UI already hides the button, this is the server-side
   // backstop so a direct API call can't bypass it.
@@ -57,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const parsed = parseOrError(bookingSchema.partial(), await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
-  if (body.unitId && !isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
+  if (body.unitId && !await isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
   const data: any = { ...body };
   // Mirror BookingForm.tsx's own lock (and the create endpoint's identical
   // guard) server-side: a Booker editing their own booking can't reassign
@@ -178,7 +178,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
 
   // notify() looks up the booking's guestId to know whether to write a
   // guest notification — has to run before the delete below, or there's

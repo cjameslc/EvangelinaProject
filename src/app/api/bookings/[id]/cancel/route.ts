@@ -7,7 +7,7 @@ import { parseOrError } from "@/lib/apiValidation";
 import { rateLimit } from "@/lib/rateLimit";
 import { canEditBookings, canEditSpecificBooking } from "@/lib/rbac";
 import { notify } from "@/lib/bookingEngine/notificationService";
-import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
+import { releaseAccessCodeForBooking } from "@/lib/access/service";
 
 // Staff-side cancellation — the alternative to DELETE for a Booker, who can
 // no longer hard-delete a booking (see canDeleteBookings in rbac.ts) but can
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true, cancelledAt: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   if (user.role === "BOOKER") {
     const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
     if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployee?.id)) {

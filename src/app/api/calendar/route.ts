@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
 
   const body = calendarBlockSchema.parse(await req.json());
-  if (!isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
 
   const block = await prisma.calendarBlock.create({
     data: {
