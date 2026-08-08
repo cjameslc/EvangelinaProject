@@ -35,7 +35,7 @@ export default async function HousekeepingPage() {
     prismaPool[1].housekeepingUnitState.findMany({ where }),
     prismaPool[2].cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 30, include: { unit: { select: { name: true, shortName: true, unitNumber: true } } } }),
     prismaPool[3].stock.findMany({ where, orderBy: { name: "asc" } }),
-    prismaPool[4].employee.findMany({ where: { active: true, role: { in: ["HOUSEKEEPING", "OWNER_ADMIN"] } } }),
+    prismaPool[4].employee.findMany({ where: { active: true, role: { in: ["HOUSEKEEPING", "OWNER_ADMIN"] }, ownerId: user.ownerId } }),
     prismaPool[5].shift.findFirst({ where: { userId: user.id, clockOut: null } }),
     prismaPool[6].bill.findMany({ where: { ...where, month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
     prismaPool[7].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
@@ -52,7 +52,7 @@ export default async function HousekeepingPage() {
     // shift (which is all `openShift` above ever covers, and is meaningless
     // for a role that doesn't clock in itself).
     prismaPool[9].shift.findMany({
-      where: { clockOut: null, user: { role: "HOUSEKEEPING" } },
+      where: { clockOut: null, user: { role: "HOUSEKEEPING", ownerId: user.ownerId } },
       select: { id: true, clockIn: true, user: { select: { id: true, name: true } } },
       orderBy: { clockIn: "asc" },
     }),

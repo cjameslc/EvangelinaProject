@@ -33,16 +33,28 @@ export async function requireUser(
   return { user, error: undefined };
 }
 
-/** Prisma `where` fragment scoping a unit-bearing query to what this user may see. */
-export function unitWhere(user: { role: string; ownedUnitIds: string[] }) {
+type OwnerScopedUser = { role: string; ownedUnitIds: string[]; ownerId: string | null };
+
+/** Prisma `where` fragment scoping a unit-bearing query to what this user may see.
+ *
+ * Folds in the multi-owner tenant boundary (see src/lib/ownerScope.ts) on
+ * top of the pre-existing CO_OWNER unit-subset scoping — every page that
+ * already calls this (Bookings, Calendar, Housekeeping, and most of
+ * Dashboard) gets owner isolation for free, without touching each query
+ * site individually. `unit: { ownerId }` rather than a denormalized
+ * column, matching how Booking/CalendarBlock/HousekeepingUnitState/Stock/
+ * Bill/CleaningLog all already carry a required `unit` relation. */
+export function unitWhere(user: OwnerScopedUser) {
   const scope = unitScope(user.role as any, user.ownedUnitIds);
-  return scope === "all" ? {} : { unitId: { in: scope } };
+  const ownerFilter = { unit: { ownerId: user.ownerId } };
+  return scope === "all" ? ownerFilter : { unitId: { in: scope }, ...ownerFilter };
 }
 
 /** Same as {@link unitWhere}, but for querying the Unit model itself (keyed by `id`, not `unitId`). */
-export function unitIdWhere(user: { role: string; ownedUnitIds: string[] }) {
+export function unitIdWhere(user: OwnerScopedUser) {
   const scope = unitScope(user.role as any, user.ownedUnitIds);
-  return scope === "all" ? {} : { id: { in: scope } };
+  const ownerFilter = { ownerId: user.ownerId };
+  return scope === "all" ? ownerFilter : { id: { in: scope }, ...ownerFilter };
 }
 
 /**
@@ -68,11 +80,13 @@ export function isUnitInScope(user: { role: string; ownedUnitIds: string[] }, un
  * isn't left staring at an empty dashboard. Co-owners behave exactly as
  * {@link unitWhere} already does — unchanged.
  */
-export function dashboardUnitWhere(user: { role: string; ownedUnitIds: string[] }) {
-  if (user.role === "OWNER_ADMIN") return user.ownedUnitIds.length ? { unitId: { in: user.ownedUnitIds } } : {};
+export function dashboardUnitWhere(user: OwnerScopedUser) {
+  const ownerFilter = { unit: { ownerId: user.ownerId } };
+  if (user.role === "OWNER_ADMIN") return user.ownedUnitIds.length ? { unitId: { in: user.ownedUnitIds }, ...ownerFilter } : ownerFilter;
   return unitWhere(user);
 }
-export function dashboardUnitIdWhere(user: { role: string; ownedUnitIds: string[] }) {
-  if (user.role === "OWNER_ADMIN") return user.ownedUnitIds.length ? { id: { in: user.ownedUnitIds } } : {};
+export function dashboardUnitIdWhere(user: OwnerScopedUser) {
+  const ownerFilter = { ownerId: user.ownerId };
+  if (user.role === "OWNER_ADMIN") return user.ownedUnitIds.length ? { id: { in: user.ownedUnitIds }, ...ownerFilter } : ownerFilter;
   return unitIdWhere(user);
 }

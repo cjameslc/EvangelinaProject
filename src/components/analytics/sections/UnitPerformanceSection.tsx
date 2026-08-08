@@ -1,7 +1,7 @@
 import { getUnitPerformance, type AnalyticsFilters } from "@/app/analytics/queries";
 import { UnitPerformanceSectionClient } from "@/components/analytics/sections/UnitPerformanceSectionClient";
 
-export async function UnitPerformanceSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+export async function UnitPerformanceSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const data = await getUnitPerformance(user, filters);
   return (
     <div className="card p-4">

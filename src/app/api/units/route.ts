@@ -31,8 +31,14 @@ export async function POST(req: NextRequest) {
   // 256-bit (32-byte) token — generated exactly once, here, and never
   // touched again by a normal update (see PATCH below); only the explicit
   // "Regenerate link" action replaces it.
+  //
+  // ownerId: user.ownerId — without this, a new owner's own units would be
+  // created with no tenant at all (invisible to every owner-scoped query,
+  // including their own), leaving them unable to actually onboard their
+  // property. Caught via regression testing the write path, not just the
+  // read path GET already covers above.
   const unit = await prisma.unit.create({
-    data: { ...body, icalImportUrl: icalImportUrl || null, icalToken: crypto.randomBytes(32).toString("hex") },
+    data: { ...body, icalImportUrl: icalImportUrl || null, icalToken: crypto.randomBytes(32).toString("hex"), ownerId: user.ownerId },
   });
   if (ownerUserIds?.length) {
     await prisma.unitOwner.createMany({ data: ownerUserIds.map((userId) => ({ userId, unitId: unit.id })) });

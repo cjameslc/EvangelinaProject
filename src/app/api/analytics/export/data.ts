@@ -7,7 +7,7 @@ import { resolveAnalyticsPeriod } from "@/lib/analytics/period";
  * report can never show a different number than what's on the page for
  * the same filters.
  */
-export async function assembleExportData(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters) {
+export async function assembleExportData(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters) {
   const [kpis, revenue, financial, booking, occupancy, guest, housekeeping, staff, units] = await Promise.all([
     getExecutiveKPIs(user, filters),
     getRevenueAnalytics(user, filters),

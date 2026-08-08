@@ -1,7 +1,7 @@
 import { getStaffAnalytics, type AnalyticsFilters } from "@/app/analytics/queries";
 import { StaffSectionClient } from "@/components/analytics/sections/StaffSectionClient";
 
-export async function StaffSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+export async function StaffSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const data = await getStaffAnalytics(user, filters);
   return (
     <div className="card p-4">

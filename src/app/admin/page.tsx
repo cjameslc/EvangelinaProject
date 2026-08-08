@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, unitWhere, unitIdWhere } from "@/lib/session";
 import { canSeeAdmin } from "@/lib/rbac";
 import { prisma, prismaPool } from "@/lib/prisma";
 import { CHECKLIST_GROUPS } from "@/lib/constants";
@@ -17,14 +17,21 @@ export default async function AdminPage() {
   const month = manilaMonthStart();
   await ensureRecurringBillsForMonth(month).catch(() => {});
 
-  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows, impersonationLogs] = await Promise.all([
-    prismaPool[0].unit.findMany({ orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
+  // Multi-owner tenant boundary (see src/lib/ownerScope.ts) — applied here
+  // to the same Unit/User/Bill/Stock entities already scoped elsewhere
+  // (Bookings/Calendar/Dashboard/Housekeeping/Analytics, the /api/units
+  // route). Coupons/FeedbackResponse/AuditLog(login)/ImpersonationSession/
+  // the Housekeeping-activity AuditLog view are NOT yet scoped — a known,
+  // separate remaining gap, not silently assumed fixed by this pass.
+  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows, impersonationLogs, housekeepingActivityLogs] = await Promise.all([
+    prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
     // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
     // profile photo) IS fetched here now so Users & roles shows each
     // person's real photo, not just initials — this business has a handful
     // of accounts, so the payload cost is small in practice even though a
     // single photo can run into the low single-digit MB.
     prismaPool[1].user.findMany({
+      where: { ownerId: user.ownerId },
       orderBy: { createdAt: "asc" },
       select: {
         id: true, name: true, username: true, email: true, role: true, avatarColor: true, avatarUrl: true,
@@ -40,21 +47,35 @@ export default async function AdminPage() {
       include: { actor: { select: { id: true, name: true, username: true, role: true } } },
     }),
     // Feeds the "Operations" tab's Bills view — same shape BillsPanel already expects from Housekeeping.
-    prismaPool[4].bill.findMany({ where: { month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
+    prismaPool[4].bill.findMany({ where: { ...unitWhere(user), month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
     // Feeds the "Operations" tab's Supplies view.
-    prismaPool[5].stock.findMany({ orderBy: { name: "asc" } }),
+    prismaPool[5].stock.findMany({ where: unitWhere(user), orderBy: { name: "asc" } }),
     // Feeds the "Settings" tab's Coupons section.
     prismaPool[6].coupon.findMany({ orderBy: { createdAt: "desc" } }),
     // Feeds the "Feedback" tab — Guest Feedback & Rewards responses.
     prismaPool[7].feedbackResponse.findMany({
       orderBy: { createdAt: "desc" },
-      include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } },
+      include: {
+        unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },
+        booking: { select: { platform: true } },
+      },
     }),
     // Feeds the Settings tab's "Nearby places data" refresh panel — one
     // row per category that's been refreshed at least once.
     prismaPool[8].placeInsight.groupBy({ by: ["category"], _count: { _all: true }, _max: { lastFetchedAt: true } }),
     // Feeds the Settings tab's "Security" section — Impersonation Logs.
     prismaPool[9 % prismaPool.length].impersonationSession.findMany({ orderBy: { startedAt: "desc" }, take: 300 }),
+    // Feeds the Settings tab's "Housekeeping activity log" — Housekeeping
+    // Workforce Management spec section 15. One combined timeline over
+    // AuditLog rather than a bespoke log table (see access/service.ts and
+    // this feature's other write paths, which all already call the
+    // existing logAudit()).
+    prismaPool[10 % prismaPool.length].auditLog.findMany({
+      where: { action: { in: ["housekeeping.update", "shift.clockin", "shift.clockout", "access.credential.generated", "access.credential.viewed", "access.credential.copied", "access.credential.revoked", "access.credential.expired", "access.credential.failed"] } },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      include: { actor: { select: { id: true, name: true, username: true, role: true } } },
+    }),
   ]);
 
   const safeSettings = { ...settings, checklistGroups: (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS };
@@ -76,6 +97,7 @@ export default async function AdminPage() {
       guidebookCategories={JSON.parse(JSON.stringify(guidebookCategories))}
       placeInsightSummary={JSON.parse(JSON.stringify(placeInsightSummary))}
       impersonationLogs={JSON.parse(JSON.stringify(impersonationLogs))}
+      housekeepingActivityLogs={JSON.parse(JSON.stringify(housekeepingActivityLogs))}
     />
   );
 }

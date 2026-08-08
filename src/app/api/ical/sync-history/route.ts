@@ -17,8 +17,13 @@ export async function GET(req: NextRequest) {
   if (error) return error;
 
   const sp = req.nextUrl.searchParams;
-  const scopedUnitWhere = unitIdWhere(user);
-  const visibleUnitIds = scopedUnitWhere.id ? (scopedUnitWhere.id as { in: string[] }).in : null;
+  const scopedUnitWhere = unitIdWhere(user) as { id?: { in: string[] }; ownerId: string | null };
+  const visibleUnitIds = scopedUnitWhere.id ? scopedUnitWhere.id.in : null;
+  // Tenant boundary (see src/lib/ownerScope.ts) — visibleUnitIds alone only
+  // ever narrows a CO_OWNER's subset; an OWNER_ADMIN with "all" access
+  // still needs this or they'd see every owner's sync history, not just
+  // their own.
+  const ownerUnitWhere = { unit: { ownerId: user.ownerId } };
 
   const page = Math.max(1, Number(sp.get("page")) || 1);
   const pageSize = Math.min(PAGE_SIZE_MAX, Math.max(1, Number(sp.get("pageSize")) || 20));
@@ -32,6 +37,7 @@ export async function GET(req: NextRequest) {
   const sort = sp.get("sort") === "oldest" ? "asc" : "desc";
 
   const where: Prisma.IcalSyncLogWhereInput = {
+    ...ownerUnitWhere,
     ...(visibleUnitIds ? { unitId: { in: visibleUnitIds } } : {}),
     ...(unitId ? { unitId } : {}),
     ...(status === "success" ? { ok: true } : status === "failed" ? { ok: false } : {}),
@@ -54,12 +60,12 @@ export async function GET(req: NextRequest) {
 
   const [lastSuccessful, latest] = await Promise.all([
     prisma.icalSyncLog.findFirst({
-      where: { ok: true, ...(visibleUnitIds ? { unitId: { in: visibleUnitIds } } : {}) },
+      where: { ok: true, ...ownerUnitWhere, ...(visibleUnitIds ? { unitId: { in: visibleUnitIds } } : {}) },
       orderBy: { startedAt: "desc" },
       select: { startedAt: true },
     }),
     prisma.icalSyncLog.findFirst({
-      where: visibleUnitIds ? { unitId: { in: visibleUnitIds } } : {},
+      where: { ...ownerUnitWhere, ...(visibleUnitIds ? { unitId: { in: visibleUnitIds } } : {}) },
       orderBy: { startedAt: "desc" },
       select: { ok: true, startedAt: true },
     }),

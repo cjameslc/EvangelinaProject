@@ -32,27 +32,40 @@ const kpiBookingSelect = {
  * Dashboard uses) intersected with whatever the filter bar's Unit select
  * has chosen. Intersecting (not overriding) is what stops a scoped user
  * from ever seeing a unit outside their own portfolio just by picking it
- * in the filter bar. Returns null for "no restriction at all".
+ * in the filter bar.
+ *
+ * Always resolves to a real (possibly empty) array — never null. It used
+ * to return null for "no restriction at all" whenever dashboardUnitIdWhere
+ * had no `id: {in: [...]}` (the CO_OWNER-subset case), which was correct
+ * back when "no restriction" genuinely meant "every unit, full stop." Now
+ * that dashboardUnitIdWhere can also carry an `ownerId` filter with no
+ * `id` field at all (an OWNER_ADMIN with no CO_OWNER-style subset — most
+ * owners), that null shortcut was silently discarding the owner boundary:
+ * every fetchXData function below intersects/uses this against real
+ * queries, so "no restriction" must never again mean "every owner's
+ * units" — caught via live cross-tenant testing (a second owner's
+ * Analytics page was showing Evangelina's real revenue/guest data), not
+ * type-checking, since the types alone didn't reveal it.
  */
-function effectiveUnitIds(user: { role: string; ownedUnitIds: string[] }, filterUnitIds: string[] | null | undefined): string[] | null {
+async function effectiveUnitIds(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filterUnitIds: string[] | null | undefined): Promise<string[]> {
   const baseIdWhere = dashboardUnitIdWhere(user) as { id?: { in: string[] } };
-  const basePortfolio = baseIdWhere.id?.in ?? null;
+  const basePortfolio = baseIdWhere.id?.in ?? (await prismaPool[0].unit.findMany({ where: { ownerId: user.ownerId }, select: { id: true } })).map((u) => u.id);
   if (!filterUnitIds || filterUnitIds.length === 0) return basePortfolio;
-  if (!basePortfolio) return filterUnitIds;
   return basePortfolio.filter((id) => filterUnitIds.includes(id));
 }
 
 async function fetchKpiData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const billUnitWhere = effective ? { unitId: { in: effective } } : {};
@@ -68,6 +81,7 @@ async function fetchKpiData(
   const [
     units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
     employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
+    airbnbHistoricalRows,
     ...trailingMonthBookings
   ] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true } }),
@@ -84,12 +98,22 @@ async function fetchKpiData(
     // wide, same as Dashboard's own version), and salaryHistory is fetched
     // whole (unfiltered by date) since totalSalaryPayroll needs full history
     // to find whichever rate was actually effective at periodStart.
-    prismaPool[6].employee.findMany({ select: { id: true, role: true, monthlySalary: true, active: true } }),
+    prismaPool[6].employee.findMany({ where: { ownerId }, select: { id: true, role: true, monthlySalary: true, active: true } }),
     prismaPool[7].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
     prismaPool[8].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
     prismaPool[9].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true } }),
     prismaPool[10].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
     prismaPool[11].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true, status: true } }),
+    // Airbnb's own officially-reported monthly totals (Feb 2025 - Mar 2026,
+    // mostly pre-dating this app) — same record-keeping fallback Dashboard's
+    // Earnings card already applies (useEarningsData.ts), ported here so
+    // "Total Revenue" agrees between the two tabs for a historical month
+    // instead of Analytics silently showing ~₱0 for a month the business
+    // genuinely earned real (Airbnb-tracked, not this-app-tracked) money.
+    prismaPool[12].airbnbEarningsMonth.findMany({
+      where: { unitId: null, month: { gte: new Date("2025-02-01"), lte: new Date("2026-03-01") } },
+      select: { month: true, totalCentavos: true },
+    }),
     ...trailingMonths.map((range, i) =>
       prismaPool[(12 + i) % 13].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } })
     ),
@@ -98,6 +122,7 @@ async function fetchKpiData(
   return JSON.parse(JSON.stringify({
     units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
     employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
+    airbnbHistoricalRows,
     trailingMonthBookings,
   }));
 }
@@ -124,10 +149,11 @@ export type ExecutiveKPIs = {
   unitCount: number;
 };
 
-export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<ExecutiveKPIs> {
+export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<ExecutiveKPIs> {
   const data = await cachedFetchKpiData(
     user.role,
     user.ownedUnitIds,
+    user.ownerId,
     filters.preset,
     filters.customStart ?? "",
     filters.customEnd ?? "",
@@ -136,7 +162,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   const {
     units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
     employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
-    trailingMonthBookings,
+    airbnbHistoricalRows, trailingMonthBookings,
   } = data;
   const { current, previous } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const currentStart = new Date(current.start);
@@ -144,8 +170,32 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   const previousStart = new Date(previous.start);
   const previousEnd = new Date(previous.end);
 
-  const totalRevenueCentavos = collectedRevenueCentavos(currentBookings);
+  const rawRevenueCentavos = collectedRevenueCentavos(currentBookings);
   const previousRevenueCentavos = collectedRevenueCentavos(previousBookings);
+
+  // Historical-record fallback — same scoping as Dashboard's Earnings card
+  // (useEarningsData.ts): only substitutes Airbnb's own reported total when
+  // the selected range is exactly one calendar month AND this app has zero
+  // tracked bookings for it (i.e. before this app existed); real tracked
+  // revenue always wins. Deliberately only affects the headline
+  // totalRevenueCentavos returned below — RevPAR/Net Profit/growth-rate
+  // keep using rawRevenueCentavos, matching Dashboard's own scoping, so a
+  // historical month doesn't fabricate a misleadingly-precise RevPAR off a
+  // monthly total nobody actually recorded per-booking.
+  const isExactCalendarMonth =
+    currentStart.getUTCDate() === 1 &&
+    currentEnd.getTime() === Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1);
+  const historicalMonthKey = `${currentStart.getUTCFullYear()}-${String(currentStart.getUTCMonth() + 1).padStart(2, "0")}`;
+  const airbnbHistoricalMonthly: Record<string, number> = Object.fromEntries(
+    airbnbHistoricalRows.map((r: { month: string; totalCentavos: number }) => [
+      `${new Date(r.month).getUTCFullYear()}-${String(new Date(r.month).getUTCMonth() + 1).padStart(2, "0")}`,
+      r.totalCentavos,
+    ])
+  );
+  const totalRevenueCentavos =
+    isExactCalendarMonth && rawRevenueCentavos <= 0 && airbnbHistoricalMonthly[historicalMonthKey] != null
+      ? airbnbHistoricalMonthly[historicalMonthKey]
+      : rawRevenueCentavos;
 
   const currentPaidExpensesCents = paidExpensesCentavos(currentPaidBills);
   const previousPaidExpensesCents = paidExpensesCentavos(previousPaidBills);
@@ -161,7 +211,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     employees, salaryHistory, weeklyExpenses: weeklyExpensesPrevious, expenseRequests: expenseRequestsPrevious,
     periodStart: previousStart, periodEnd: previousEnd,
   });
-  const netProfit = netProfitCentavos({ revenueCentavos: totalRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents, otherPaidCostsCentavos: currentOtherCostsCents });
+  const netProfit = netProfitCentavos({ revenueCentavos: rawRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents, otherPaidCostsCentavos: currentOtherCostsCents });
   const previousNetProfit = netProfitCentavos({ revenueCentavos: previousRevenueCentavos, paidExpensesCentavos: previousPaidExpensesCents, otherPaidCostsCentavos: previousOtherCostsCents });
 
   const occ = computeOccupancy({
@@ -173,7 +223,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     cleaningBlocks: blocks.filter((b: any) => b.type === "Cleaning"),
   });
   const adr = computeADR(currentBookings, currentStart, currentEnd);
-  const revpar = computeRevPAR(totalRevenueCentavos, occ.availableNights);
+  const revpar = computeRevPAR(rawRevenueCentavos, occ.availableNights);
 
   const repeat = guestRepeatRate(currentBookings);
 
@@ -192,7 +242,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     avgStayLengthNights: avgStayLengthNights(currentBookings),
     repeatGuestRatePct: repeat.repeatRatePct,
     repeatGuestBasis: repeat.basis,
-    revenueGrowthPct: revenueGrowthPct(totalRevenueCentavos, previousRevenueCentavos),
+    revenueGrowthPct: revenueGrowthPct(rawRevenueCentavos, previousRevenueCentavos),
     profitGrowthPct: revenueGrowthPct(netProfit, previousNetProfit),
     monthlyForecastCentavos: forecast.forecastCentavos,
     forecastMethod: forecast.method,
@@ -216,14 +266,15 @@ const revenueBookingSelect = {
 async function fetchRevenueData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
 
@@ -254,9 +305,9 @@ export type RevenueAnalytics = {
   bookings: DrillDownBooking[];
 };
 
-export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<RevenueAnalytics> {
+export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<RevenueAnalytics> {
   const data = await cachedFetchRevenueData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { units, bookings } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
@@ -279,14 +330,15 @@ export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: st
 async function fetchFinancialData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const billUnitWhere = effective ? { unitId: { in: effective } } : {};
 
@@ -307,7 +359,7 @@ async function fetchFinancialData(
     // only ever subtracted paid Bills, so it silently equaled Net Revenue
     // whenever paid Bills were ₱0, no matter how much payroll had actually
     // gone out the door.
-    prismaPool[3].employee.findMany({ select: { id: true, role: true, monthlySalary: true, active: true } }),
+    prismaPool[3].employee.findMany({ where: { ownerId }, select: { id: true, role: true, monthlySalary: true, active: true } }),
     prismaPool[4].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
     prismaPool[5].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
     prismaPool[6].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
@@ -327,9 +379,9 @@ export type FinancialAnalytics = {
   outstandingBalanceCentavos: number;
 };
 
-export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<FinancialAnalytics> {
+export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<FinancialAnalytics> {
   const data = await cachedFetchFinancialData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
@@ -363,14 +415,15 @@ const bookingAnalyticsSelect = {
 async function fetchBookingData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
@@ -391,9 +444,9 @@ export type BookingAnalytics = {
   peakCheckOutDays: { dow: string; count: number }[];
 };
 
-export async function getBookingAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<BookingAnalytics> {
+export async function getBookingAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<BookingAnalytics> {
   const data = await cachedFetchBookingData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { bookings } = data;
   return {
@@ -412,14 +465,15 @@ const occupancyBookingSelect = {
 async function fetchOccupancyData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
 
@@ -471,9 +525,9 @@ export type OccupancyAnalytics = {
   forecastConfidence: "low" | "medium";
 };
 
-export async function getOccupancyAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<OccupancyAnalytics> {
+export async function getOccupancyAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<OccupancyAnalytics> {
   const data = await cachedFetchOccupancyData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { units, bookings, blocks, calendarStart, calendarEnd, trailingMonthData } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
@@ -536,14 +590,15 @@ export async function getOccupancyAnalytics(user: { role: string; ownedUnitIds: 
 async function fetchGuestData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
@@ -569,9 +624,9 @@ export type GuestAnalytics = {
   frequentGuests: { key: string; name: string; totalCentavos: number; bookingCount: number }[];
 };
 
-export async function getGuestAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<GuestAnalytics> {
+export async function getGuestAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<GuestAnalytics> {
   const data = await cachedFetchGuestData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { periodBookings, allTimeBookings } = data;
   const repeat = guestRepeatRate(periodBookings);
@@ -588,14 +643,15 @@ export async function getGuestAnalytics(user: { role: string; ownedUnitIds: stri
 async function fetchHousekeepingData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const where = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
@@ -609,7 +665,7 @@ async function fetchHousekeepingData(
     // to anyone who actually performed the clean (e.g. an Owner covering a
     // quick clean themselves), and excluding them from this lookup would
     // show their name as "Unknown" instead of who it actually was.
-    prismaPool[2].employee.findMany({ where: { active: true }, select: { id: true, name: true } }),
+    prismaPool[2].employee.findMany({ where: { active: true, ownerId }, select: { id: true, name: true } }),
     prismaPool[3].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true, unitNumber: true } }),
   ]);
   return JSON.parse(JSON.stringify({ logs, states, employees, units }));
@@ -628,9 +684,9 @@ export type HousekeepingAnalytics = {
   cleanerPerformance: { employeeId: string; name: string; completedCount: number; avgDurationMinutes: number }[];
 };
 
-export async function getHousekeepingAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<HousekeepingAnalytics> {
+export async function getHousekeepingAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<HousekeepingAnalytics> {
   const data = await cachedFetchHousekeepingData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { logs, states, employees, units } = data;
   const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, formatUnitDisplay(u.unitNumber, u.shortName)]));
@@ -651,14 +707,15 @@ export async function getHousekeepingAnalytics(user: { role: string; ownedUnitId
 async function fetchStaffData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
@@ -675,7 +732,7 @@ async function fetchStaffData(
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
     prismaPool[2].weeklyExpense.findMany({ where: { date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),
-    prismaPool[3].employee.findMany({ select: { id: true, name: true, role: true, active: true } }),
+    prismaPool[3].employee.findMany({ where: { ownerId }, select: { id: true, name: true, role: true, active: true } }),
     prismaPool[4].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
   ]);
   return JSON.parse(JSON.stringify({ bookings, cleaningLogs, expenses, employees, settings }));
@@ -690,9 +747,9 @@ export type StaffAnalyticsRow = {
 export type StaffDrillDownBooking = { id: string; date: string; stayType: string; bookerId: string | null; cleanerId: string | null };
 export type StaffAnalytics = { rows: StaffAnalyticsRow[]; bookings: StaffDrillDownBooking[] };
 
-export async function getStaffAnalytics(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<StaffAnalytics> {
+export async function getStaffAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<StaffAnalytics> {
   const data = await cachedFetchStaffData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { bookings, cleaningLogs, expenses, employees, settings } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
@@ -713,14 +770,15 @@ export async function getStaffAnalytics(user: { role: string; ownedUnitIds: stri
 async function fetchUnitPerformanceData(
   role: string,
   ownedUnitIds: string[],
+  ownerId: string | null,
   preset: AnalyticsPeriodPreset,
   customStart: string,
   customEnd: string,
   filterUnitIdsJoined: string
 ) {
-  const user = { role, ownedUnitIds };
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const billUnitWhere = effective ? { unitId: { in: effective } } : {};
@@ -747,9 +805,9 @@ export type UnitPerformanceAnalytics = {
   worst: UnitPerformanceRow | null;
 };
 
-export async function getUnitPerformance(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<UnitPerformanceAnalytics> {
+export async function getUnitPerformance(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<UnitPerformanceAnalytics> {
   const data = await cachedFetchUnitPerformanceData(
-    user.role, user.ownedUnitIds, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
   const { units, bookings, bills, blocks } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
@@ -775,10 +833,10 @@ export async function getUnitPerformance(user: { role: string; ownedUnitIds: str
 // so a Co-Owner only ever sees their own units' goals.
 const goalBookingSelect = { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true } as const;
 
-async function fetchRevenueGoalsData(role: string, ownedUnitIds: string[], filterUnitIdsJoined: string) {
-  const user = { role, ownedUnitIds };
+async function fetchRevenueGoalsData(role: string, ownedUnitIds: string[], ownerId: string | null, filterUnitIdsJoined: string) {
+  const user = { role, ownedUnitIds, ownerId };
   const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
-  const effective = effectiveUnitIds(user, filterUnitIds);
+  const effective = await effectiveUnitIds(user, filterUnitIds);
   const unitIdWhere = effective ? { id: { in: effective } } : {};
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
 
@@ -803,6 +861,6 @@ const cachedFetchRevenueGoalsData = unstable_cache(fetchRevenueGoalsData, ["anal
 
 export type RevenueGoalsData = Awaited<ReturnType<typeof fetchRevenueGoalsData>>;
 
-export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[] }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
-  return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, (filters.unitIds ?? []).join(","));
+export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
+  return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, user.ownerId, (filters.unitIds ?? []).join(","));
 }

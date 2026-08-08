@@ -1,7 +1,7 @@
 import { StatCard } from "@/components/ui/StatCard";
 import { getHousekeepingAnalytics, type AnalyticsFilters } from "@/app/analytics/queries";
 
-export async function HousekeepingSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+export async function HousekeepingSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const hk = await getHousekeepingAnalytics(user, filters);
   return (
     <div className="space-y-4">

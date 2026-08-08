@@ -7,13 +7,14 @@ import { ensureEmployeeForUser } from "@/lib/employeeProvision";
 import { isUniqueConstraintError } from "@/lib/apiValidation";
 
 export async function GET() {
-  const { error } = await requireUser(["OWNER_ADMIN"]);
+  const { user: actor, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
   // Explicit select — excludes passwordHash. Includes avatarUrl so Users &
   // roles reflects each person's real photo; see the same select in
   // src/app/admin/page.tsx (this route just re-serves the same shape after
   // a save/archive/restore in that tab).
   const users = await prisma.user.findMany({
+    where: { ownerId: actor.ownerId },
     orderBy: { createdAt: "asc" },
     select: {
       id: true, name: true, username: true, email: true, role: true, avatarColor: true, avatarUrl: true,
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
         role: body.role,
         mustChangePassword: true,
         showOnGuestGuide: body.showOnGuestGuide ?? false,
+        ownerId: user.ownerId,
         ownedUnits: body.ownedUnitIds?.length
           ? { create: body.ownedUnitIds.map((unitId) => ({ unitId })) }
           : undefined,

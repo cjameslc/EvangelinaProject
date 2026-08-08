@@ -21,7 +21,7 @@ import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoal
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
 
-async function ExecutiveKpiSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+async function ExecutiveKpiSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const kpis = await getExecutiveKPIs(user, filters);
   return <KpiRow kpis={kpis} />;
 }
@@ -62,7 +62,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       </div>
 
       <Suspense fallback={<KpiRowSkeleton />} key={`kpi-${JSON.stringify(filters)}`}>
-        <ExecutiveKpiSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+        <ExecutiveKpiSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
       </Suspense>
 
       <div className="mt-4">
@@ -71,19 +71,19 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
 
       <div className="mt-4">
         <Suspense fallback={<SectionSkeleton />} key={`goals-${JSON.stringify(filters)}`}>
-          <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`revenue-${JSON.stringify(filters)}`}>
-          <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`financial-${JSON.stringify(filters)}`}>
-          <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
@@ -93,37 +93,37 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`booking-${JSON.stringify(filters)}`}>
-          <BookingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <BookingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`occupancy-${JSON.stringify(filters)}`}>
-          <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`guest-${JSON.stringify(filters)}`}>
-          <GuestSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <GuestSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`hk-${JSON.stringify(filters)}`}>
-          <HousekeepingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <HousekeepingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
-          <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`units-${JSON.stringify(filters)}`}>
-          <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds }} filters={filters} />
+          <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 

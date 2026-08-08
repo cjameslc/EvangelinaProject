@@ -9,10 +9,14 @@ import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 
-// Everything the Dashboard reads is scoped only by role+ownedUnitIds (see
-// dashboardUnitWhere/dashboardUnitIdWhere), so those two are sufficient as a
-// cache key — no need to key on the user's id. Revalidates every 45s: fresh
-// enough that a booking/payment made just now shows up within under a
+// Everything the Dashboard reads is scoped by role+ownedUnitIds+ownerId
+// (see dashboardUnitWhere/dashboardUnitIdWhere), so those three are
+// sufficient as a cache key — no need to key on the user's id. ownerId is
+// load-bearing here, not incidental: without it in the key, a cache hit
+// for one owner's admin could serve another owner's cached dashboard data
+// (unstable_cache's Next.js-level cache has no idea these two Owner_ADMINs
+// are different tenants unless the key says so). Revalidates every 45s:
+// fresh enough that a booking/payment made just now shows up within under a
 // minute, but it means a page load can be up to ~45s stale, which is an
 // explicitly accepted tradeoff for how much DB load this page was causing.
 // The returned object is pre-normalized (JSON.parse(JSON.stringify(...)))
@@ -21,8 +25,8 @@ import { DashboardView } from "@/components/dashboard/DashboardView";
 // itself, which would otherwise silently turn Dates into strings only on a
 // hit, not a miss.
 const getDashboardData = unstable_cache(
-  async (role: string, ownedUnitIds: string[]) => {
-    const user = { role, ownedUnitIds };
+  async (role: string, ownedUnitIds: string[], ownerId: string | null) => {
+    const user = { role, ownedUnitIds, ownerId };
     const where = dashboardUnitWhere(user);
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 86400000);
@@ -33,6 +37,16 @@ const getDashboardData = unstable_cache(
     // last month's actual total, so this is fetched alongside bookingsMonth
     // rather than adding a client-side round trip later.
     const prevMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 1, 1));
+    // Key Metrics' date-aware comparisons (Dashboard spec: "Aug 1–8 vs Jul
+    // 1–8 vs 3-month same-date benchmark of May/Jun/Jul") need real bills/
+    // expense-request history for the 3 months before the current one, not
+    // just the current month useBillsSummary/useMonthlyProfitSummary
+    // already fetch for their own (unchanged) current-month-only figures —
+    // billsRecent/expenseRequestsRecent below are additive, separate props
+    // for exactly that comparison, never substituted into the existing
+    // current-month-only bills/expenseRequestsMonth so nothing already
+    // relying on those changes behavior.
+    const benchmarkWindowStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 3, 1));
     // Findings scoped to this user's units, plus any general (no-unit) ones.
     const unitFilter = (where as any).unitId;
     const findingsWhere = unitFilter ? { OR: [{ unitId: unitFilter }, { unitId: null }] } : {};
@@ -55,13 +69,21 @@ const getDashboardData = unstable_cache(
       prismaPool[0].unit.findMany({ where: dashboardUnitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
       prismaPool[1].booking.findMany({ where: { ...where, date: { gte: weekAgo } }, select: dashboardBookingSelect }),
       prismaPool[2].booking.findMany({ where: { ...where, date: { gte: monthStart, lt: nextMonthStart } }, select: dashboardBookingSelect }),
-      prismaPool[3].employee.findMany({ where: { active: true } }),
+      prismaPool[3].employee.findMany({ where: { active: true, ownerId } }),
       prismaPool[4].bill.findMany({ where: { ...where, month: monthStart }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
       prismaPool[5].housekeepingUnitState.findMany({ where }),
       // A broad, unwindowed set so the Earnings card can filter by an
       // arbitrary Weekly/Monthly/Yearly period client-side instead of only
-      // the fixed last-7-days/month-to-date slices above.
-      prismaPool[6].booking.findMany({ where, orderBy: { date: "desc" }, take: 500, select: dashboardBookingSelect }),
+      // the fixed last-7-days/month-to-date slices above. No `take` cap —
+      // there was one (500) until the total booking count (already 459,
+      // growing ~100/month) got close enough to it that Yearly/older-period
+      // Earnings totals were about to silently start dropping the oldest
+      // bookings first (ordered desc by date), while Analytics' equivalent
+      // query stayed uncapped — a real, imminent "the two tabs disagree"
+      // bug, same class as the one just fixed for the historical-revenue
+      // fallback. The whole dataset is still small enough (a few hundred
+      // KB) to fetch in one query without a cap.
+      prismaPool[6].booking.findMany({ where, orderBy: { date: "desc" }, select: dashboardBookingSelect }),
       // Weekly expenses aren't tied to a unit (salaries, ad spend, etc.) — used
       // for the Earnings "Salary" line. The full manual-entry editor now
       // lives on the Admin page's Weekly report tab.
@@ -122,13 +144,28 @@ const getDashboardData = unstable_cache(
         where: { ...where, date: { gte: prevMonthStart, lt: monthStart } },
         select: { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true },
       }),
+      // billsRecent/expenseRequestsRecent — real paid-bill and approved-
+      // expense history for the current month plus the 3 months before it,
+      // for Key Metrics' "vs last month" / "vs 3-month benchmark"
+      // comparisons. Paid-bill cost is attributed to a comparison period by
+      // paidAt (the actual date money left), not the bill's `month` bucket
+      // — a bill paid late in a different month than it's billed for would
+      // otherwise misattribute cost to the wrong period.
+      prismaPool[17 % prismaPool.length].bill.findMany({
+        where: { ...where, month: { gte: benchmarkWindowStart, lt: nextMonthStart } },
+        select: { unitId: true, month: true, paid: true, paidAt: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true },
+      }),
+      prismaPool[18 % prismaPool.length].expenseRequest.findMany({
+        where: { date: { gte: benchmarkWindowStart, lt: nextMonthStart }, status: { in: ["APPROVED", "PENDING"] } },
+        select: { category: true, amount: true, status: true, date: true },
+      }),
     ]);
-    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth] = res as any[];
+    const [units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth, billsRecent, expenseRequestsRecent] = res as any[];
 
     return JSON.parse(JSON.stringify({
       units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings,
       weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent,
-      calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth,
+      calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth, billsRecent, expenseRequestsRecent,
       // The exact window boundaries used to fetch bookingsWeek/bookingsMonth/
       // calendarBlocksOccupancy above — the client must reuse these (not
       // recompute its own "now") so occupancy/RevPAR/ADR are always
@@ -224,14 +261,16 @@ export default async function DashboardPage() {
   let reserveAccessCodes: any[] = [];
   let ttlockStatus: any = null;
   let bookingsPrevMonth: any[] = [];
+  let billsRecent: any[] = [];
+  let expenseRequestsRecent: any[] = [];
   let weekRangeStart = new Date(Date.now() - 7 * 86400000);
   let weekRangeEnd = new Date();
   let monthRangeStart = monthStart;
   let monthRangeEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
 
   try {
-    const data = await getDashboardData(user.role, user.ownedUnitIds);
-    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
+    const data = await getDashboardData(user.role, user.ownedUnitIds, user.ownerId);
+    ({ units, bookingsWeek, bookingsMonth, employees, bills, hkStates, earningsBookings, weeklyExpenses, attentionFindings, stocks, salaryHistory, expenseRequestsMonth, cleaningLogsRecent, calendarBlocksOccupancy, reserveAccessCodes, ttlockStatus, bookingsPrevMonth, billsRecent, expenseRequestsRecent, weekRangeStart, weekRangeEnd, monthRangeStart, monthRangeEnd } = data);
   } catch (e) {
     // If Prisma/DB is not available (demo), provide lightweight demo fixtures so the dashboard can render.
     units = [
@@ -274,6 +313,8 @@ export default async function DashboardPage() {
       reserveAccessCodes={JSON.parse(JSON.stringify(reserveAccessCodes))}
       ttlockStatus={JSON.parse(JSON.stringify(ttlockStatus))}
       bookingsPrevMonth={JSON.parse(JSON.stringify(bookingsPrevMonth))}
+      billsRecent={JSON.parse(JSON.stringify(billsRecent))}
+      expenseRequestsRecent={JSON.parse(JSON.stringify(expenseRequestsRecent))}
       monthlyRevenueTargetPerUnit={bookingSettings.monthlyRevenueTargetPerUnit}
       batteryLowThresholdPct={bookingSettings.batteryLowThresholdPct}
       batteryCriticalThresholdPct={bookingSettings.batteryCriticalThresholdPct}

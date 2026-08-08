@@ -2,7 +2,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { pesoCentavos } from "@/lib/format";
 import { getFinancialAnalytics, type AnalyticsFilters } from "@/app/analytics/queries";
 
-export async function FinancialSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+export async function FinancialSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const fin = await getFinancialAnalytics(user, filters);
   return (
     <div className="card p-4">

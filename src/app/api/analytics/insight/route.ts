@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const scopedUser = { role: user.role, ownedUnitIds: user.ownedUnitIds };
+  const scopedUser = { role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId };
 
   try {
     let result: AnalyticsInsightResult;

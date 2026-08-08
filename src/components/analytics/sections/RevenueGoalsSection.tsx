@@ -6,7 +6,7 @@ import { formatUnitDisplay } from "@/lib/format";
 // Analytics is gated to OWNER_ADMIN/CO_OWNER only (canSeeAnalytics) — a
 // Booker never reaches this page, so unlike the Dashboard instance of this
 // same panel, there's no "Your contribution" block to compute here.
-export async function RevenueGoalsSection({ user, filters }: { user: { role: string; ownedUnitIds: string[] }; filters: AnalyticsFilters }) {
+export async function RevenueGoalsSection({ user, filters }: { user: { role: string; ownedUnitIds: string[]; ownerId: string | null }; filters: AnalyticsFilters }) {
   const data = await getRevenueGoalsData(user, filters);
   const now = new Date();
   const monthStart = new Date(data.monthStart);

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { format: stri
 
   // Reuses the exact same section queries the page itself renders from —
   // an export can never show a number the page didn't already show.
-  const data = await assembleExportData({ role: user.role, ownedUnitIds: user.ownedUnitIds }, filters);
+  const data = await assembleExportData({ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }, filters);
 
   const datePart = new Date().toISOString().slice(0, 10);
   const filename = `analytics-${filters.preset}-${datePart}.${format}`;

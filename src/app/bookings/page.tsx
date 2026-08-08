@@ -4,17 +4,11 @@ import { canSeeBookings } from "@/lib/rbac";
 import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { BookingsView } from "@/components/bookings/BookingsView";
-import { ensureDefaultConversations, listConversationsForUser } from "@/lib/chat/service";
 
 export default async function BookingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (!canSeeBookings(user.role)) redirect("/");
-
-  // Team Collaboration panel reuses the same chat backend the standalone
-  // /chat page used — ensureDefaultConversations is idempotent (a no-op
-  // once the Team channel already exists), same call the old chat page made.
-  await ensureDefaultConversations();
 
   const where = unitWhere(user);
 
@@ -30,9 +24,9 @@ export default async function BookingsPage() {
   ninetyDaysAgo.setUTCHours(0, 0, 0, 0);
   const sinceIso = ninetyDaysAgo.toISOString().slice(0, 10);
 
-  const [units, employees, bookings, settings, ownEmployee, conversations, firstBookingRows] = await Promise.all([
+  const [units, employees, bookings, settings, ownEmployee, firstBookingRows] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
-    prismaPool[1].employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prismaPool[1].employee.findMany({ where: { active: true, ownerId: user.ownerId }, orderBy: { name: "asc" } }),
     // Explicit select — BookingsView never reads proofUrl/dpProofUrl (the
     // base64-encoded receipt images, only ever uploaded via the edit form
     // and never displayed back), yet `include` was pulling them for every
@@ -57,7 +51,6 @@ export default async function BookingsPage() {
     }),
     prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
     prismaPool[4].employee.findUnique({ where: { userId: user.id }, select: { id: true } }),
-    listConversationsForUser(user.id),
     // "1st booking" tag needs real all-time data (a guest's very first
     // stay could easily be older than the 90-day window above), but only
     // ever needs a Set of ids — a lean select over the full history is far
@@ -85,8 +78,6 @@ export default async function BookingsPage() {
   return (
     <BookingsView
       role={user.role}
-      currentUserId={user.id}
-      initialConversations={JSON.parse(JSON.stringify(conversations))}
       units={JSON.parse(JSON.stringify(units))}
       employees={JSON.parse(JSON.stringify(employees))}
       initialBookings={JSON.parse(JSON.stringify(bookings))}
