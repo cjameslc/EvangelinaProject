@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { listTtlockLocks } from "@/lib/ttlock/client";
-import { recordTtlockOutcome } from "@/lib/ttlock/reliability";
+import { recordTtlockOutcome } from "@/lib/access/service";
 
 export type TtlockSyncResult = { unit: string; ok: boolean; battery?: number; error?: string };
 

@@ -28,7 +28,11 @@ export function GuestBookingHub({ booking, guidebook }: { booking: any; guideboo
         </div>
       </div>
 
-      {tab === "guide" ? <GuidebookView booking={booking} guidebook={guidebook} /> : <BookingDetailClient booking={booking} />}
+      {tab === "guide" ? (
+        <GuidebookView booking={booking} guidebook={guidebook} />
+      ) : (
+        <BookingDetailClient booking={booking} paymentQrUrl={guidebook?.paymentQrUrl ?? null} paymentInstructions={guidebook?.paymentInstructions ?? null} />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, logAudit } from "@/lib/session";
 import { profileSchema } from "@/lib/validation";
 import { isUniqueConstraintError } from "@/lib/apiValidation";
+import { isColorThemeId } from "@/lib/colorThemes";
 
 export async function GET() {
   const { user, error } = await requireUser();
@@ -46,6 +47,12 @@ export async function PATCH(req: NextRequest) {
   if (body.email !== undefined) data.email = body.email ? body.email.toLowerCase().trim() : null;
   if (body.avatarColor) data.avatarColor = body.avatarColor;
   if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl;
+  if (body.colorTheme !== undefined) {
+    if (body.colorTheme !== null && !isColorThemeId(body.colorTheme)) {
+      return NextResponse.json({ error: "Unknown theme." }, { status: 400 });
+    }
+    data.colorTheme = body.colorTheme;
+  }
 
   if (body.newPassword) {
     if (!body.currentPassword) {
@@ -63,6 +70,7 @@ export async function PATCH(req: NextRequest) {
     const updated = await prisma.user.update({ where: { id: user.id }, data });
     await logAudit(user.id, "profile.update", "User", user.id, {
       name: !!body.name, email: !!body.email, passwordChanged: !!body.newPassword, avatarColor: !!body.avatarColor, avatarUrl: body.avatarUrl !== undefined,
+      colorTheme: body.colorTheme !== undefined ? body.colorTheme : undefined,
     });
     const { passwordHash, ...safe } = updated;
     return NextResponse.json(safe);

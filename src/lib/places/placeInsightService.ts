@@ -13,8 +13,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function refreshPlaceInsight(category: string, categoryLabel: string, name: string) {
-  const settings = await prisma.settings.findUnique({ where: { id: 1 }, select: { propertyLat: true, propertyLng: true } });
+export async function refreshPlaceInsight(category: string, categoryLabel: string, name: string, ownerId: string) {
+  const settings = await prisma.settings.findUnique({ where: { ownerId }, select: { propertyLat: true, propertyLng: true } });
   const origin = settings?.propertyLat != null && settings?.propertyLng != null ? { lat: settings.propertyLat, lng: settings.propertyLng } : null;
 
   const result = await lookupPlace(name, origin);
@@ -51,10 +51,10 @@ export async function refreshPlaceInsight(category: string, categoryLabel: strin
   });
 }
 
-export async function refreshCategoryInsights(category: string, categoryLabel: string, names: string[]) {
+export async function refreshCategoryInsights(category: string, categoryLabel: string, names: string[], ownerId: string) {
   const results: { name: string; ok: boolean; error: string | null }[] = [];
   for (const name of names) {
-    const row = await refreshPlaceInsight(category, categoryLabel, name);
+    const row = await refreshPlaceInsight(category, categoryLabel, name, ownerId);
     results.push({ name, ok: !row.fetchError, error: row.fetchError });
     if (name !== names[names.length - 1]) await sleep(REFRESH_DELAY_MS);
   }

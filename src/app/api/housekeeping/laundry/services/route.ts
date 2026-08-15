@@ -9,7 +9,7 @@ export async function GET() {
   const { user, error } = await requireUser();
   if (error) return error;
   if (!canSeeHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
-  return NextResponse.json(await listLaundryServices());
+  return NextResponse.json(await listLaundryServices(user.ownerId));
 }
 
 // Service/pricing configuration is Owner/Admin-only — same tier as
@@ -21,6 +21,6 @@ export async function POST(req: NextRequest) {
   const parsed = parseOrError(laundryServiceSchema, await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
 
-  const service = await createLaundryService(user.id, parsed.data);
+  const service = await createLaundryService(user.id, parsed.data, user.ownerId);
   return NextResponse.json(service, { status: 201 });
 }

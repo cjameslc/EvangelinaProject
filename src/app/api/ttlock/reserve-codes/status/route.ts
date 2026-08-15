@@ -6,13 +6,17 @@ import { requireUser } from "@/lib/session";
 // counts per unit plus the singleton TtlockStatus row (updated by every
 // real API call the retry wrapper makes, success or failure).
 export async function GET() {
-  const { error } = await requireUser(["OWNER_ADMIN"]);
+  const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
 
+  // codes/units were unscoped — any Owner/Admin saw every tenant's unit
+  // names and reserve-code inventory counts. ttlockStatus (id: 1) stays
+  // global/unscoped on purpose — it's a real singleton reflecting the one
+  // shared TTLock account's own last-success/failure, not per-tenant data.
   const [codes, status, units] = await Promise.all([
-    prisma.reserveAccessCode.groupBy({ by: ["unitId", "status"], _count: true }),
+    prisma.reserveAccessCode.groupBy({ by: ["unitId", "status"], _count: true, where: { unit: { ownerId: user.ownerId } } }),
     prisma.ttlockStatus.findUnique({ where: { id: 1 } }),
-    prisma.unit.findMany({ select: { id: true, shortName: true } }),
+    prisma.unit.findMany({ where: { ownerId: user.ownerId }, select: { id: true, shortName: true } }),
   ]);
 
   const byUnit = units.map((u) => {

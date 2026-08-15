@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getCurrentGuest } from "@/lib/guestSession";
 import { canSeeDashboard } from "@/lib/rbac";
 import { getViewMode } from "@/lib/viewMode";
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
 import { NEARBY_SLUGS, type NearbySlug } from "@/lib/guideNav";
 import { getCategoryImagesBatch } from "@/lib/unsplash/service";
@@ -31,7 +31,9 @@ export default async function Home() {
   // /book and BookFlowView) — this page links out to booking, it never
   // renders booking content itself. (middleware.ts's authorized callback
   // special-cases "/" to make this reachable unauthenticated.)
-  const [g, guest] = await Promise.all([getGuidebookSettings(), getCurrentGuest()]);
+  // A signed-in guest sees their own host's guidebook content, not always
+  // Evangelina's — see getGuidebookSettingsForCurrentGuest's doc comment.
+  const [g, guest] = await Promise.all([getGuidebookSettingsForCurrentGuest(), getCurrentGuest()]);
 
   // Real walk/drive time from the property (Urban Deca Towers Cubao) to
   // the nearest real place in each "Explore the neighborhood" category —

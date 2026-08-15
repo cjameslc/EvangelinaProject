@@ -270,7 +270,7 @@ function UserModal({ user, units, onClose, onSave }: { user?: UserRow; units: Un
         </div>
         <div className="rounded-xl border border-[var(--line)] p-3">
           <label className="flex items-center gap-2.5 text-[13.5px] font-semibold">
-            <input type="checkbox" checked={form.showOnGuestGuide} onChange={(e) => setForm({ ...form, showOnGuestGuide: e.target.checked })} className="h-4 w-4 accent-rausch" />
+            <input type="checkbox" checked={form.showOnGuestGuide} onChange={(e) => setForm({ ...form, showOnGuestGuide: e.target.checked })} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
             Show on the guest Digital Guidebook&rsquo;s &ldquo;Meet our team&rdquo; card
           </label>
           <p className="mt-1 pl-6 text-[11.5px] text-[var(--gray)]">Uses this account&rsquo;s profile photo (set on their Profile page) and name. Off by default — nothing shows to guests until you turn this on.</p>
@@ -281,7 +281,7 @@ function UserModal({ user, units, onClose, onSave }: { user?: UserRow; units: Un
             <div className="mt-1.5 space-y-1.5 rounded-xl border border-[var(--line)] p-2.5">
               {units.map((u) => (
                 <label key={u.id} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] font-semibold hover:bg-[var(--bg-2)]">
-                  <input type="checkbox" checked={form.ownedUnitIds.includes(u.id)} onChange={() => toggleUnit(u.id)} className="h-4 w-4 accent-rausch" />
+                  <input type="checkbox" checked={form.ownedUnitIds.includes(u.id)} onChange={() => toggleUnit(u.id)} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
                   {u.name}
                 </label>
               ))}

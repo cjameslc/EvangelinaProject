@@ -2,14 +2,14 @@ import { laundryExportRows } from "./data";
 import type { LaundryOrderView } from "@/lib/laundry/laundryReports";
 
 /** Same jsPDF + jspdf-autotable server-side pattern as analytics/export/pdf.ts. */
-export async function buildLaundryExportPdf(orders: LaundryOrderView[]): Promise<Buffer> {
+export async function buildLaundryExportPdf(orders: LaundryOrderView[], businessName: string): Promise<Buffer> {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const doc = new jsPDF({ orientation: "landscape" });
   const rausch: [number, number, number] = [255, 56, 92];
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(17);
-  doc.text("Evangelina's Staycation", 14, 16);
+  doc.text(businessName, 14, 16);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(110);

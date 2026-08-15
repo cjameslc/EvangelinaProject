@@ -16,11 +16,16 @@ function computeDiscount(type: string, value: number, subtotal: number): number 
  * ever be oversold-protected by the atomic claim inside
  * bookingService.ts's $transaction (see createBookingCore) — this function
  * alone is not safe against a race between two concurrent bookings.
+ *
+ * ownerId is required, not optional — was previously looked up by code
+ * alone with no tenant check, so a guest booking with one tenant could
+ * redeem a different tenant's coupon code. Both call sites resolve the
+ * real owner from the unit being booked before calling this.
  */
-export async function checkCoupon(codeRaw: string, subtotal: number): Promise<CouponCheck> {
+export async function checkCoupon(codeRaw: string, subtotal: number, ownerId: string): Promise<CouponCheck> {
   const code = codeRaw.trim().toUpperCase();
   if (!code) return { ok: false, error: "Enter a coupon code." };
-  const coupon = await prisma.coupon.findUnique({ where: { code } });
+  const coupon = await prisma.coupon.findFirst({ where: { code, ownerId } });
   if (!coupon || !coupon.active) return { ok: false, error: "That coupon code isn't valid." };
   if (coupon.expiresAt && coupon.expiresAt.getTime() < Date.now()) return { ok: false, error: "That coupon has expired." };
   if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) return { ok: false, error: "That coupon has reached its usage limit." };

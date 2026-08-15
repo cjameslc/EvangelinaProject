@@ -32,8 +32,9 @@ async function loadRows(req: NextRequest) {
   const days = computeMonthAvailability(scopedUnits, bookings, year, month0, stayType);
   const monthLabel = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
   const unitLabel = unitId && unitId !== "all" ? formatUnitDisplay(scopedUnits[0]?.unitNumber, scopedUnits[0]?.shortName) : "All units";
+  const owner = await prisma.owner.findUnique({ where: { id: user.ownerId! }, select: { businessName: true } });
 
-  return { ok: true, days, monthLabel, unitLabel, units: scopedUnits } as const;
+  return { ok: true, days, monthLabel, unitLabel, units: scopedUnits, businessName: owner?.businessName ?? "Evangelina's Staycation" } as const;
 }
 
 export async function GET(req: NextRequest, { params }: { params: { format: string } }) {
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: { format: stri
 
   const loaded = await loadRows(req);
   if ("error" in loaded) return loaded.error;
-  const { days, monthLabel, unitLabel } = loaded;
+  const { days, monthLabel, unitLabel, businessName } = loaded;
 
   const filename = `available-dates-${monthLabel.replace(/\s/g, "-").toLowerCase()}.${params.format}`;
 
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest, { params }: { params: { format: stri
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(17);
-  doc.text("Evangelina's Staycation", 14, 18);
+  doc.text(businessName, 14, 18);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(110);

@@ -2,6 +2,9 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { GUIDEBOOK_CATEGORIES, AMENITIES, HOUSE_RULES, type GuidebookCategory, type Amenity } from "@/lib/guidebookContent";
 import { ROLE_LABEL } from "@/lib/constants";
+import { getDefaultOwnerId } from "@/lib/ownerScope";
+import { getCurrentGuest } from "@/lib/guestSession";
+import { getGuestOwnerId } from "@/lib/bookingEngine/guestService";
 
 export type TeamMember = { id: string; name: string; avatarUrl: string | null; avatarColor: string; role: string };
 export type EmergencyContact = { name: string; phones: string[] };
@@ -35,6 +38,10 @@ export type GuidebookSettings = {
   weekdayNightPromoPct: number;
   propertyLat: number | null;
   propertyLng: number | null;
+  // A real Vercel Blob URL (not base64), unlike hostPhotoUrl below — safe
+  // to include directly in the cached core.
+  paymentQrUrl: string | null;
+  paymentInstructions: string | null;
 };
 
 type CachedCore = Omit<GuidebookSettings, "hostPhotoUrl" | "team"> & { team: Omit<TeamMember, "avatarUrl">[] };
@@ -51,11 +58,19 @@ type CachedCore = Omit<GuidebookSettings, "hostPhotoUrl" | "team"> & { team: Omi
  * instead.
  */
 export const getCachedGuidebookCore = unstable_cache(
-  async (): Promise<CachedCore> => {
+  async (ownerIdArg?: string): Promise<CachedCore> => {
+    // Defaults to the default owner (see getDefaultOwnerId's doc comment)
+    // when no ownerId is given — the unprefixed public site (/, /book,
+    // /guide/*) has no session to derive one from. Callers that DO know
+    // (a signed-in guest's own booking, or a /o/[ownerSlug] page) pass
+    // their resolved ownerId explicitly instead. teamUsers also picked up
+    // an ownerId filter here — it was pulling showOnGuestGuide staff from
+    // every owner on the platform into "Meet the team" before.
+    const ownerId = ownerIdArg ?? (await getDefaultOwnerId());
     const [settings, teamUsers] = await Promise.all([
-      prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+      prisma.settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! } }),
       prisma.user.findMany({
-        where: { showOnGuestGuide: true, active: true },
+        where: { showOnGuestGuide: true, active: true, ownerId },
         select: { id: true, name: true, avatarColor: true, role: true },
         orderBy: { createdAt: "asc" },
       }),
@@ -85,6 +100,8 @@ export const getCachedGuidebookCore = unstable_cache(
       weekendRate12h: settings.weekendRate12h,
       weekendRate21h: settings.weekendRate21h,
       weekdayNightPromoPct: settings.weekdayNightPromoPct,
+      paymentQrUrl: settings.paymentQrUrl,
+      paymentInstructions: settings.paymentInstructions,
       propertyLat: settings.propertyLat,
       propertyLng: settings.propertyLng,
     };
@@ -94,13 +111,15 @@ export const getCachedGuidebookCore = unstable_cache(
 );
 
 /** Same null-falls-back-to-default pattern as CHECKLIST_GROUPS — an Admin
- * edit overrides the shipped content, an unset field keeps the default. */
-export async function getGuidebookSettings(): Promise<GuidebookSettings> {
+ * edit overrides the shipped content, an unset field keeps the default.
+ * ownerId is optional — see getCachedGuidebookCore's doc comment above. */
+export async function getGuidebookSettings(ownerIdArg?: string): Promise<GuidebookSettings> {
+  const ownerId = ownerIdArg ?? (await getDefaultOwnerId());
   const [core, photos] = await Promise.all([
-    getCachedGuidebookCore(),
+    getCachedGuidebookCore(ownerId ?? undefined),
     // Cheap (just 1-2 TEXT columns per person) and always fresh — see the
     // comment above for why these specifically stay out of the cache.
-    prisma.settings.findUnique({ where: { id: 1 }, select: { hostPhotoUrl: true } }),
+    prisma.settings.findUnique({ where: { ownerId: ownerId! }, select: { hostPhotoUrl: true } }),
   ]);
   let team = core.team.map((m) => ({ ...m, avatarUrl: null as string | null }));
   if (team.length > 0) {
@@ -112,4 +131,20 @@ export async function getGuidebookSettings(): Promise<GuidebookSettings> {
     team = team.map((m) => ({ ...m, avatarUrl: photoById.get(m.id) ?? null }));
   }
   return { ...core, hostPhotoUrl: photos?.hostPhotoUrl ?? null, team };
+}
+
+/**
+ * Convenience wrapper for the /guide/* pages and home page: resolves the
+ * currently signed-in guest's own host (via their most recent booking's
+ * unit owner) and fetches that owner's guidebook — falling back to the
+ * default owner for an anonymous visitor, exactly like getGuidebookSettings
+ * already does when passed no ownerId. Centralizing this here (rather than
+ * repeating getCurrentGuest+getGuestOwnerId in every page.tsx) is what
+ * keeps a second real tenant's guests seeing their own amenities/house
+ * rules/host bio instead of always Evangelina's.
+ */
+export async function getGuidebookSettingsForCurrentGuest(): Promise<GuidebookSettings> {
+  const guest = await getCurrentGuest();
+  const ownerId = guest ? await getGuestOwnerId(guest.id) : null;
+  return getGuidebookSettings(ownerId ?? undefined);
 }

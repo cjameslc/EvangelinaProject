@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, isUnitInScope } from "@/lib/session";
-import { canSeeHousekeeping, canEditHousekeeping } from "@/lib/rbac";
+import { canSeeHousekeeping } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { parseOrError } from "@/lib/apiValidation";
 import { laundryOrderSchema } from "@/lib/validation";
 import { getLaundryOrder, updateLaundryOrder } from "@/lib/laundry/laundryService";
@@ -11,7 +12,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (error) return error;
   if (!canSeeHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
 
-  const order = await getLaundryOrder(params.id);
+  const order = await getLaundryOrder(params.id, user.ownerId);
   if (!order) return NextResponse.json({ error: "Laundry order not found." }, { status: 404 });
   if (!await isUnitInScope(user, order.unitId)) return new Response("Forbidden", { status: 403 });
 
@@ -21,9 +22,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
-  if (!canEditHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
+  if (!hasActionAccess("housekeeping.edit", user.role, user.additionalActionAccess)) return new Response("Forbidden", { status: 403 });
 
-  const existing = await getLaundryOrder(params.id);
+  const existing = await getLaundryOrder(params.id, user.ownerId);
   if (!existing) return NextResponse.json({ error: "Laundry order not found." }, { status: 404 });
   if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
   if (existing.status === "Cancelled") return NextResponse.json({ error: "This order is cancelled and can't be edited." }, { status: 400 });
@@ -33,7 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (parsed.data.unitId && !await isUnitInScope(user, parsed.data.unitId)) return new Response("Forbidden", { status: 403 });
 
   try {
-    const order = await updateLaundryOrder(params.id, user.id, parsed.data);
+    const order = await updateLaundryOrder(params.id, user.id, parsed.data, user.ownerId);
     return NextResponse.json(withDerived(order));
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? "Couldn't update the laundry order." }, { status: 400 });

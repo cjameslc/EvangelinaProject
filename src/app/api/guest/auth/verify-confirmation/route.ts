@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
+import { createGuestAccessCode } from "@/lib/access/service";
 
 /**
  * Second guest sign-in path alongside the existing email magic link (see
@@ -67,6 +69,12 @@ export async function POST(req: NextRequest) {
       id: true, date: true, checkOutDate: true, cancelledAt: true, confirmationOverrideUntil: true,
       guests: true,
       guest: { select: { id: true, email: true, name: true } },
+      // Needed for createGuestAccessCode below — a staff-logged booking
+      // never gets one at creation time (see that function's own doc
+      // comment), so this bootstrap moment — the first time it's actually
+      // reachable through the guest portal — is the real point to ensure
+      // one exists.
+      unitId: true, stayType: true, checkInTime: true, checkOutTime: true, platform: true,
     },
   });
 
@@ -90,6 +98,21 @@ export async function POST(req: NextRequest) {
     const placeholderEmail = `guest-${confirmationNumber.toLowerCase()}@guest.evangelinas.local`;
     const guest = await findOrCreateGuestByEmail(placeholderEmail, guestNames[0] ?? null);
     await prisma.booking.update({ where: { id: booking.id }, data: { guestId: guest.id } });
+    // A real, confirmed gap: a staff-logged booking never gets a door code
+    // at creation time (createGuestAccessCode is only ever wired into the
+    // guest self-service booking route) — this bootstrap is the first
+    // moment this booking is guest-portal-reachable at all, so it's the
+    // right place to ensure a working code exists rather than leaving the
+    // guest to find out it's missing at the door. Idempotent (no-ops if an
+    // ACTIVE credential already exists), so safe even if something else
+    // already created one.
+    waitUntil(
+      createGuestAccessCode({
+        bookingId: booking.id, unitId: booking.unitId, guestId: guest.id, stayType: booking.stayType,
+        date: booking.date, checkOutDate: booking.checkOutDate, checkInTime: booking.checkInTime, checkOutTime: booking.checkOutTime,
+        platform: booking.platform,
+      }).catch(() => {})
+    );
     const sessionToken = await mintGuestSessionToken(guest);
     const res = NextResponse.json({ ok: true });
     res.cookies.set(GUEST_COOKIE_NAME, sessionToken, guestCookieOptions);
@@ -99,6 +122,16 @@ export async function POST(req: NextRequest) {
   if (emailRaw && booking.guest.email.toLowerCase() !== emailRaw) {
     return NextResponse.json({ error: "We couldn't find an active booking with that ID." }, { status: 404 });
   }
+
+  // Same safety net for a booking whose guest account already existed —
+  // idempotent, so this is a no-op the overwhelming majority of the time.
+  waitUntil(
+    createGuestAccessCode({
+      bookingId: booking.id, unitId: booking.unitId, guestId: booking.guest.id, stayType: booking.stayType,
+      date: booking.date, checkOutDate: booking.checkOutDate, checkInTime: booking.checkInTime, checkOutTime: booking.checkOutTime,
+      platform: booking.platform,
+    }).catch(() => {})
+  );
 
   const sessionToken = await mintGuestSessionToken(booking.guest);
   const res = NextResponse.json({ ok: true });

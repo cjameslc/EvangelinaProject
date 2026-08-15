@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { Pill } from "@/components/ui/Pill";
 import { peso, fmtDate } from "@/lib/format";
@@ -104,8 +105,11 @@ export function EarningsSection({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [earningsCollapsed, setEarningsCollapsed] = useState(false);
   const [periodNavOpen, setPeriodNavOpen] = useState(false);
+  const { data: session } = useSession();
+  const businessName = session?.user?.ownerBusinessName || "Evangelina's Staycation";
 
   const { exportExcel, exportPDF } = useMonthlyReportExport({
+    businessName,
     units,
     bookingsMonth,
     employees,
@@ -256,18 +260,30 @@ export function EarningsSection({
           )}
           {historicalIncome === undefined && previousPeriodIncome > 0 && (
             <div className="mt-1 flex items-center gap-1.5 text-[13px]">
-              <span className={cn("inline-flex items-center gap-0.5 font-bold", periodTrendPct >= 0 ? "text-green" : "text-rausch")}>
+              <span className={cn("inline-flex items-center gap-0.5 font-bold", periodTrendPct >= 0 ? "text-green" : "text-amber")}>
                 {periodTrendPct >= 0 ? "▲" : "▼"} {Math.abs(periodTrendPct)}%
               </span>
               <span className="text-[var(--gray)]">vs previous {rangeType === "daily" ? "day" : rangeType === "weekly" ? "week" : rangeType === "monthly" ? "month" : rangeType === "custom" ? "period" : "year"}</span>
             </div>
+          )}
+          {/* Real, not statistical — the full contracted value of every
+              non-cancelled booking already on the calendar this month
+              (elapsed + upcoming, paid or not), same expectedMonthIncome
+              Forecast Profit is measured against. Only meaningful next to
+              "this month" specifically — displayedPeriodIncome for
+              daily/weekly/yearly/custom covers a different window than
+              expectedMonthIncome always does. */}
+          {rangeType === "monthly" && expectedMonthIncome > displayedPeriodIncome && (
+            <p className="mt-2 text-[13px] text-[var(--gray)]">
+              <span className="font-bold text-[var(--ink)]">+{peso(expectedMonthIncome - displayedPeriodIncome)}</span> still to come from bookings already on the calendar this month → projected <span className="font-bold text-[var(--ink)]">{peso(expectedMonthIncome)}</span>
+            </p>
           )}
           <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-[var(--gray)]">
             <span><b className="text-[var(--ink)]">{periodBookings.length}</b> booked nights</span>
             <span><b className="text-[var(--ink)]">{periodBookings.length}</b> reservations</span>
             {periodBookings.length > 0 && <span>Avg. stay <b className="text-[var(--ink)]">{avgStayNights.toFixed(1)} nights</b></span>}
             {(selectedDate || statusFilter !== "all") && (
-              <span className="text-rausch">filtered{selectedDate ? ` · ${fmtDate(selectedDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}` : ""}{statusFilter !== "all" ? ` · ${statusFilter}` : ""}</span>
+              <span className="text-violet">filtered{selectedDate ? ` · ${fmtDate(selectedDate, { month: "short", day: "numeric", timeZone: "Asia/Manila" })}` : ""}{statusFilter !== "all" ? ` · ${statusFilter}` : ""}</span>
             )}
           </div>
 
@@ -282,7 +298,7 @@ export function EarningsSection({
                       <div className="text-[10px] font-semibold text-white/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
                     </div>
                     <div
-                      className={cn("w-full max-w-[36px] rounded-t-md transition-all group-hover:brightness-110", b.amount > 0 ? "bg-rausch" : "bg-[var(--bg-2)]")}
+                      className={cn("w-full max-w-[36px] rounded-t-md transition-all group-hover:brightness-110", b.amount > 0 ? "dash-gradient-bar" : "bg-[var(--bg-2)]")}
                       style={{ height: `${Math.max(4, Math.round((b.amount / max) * 80))}px` }}
                     />
                     <span className="text-[10.5px] font-semibold text-[var(--gray)]">{b.label}</span>
@@ -301,7 +317,7 @@ export function EarningsSection({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[var(--gray)]">Salary</span>
-                <span className="font-bold text-rausch">−{peso(periodSalary)}</span>
+                <span className="font-bold text-amber">−{peso(periodSalary)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-[var(--line)] pt-1.5 text-[14.5px]">
                 <span className="font-extrabold">Total earned</span>
@@ -322,7 +338,7 @@ export function EarningsSection({
                     <div key={p.platform} className="flex items-center gap-3 text-[13px]">
                       <span className="w-[100px] flex-none truncate font-bold" title={p.label}>{p.label}</span>
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--bg-2)]">
-                        <div className="h-full rounded-full bg-rausch" style={{ width: `${pct}%` }} />
+                        <div className="dash-gradient-bar-h h-full rounded-full" style={{ width: `${pct}%` }} />
                       </div>
                       <span className="w-[70px] flex-none text-right text-[11.5px] text-[var(--gray)]">{p.bookings} bkg · {p.nights}n</span>
                       <span className="w-[85px] flex-none text-right font-bold">{peso(p.revenue)}</span>

@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils";
 import { useViewMode } from "@/components/layout/ViewModeProvider";
 import type { ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
+import { useColorTheme } from "@/components/ui/ColorThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
+import { StaycationSwitcher } from "@/components/layout/StaycationSwitcher";
 import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MegaphoneIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
@@ -42,8 +44,35 @@ export function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
+  const { colorTheme } = useColorTheme();
   const { avatarUrl, name: liveName } = useAvatar();
   const displayName = liveName ?? session?.user?.name ?? "";
+
+  // A truly anonymous visitor has no staff session to read
+  // ownerBusinessName/ownerLogoUrl from — but on /o/[ownerSlug]/... they
+  // ARE browsing a specific real owner's guest site, so a small public
+  // lookup fills in that owner's own branding instead of always defaulting
+  // to Evangelina's (the same gap this page's own data-fetching had before
+  // getOwnerBySlug was threaded through it).
+  const ownerSlugFromPath = pathname?.match(/^\/o\/([^/]+)/)?.[1] ?? null;
+  const [guestOwnerBrand, setGuestOwnerBrand] = useState<{ businessName: string; logoUrl: string | null } | null>(null);
+  useEffect(() => {
+    if (session || !ownerSlugFromPath) { setGuestOwnerBrand(null); return; }
+    const controller = new AbortController();
+    fetch(`/api/public/owner-brand?slug=${encodeURIComponent(ownerSlugFromPath)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setGuestOwnerBrand(j))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session, ownerSlugFromPath]);
+
+  // Falls back to the original static branding for a truly generic guest
+  // page (no session, no /o/[ownerSlug] context) and for any owner who
+  // hasn't set their own name/icon yet (Owner.businessName is always set at
+  // creation time in practice, but logoUrl is commonly null until they
+  // upload one — see Admin -> Settings -> Staycation Profile).
+  const brandName = session?.user?.ownerBusinessName || guestOwnerBrand?.businessName || "Evangelina's Staycation";
+  const brandLogoUrl = session?.user?.ownerLogoUrl || guestOwnerBrand?.logoUrl;
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [guestUnread, setGuestUnread] = useState(0);
@@ -75,7 +104,7 @@ export function Navbar() {
 
 
   const role = session?.user?.role;
-  const items = visibleNavItems(role);
+  const items = visibleNavItems(role, session?.user?.additionalPageAccess, session?.user?.ownerEnabledModules);
   const primaryItems = items.slice(0, PRIMARY_NAV_COUNT);
   const moreItems = items.slice(PRIMARY_NAV_COUNT);
   const onMoreItem = moreItems.some((item) => pathname.startsWith(item.href));
@@ -136,18 +165,18 @@ export function Navbar() {
   return (
     <nav className="z-40 border-b border-[var(--line)] bg-[var(--nav-bg)] backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-3 px-4 sm:px-6">
-        <Link href={isStaffNav ? "/dashboard" : "/"} className="flex flex-none items-center gap-2 font-extrabold text-rausch">
+        <Link href={isStaffNav ? "/dashboard" : ownerSlugFromPath ? `/o/${ownerSlugFromPath}/book` : "/"} className="brand-text flex flex-none items-center gap-2 font-extrabold">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/branding/logo.jpg" alt="Evangelina's Staycation" className="h-8 w-8 rounded-lg object-cover" />
-          <span className="hidden text-[16px] tracking-tight sm:inline">Evangelina&rsquo;s Staycation</span>
+          <img src={brandLogoUrl || "/branding/logo.jpg"} alt={brandName} className="h-8 w-8 rounded-lg object-cover" />
+          <span className="hidden text-[16px] tracking-tight sm:inline">{brandName}</span>
         </Link>
 
         {!isStaffNav && (
           <div className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex">
-            <Link href="/" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">Explore</Link>
+            <Link href={ownerSlugFromPath ? `/o/${ownerSlugFromPath}/book` : "/"} className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">Explore</Link>
             <Link href="/my-bookings" className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-[var(--gray)] transition hover:bg-[var(--bg-2)] hover:text-[var(--ink)]">My bookings</Link>
             {session && (
-              <span className="ml-1 rounded-full bg-rausch/10 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-rausch">Travel mode</span>
+              <span className="brand-bg-subtle brand-text ml-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide">Travel mode</span>
             )}
           </div>
         )}
@@ -163,7 +192,7 @@ export function Navbar() {
                   href={item.href}
                   className={cn(
                     "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-[13.5px] font-semibold transition",
-                    on ? "bg-rausch/10 text-rausch" : "text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
+                    on ? "brand-bg-subtle brand-text" : "text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
                   )}
                 >
                   <span className="relative">
@@ -181,7 +210,7 @@ export function Navbar() {
                   aria-haspopup="menu"
                   className={cn(
                     "flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-[13.5px] font-semibold transition",
-                    onMoreItem ? "bg-rausch/10 text-rausch" : "text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
+                    onMoreItem ? "brand-bg-subtle brand-text" : "text-[var(--gray)] hover:bg-[var(--bg-2)] hover:text-[var(--ink)]"
                   )}
                 >
                   {/* Shows the current section once you're inside it (e.g. "My Earnings") instead of a static, un-informative "More" — the trigger doubles as a lightweight "you are here" indicator. */}
@@ -206,15 +235,15 @@ export function Navbar() {
                           role="menuitem"
                           onClick={() => setMoreOpen(false)}
                           className={cn(
-                            "flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rausch/40",
-                            on ? "bg-rausch/10" : "hover:bg-[var(--bg-2)]"
+                            "flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--skin-primary,#6c5ce7)]/40",
+                            on ? "brand-bg-subtle" : "hover:bg-[var(--bg-2)]"
                           )}
                         >
-                          <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-lg", on ? "bg-rausch/15 text-rausch" : "bg-[var(--bg-2)] text-[var(--gray)]")}>
+                          <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-lg", on ? "brand-bg-subtle-15 brand-text" : "bg-[var(--bg-2)] text-[var(--gray)]")}>
                             <Icon className="h-4 w-4" />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className={cn("flex items-center gap-1.5 text-sm font-semibold", on ? "text-rausch" : "text-[var(--ink)]")}>
+                            <span className={cn("flex items-center gap-1.5 text-sm font-semibold", on ? "brand-text" : "text-[var(--ink)]")}>
                               {item.label}
                               {badge > 0 && (
                                 <span className="grid h-[15px] min-w-[15px] place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
@@ -252,7 +281,22 @@ export function Navbar() {
             </Link>
           )}
 
-          <button onClick={toggle} className="btn-icon" aria-label="Toggle theme">
+          {/* A personal Color Theme (Settings > Color Theme) is a complete,
+              fixed palette — its own background/text CSS variables always
+              win over .dark's, by design (see globals.css's own comment on
+              why), so this toggle has nothing left to actually change while
+              one is active. It used to stay fully clickable anyway with no
+              indication why nothing happened; disabling it here and saying
+              why is the fix, not silently leaving it inert. */}
+          {isStaffNav && <StaycationSwitcher />}
+
+          <button
+            onClick={toggle}
+            disabled={!!colorTheme}
+            className="btn-icon disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Toggle theme"
+            title={colorTheme ? "Your Color Theme sets a fixed palette — change it in Settings to use light/dark mode again." : undefined}
+          >
             {theme === "dark" ? <SunIcon className="h-[18px] w-[18px]" /> : <MoonIcon className="h-[18px] w-[18px]" />}
           </button>
 
@@ -287,7 +331,7 @@ export function Navbar() {
                     href="/profile"
                     role="menuitem"
                     onClick={() => setMenuOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rausch/40"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--skin-primary,#6c5ce7)]/40"
                   >
                     <UserIcon className="h-4 w-4" /> Profile
                   </Link>
@@ -302,7 +346,7 @@ export function Navbar() {
                       swapping which experience renders (see viewMode.ts). */}
                   <button
                     onClick={() => switchMode(isStaffNav ? "travel" : "staff")}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rausch/40"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--skin-primary,#6c5ce7)]/40"
                   >
                     <HomeIcon className="h-4 w-4" /> {isStaffNav ? "Switch to Travel mode" : "Switch to Staff mode"}
                   </button>
@@ -314,7 +358,7 @@ export function Navbar() {
                       href="/platform"
                       role="menuitem"
                       onClick={() => setMenuOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rausch/40"
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--skin-primary,#6c5ce7)]/40"
                     >
                       <GridIcon className="h-4 w-4" /> Platform Admin
                     </Link>

@@ -19,6 +19,7 @@ type Settings = {
   contactPhone?: string | null; emergencyContactPhone?: string | null; messengerUsername?: string | null;
   guidebookCategories?: GuidebookCategory[] | null; amenities?: Amenity[] | null; houseRules?: string[] | null;
   hostName?: string | null; hostPhotoUrl?: string | null; hostBio?: string | null;
+  paymentQrUrl?: string | null; paymentInstructions?: string | null;
   emergencyContacts?: EmergencyContact[] | null; staffContacts?: EmergencyContact[] | null; faqs?: FaqCategory[] | null;
 };
 
@@ -35,6 +36,8 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     hostName: initial.hostName ?? "",
     hostPhotoUrl: initial.hostPhotoUrl ?? null,
     hostBio: initial.hostBio ?? "",
+    paymentQrUrl: initial.paymentQrUrl ?? null,
+    paymentInstructions: initial.paymentInstructions ?? "",
     celebrationPackageItems: initial.celebrationPackageItems ?? [],
     emergencyContacts: initial.emergencyContacts ?? [],
     staffContacts: initial.staffContacts ?? [],
@@ -51,6 +54,17 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
     const j = await res.json().catch(() => ({}));
     if (!res.ok) { toast(j.error ?? "Couldn't upload photo", true); return; }
     setForm((f) => ({ ...f, hostPhotoUrl: j.url }));
+  }
+
+  async function handlePaymentQr(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { toast("QR image is too large (max 4MB)", true); return; }
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch("/api/settings/payment-qr", { method: "POST", body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error ?? "Couldn't upload QR code", true); return; }
+    setForm((f) => ({ ...f, paymentQrUrl: j.url }));
   }
 
   async function save() {
@@ -183,6 +197,39 @@ export function SettingsTab({ initial, onSaved }: { initial: Settings; onSaved?:
           <div>
             <label className="field-label">Flexible time fee (₱)</label>
             <input type="number" min={0} value={form.flexibleTimeFee} onChange={(e) => setForm({ ...form, flexibleTimeFee: +e.target.value })} className="field-input mt-1.5" />
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-[var(--line)] pt-4">
+        <h3 className="mb-1 text-[14px] font-extrabold">Guest payment</h3>
+        <p className="mb-3 text-[12px] text-[var(--gray)]">
+          Shown during the guest booking flow&rsquo;s payment step — a real QR code (GCash/bank scan-to-pay) a guest can actually pay against, instead of just an amount with no way to act on it. Leave blank to keep the payment step upload-only, with no QR shown.
+        </p>
+        <div className="flex gap-4">
+          <div className="flex-none">
+            <input id="payment-qr" type="file" accept="image/*" className="hidden" onChange={(e) => handlePaymentQr(e.target.files?.[0])} />
+            {form.paymentQrUrl ? (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.paymentQrUrl} alt="Payment QR code" className="h-28 w-28 rounded-xl border border-[var(--line)] object-cover" />
+                <button onClick={() => setForm((f) => ({ ...f, paymentQrUrl: null }))} className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-rausch text-[10px] text-white">✕</button>
+              </div>
+            ) : (
+              <label htmlFor="payment-qr" className="grid h-28 w-28 cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--line-2)] text-[var(--gray)]">
+                <UploadIcon className="h-5 w-5" />
+              </label>
+            )}
+            <label htmlFor="payment-qr" className="btn-sm btn mt-2 block cursor-pointer text-center">Choose image</label>
+          </div>
+          <div className="flex-1">
+            <label className="field-label">Payment instructions (optional)</label>
+            <textarea
+              value={form.paymentInstructions}
+              onChange={(e) => setForm({ ...form, paymentInstructions: e.target.value })}
+              className="field-input mt-1.5 min-h-[100px]"
+              placeholder={"e.g. GCash: 0912 345 6789 (Juan Dela Cruz)\nPlease include your confirmation number in the payment note."}
+            />
+            <p className="mt-1 text-[11px] text-[var(--gray)]">Shown under the QR code — account name/number, or any note a guest paying should see.</p>
           </div>
         </div>
       </div>

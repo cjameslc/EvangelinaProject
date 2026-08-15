@@ -14,6 +14,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (error) return error;
   if (!canSeeAuditor(user.role as any)) return new Response("Forbidden", { status: 403 });
 
+  // Was missing — same audit sweep as Units/Users/Employees.
+  const existing = await prisma.auditFinding.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Finding not found." }, { status: 404 });
+
   let body;
   try {
     body = auditFindingUpdateSchema.parse(await req.json());

@@ -8,7 +8,7 @@ export default async function EarningsPage() {
   if (!user) redirect("/login");
 
   const isAdminViewer = user.role === "OWNER_ADMIN" || user.role === "CO_OWNER";
-  const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true, name: true, role: true } });
+  const ownEmployee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true, name: true, role: true } });
 
   // Owners/Co-owners never have payroll of their own — they get the
   // admin/analytics view (leaderboard + pick-an-employee). Anyone else
@@ -17,8 +17,11 @@ export default async function EarningsPage() {
     redirect("/");
   }
 
+  // ownerId scoping — this previously had none at all, meaning any
+  // Owner/Co-owner's employee picker listed every Booker/Housekeeping/
+  // Auditor across every tenant on the platform, not just their own staff.
   const employees = isAdminViewer
-    ? await prisma.employee.findMany({ where: { active: true, role: { in: ["BOOKER", "HOUSEKEEPING", "AUDITOR"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } })
+    ? await prisma.employee.findMany({ where: { active: true, ownerId: user.ownerId, role: { in: ["BOOKER", "HOUSEKEEPING", "AUDITOR"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } })
     : [];
 
   return (

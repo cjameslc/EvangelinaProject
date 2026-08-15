@@ -104,3 +104,35 @@ export function collectedAmountCentavos(b: CollectibleBooking): number {
 export function totalCollectedCentavos(bookings: CollectibleBooking[]): number {
   return bookings.reduce((sum, b) => sum + collectedAmountCentavos(b), 0);
 }
+
+/**
+ * A booking's real full contract value, in whole pesos — independent of
+ * paid/unpaid status. `amount` is NOT this on its own: the moment a
+ * downpayment is verified (guest self-service via verifyGuestPaymentProof,
+ * or staff manually entering DP Amount in BookingForm — "Remaining
+ * balance... Total minus downpayment, calculated automatically"), `amount`
+ * is deliberately reduced to just the outstanding balance, with `dpAmount`
+ * holding the collected downpayment separately. That split is exactly
+ * right for collectedAmountPesos above (paid ? amount : 0) + dpAmount
+ * correctly reconstructs money actually in hand — but several "gross/
+ * total value" computations (Analytics' Gross Revenue, its Revenue-by-
+ * dimension/trend charts, Dashboard's expectedMonthIncome forecast
+ * ceiling, BookingsView's filtered-list total) were summing bare `amount`
+ * alone, silently missing the downpayment portion of any booking that had
+ * one — a real, confirmed bug: Analytics' own Net Revenue (paid+dp) could
+ * end up reading HIGHER than Gross Revenue (amount-only) for the exact
+ * same real bookings, which is definitionally backwards. dpAmount is
+ * always added back regardless of paid status, matching Gross's own
+ * "regardless of paid status" definition — a refund is deliberately NOT
+ * netted out here either, same reasoning collectedAmountPesos documents
+ * for a kept deposit: the sale's full value at time of booking doesn't
+ * retroactively shrink just because money was later given back.
+ */
+export function grossAmountPesos(b: CollectibleBooking): number {
+  return b.amount + (b.dpAmount || 0);
+}
+
+/** Same as grossAmountPesos, in centavos. */
+export function grossAmountCentavos(b: CollectibleBooking): number {
+  return grossAmountPesos(b) * 100;
+}

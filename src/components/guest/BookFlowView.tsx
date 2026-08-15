@@ -7,6 +7,8 @@ import { peso, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
 import { resizeImageForUpload } from "@/lib/imageResize";
 import { RateBreakdown } from "@/components/guest/RateBreakdown";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
+import { SeasonalCelebration, useCelebrate } from "@/components/skins/SeasonalCelebration";
 import { manilaTodayISO } from "@/lib/manilaTime";
 import type { PriceQuote } from "@/lib/pricing/rates";
 
@@ -19,8 +21,10 @@ function nextDay(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function BookFlowView() {
+export function BookFlowView({ paymentQrUrl, paymentInstructions, ownerSlug }: { paymentQrUrl?: string | null; paymentInstructions?: string | null; ownerSlug?: string } = {}) {
   const searchParams = useSearchParams();
+  const skin = useSeasonalSkin();
+  const { celebrationRef, celebrate } = useCelebrate();
   const today = manilaTodayISO();
   const [step, setStep] = useState<"search" | "select" | "details" | "payment" | "done">("search");
   // A stale bookmarked/shared link could carry a checkIn param that's
@@ -65,9 +69,11 @@ export function BookFlowView() {
   const [proofResult, setProofResult] = useState<{ status: string; note: string } | null>(null);
   const [proofError, setProofError] = useState("");
 
-  async function search(e?: React.FormEvent) {
+  async function search(e?: React.FormEvent, overrides?: { date?: string; checkOutDate?: string }) {
     e?.preventDefault();
-    if (!date || loadingResults) return;
+    const searchDate = overrides?.date ?? date;
+    const searchCheckOutDate = overrides?.checkOutDate ?? checkOutDate;
+    if (!searchDate || loadingResults) return;
     if (stayType === "Flexible" && (!checkInTime || !checkOutTime)) {
       setError("Pick a check-in and check-out time.");
       return;
@@ -75,9 +81,10 @@ export function BookFlowView() {
     setLoadingResults(true);
     setError("");
     try {
-      const params = new URLSearchParams({ date, stayType });
-      if (stayType !== "Daycation" && stayType !== "Flexible" && checkOutDate) params.set("checkOutDate", checkOutDate);
+      const params = new URLSearchParams({ date: searchDate, stayType });
+      if (stayType !== "Daycation" && stayType !== "Flexible" && searchCheckOutDate) params.set("checkOutDate", searchCheckOutDate);
       if (stayType === "Flexible") { params.set("checkInTime", checkInTime); params.set("checkOutTime", checkOutTime); }
+      if (ownerSlug) params.set("ownerSlug", ownerSlug);
       const res = await fetch(`/api/guest/booking-quote?${params}`);
       const j = await res.json();
       if (!res.ok) { setError(j.error ?? "Couldn't check availability."); return; }
@@ -104,7 +111,7 @@ export function BookFlowView() {
     setApplyingCoupon(true);
     setCouponError("");
     try {
-      const params = new URLSearchParams({ code: couponInput.trim(), subtotal: String(selected.quote.total) });
+      const params = new URLSearchParams({ code: couponInput.trim(), subtotal: String(selected.quote.total), unitId: selected.unitId });
       const res = await fetch(`/api/guest/coupon-check?${params}`);
       const j = await res.json();
       if (!j.ok) { setCouponError(j.error ?? "That coupon code isn't valid."); setCouponApplied(null); return; }
@@ -186,10 +193,31 @@ export function BookFlowView() {
     }
   }
 
+  // Keeps this form in sync with the hero search widget above (ListingsGrid)
+  // — that widget lives on the same /book route, so choosing dates there is
+  // a client-side router.push to new query params, not a fresh page load.
+  // BookFlowView doesn't remount on that navigation, so the useState
+  // initializers above (which only ever read searchParams once, at first
+  // mount) would otherwise keep showing stale/empty dates forever. This
+  // effect re-syncs date/checkOutDate whenever the URL's params actually
+  // change, and — since a guest who just picked dates up top expects to
+  // see results, not another empty form — runs the search immediately
+  // too, using explicit overrides rather than the (not-yet-updated) state
+  // variables to avoid a stale-closure race with the setDate/setCheckOutDate
+  // calls just above it.
   useEffect(() => {
-    if (date && preselectedUnit && step === "search") search();
+    const c = searchParams?.get("checkIn") ?? "";
+    const co = searchParams?.get("checkOut") ?? "";
+    const validCheckIn = c && c >= today ? c : "";
+    // Re-triggerable while still browsing (search/select), but not once the
+    // guest has committed to a specific unit (details/payment/done) — don't
+    // yank them back to a results list mid-booking.
+    if (!validCheckIn || (step !== "search" && step !== "select")) return;
+    setDate(validCheckIn);
+    if (co) setCheckOutDate(co);
+    search(undefined, { date: validCheckIn, checkOutDate: co || undefined });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   // Night stay is always exactly one night — checkout is always the day
   // after check-in, not a guest choice. Only Full stay can span more than
@@ -198,6 +226,18 @@ export function BookFlowView() {
   useEffect(() => {
     if (stayType === "Night" && date) setCheckOutDate(nextDay(date));
   }, [stayType, date]);
+
+  // Fires exactly once per real booking success — this effect only ever
+  // runs on the true "search/select/details/payment" -> "done" transition
+  // (the dependency is the boolean, not `step` itself, so re-renders while
+  // already on "done" don't re-fire it), and "done" itself is only ever
+  // reached via confirm()'s res.ok success path, never on validation
+  // failure or a failed request.
+  const isDone = step === "done";
+  useEffect(() => {
+    if (isDone) celebrate({ type: "booking-success" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDone]);
 
   if (step === "payment" && selected) {
     const quote = finalQuote ?? selected.quote;
@@ -216,6 +256,19 @@ export function BookFlowView() {
           )}
         </div>
 
+        {(paymentQrUrl || paymentInstructions) && (!proofResult || proofResult.status === "rejected") && (
+          <div className="card mt-4 p-4 text-center">
+            <p className="mb-3 text-[13px] font-semibold text-[var(--ink)]">Scan to pay {peso(amountDueNow)}</p>
+            {paymentQrUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={paymentQrUrl} alt="Payment QR code" className="mx-auto h-48 w-48 rounded-xl border border-[var(--line)] object-contain" />
+            )}
+            {paymentInstructions && (
+              <p className="mt-3 whitespace-pre-line text-left text-[12.5px] text-[var(--gray)]">{paymentInstructions}</p>
+            )}
+          </div>
+        )}
+
         {proofResult?.status === "auto_approved" && (
           <div className="card mt-4 p-4 text-[13.5px] text-teal">✓ {proofResult.note}</div>
         )}
@@ -227,18 +280,31 @@ export function BookFlowView() {
             {proofResult?.status === "rejected" && (
               <p className="text-[13px] font-semibold text-rausch">{proofResult.note}</p>
             )}
-            <p className="text-[13px] text-[var(--gray)]">Paid already via GCash or bank transfer? Upload your receipt now so we can confirm it right away.</p>
+            <p className="text-[13px] text-[var(--gray)]">
+              {paymentQrUrl
+                ? "Already paid? Upload your receipt/screenshot to confirm your reservation."
+                : "Paid already via GCash or bank transfer? Upload your receipt now so we can confirm it right away."}
+            </p>
             <label className="btn-primary w-full cursor-pointer justify-center">
               {uploadingProof ? "Checking…" : "Upload payment proof"}
               <input type="file" accept="image/*" className="hidden" disabled={uploadingProof} onChange={uploadProofNow} />
             </label>
             {proofError && <p className="text-[13px] font-semibold text-rausch">{proofError}</p>}
+            {/* Payment proof is required to complete the reservation — no
+                "I'll pay later" skip. The booking already exists (created
+                back in confirm()) so nothing is lost if a guest closes the
+                tab here; they can finish paying anytime from the
+                confirmation email or My Bookings, which is exactly the
+                path this same upload step already supports there too. */}
+            <p className="pt-1 text-center text-[11.5px] text-[var(--gray)]">Your reservation stays on hold — you can also finish this anytime from the confirmation email or My Bookings.</p>
           </div>
         )}
 
-        <button onClick={() => setStep("done")} className="btn btn-sm mt-4">
-          {proofResult ? "Continue" : "I'll pay later"}
-        </button>
+        {proofResult && (
+          <button onClick={() => setStep("done")} className="btn btn-sm mt-4">
+            Continue
+          </button>
+        )}
       </div>
     );
   }
@@ -247,8 +313,17 @@ export function BookFlowView() {
     const quote = finalQuote ?? selected.quote;
     return (
       <div className="mx-auto max-w-[500px] px-4 py-14 text-center">
-        <div className="mb-3 text-5xl">🎉</div>
-        <h1 className="text-[22px] font-extrabold">Booking request received!</h1>
+        {/* This branch only renders once confirmedBookingId is set, which
+            only ever happens inside confirm()'s res.ok success path above —
+            reaching "done" already means the booking was persisted, so the
+            celebrate({type: "booking-success"}) call above (fired by the
+            isDone effect) can't happen on a validation failure or a failed
+            request. Same Confetti component the feedback flow's success
+            screen uses, colored by the active skin — not a second
+            implementation (see SeasonalCelebration). */}
+        <SeasonalCelebration ref={celebrationRef} />
+        <div className="mb-3 text-5xl">{skin.id === "evangelina" ? "🎉" : skin.emoji}</div>
+        <h1 className="text-[22px] font-extrabold">{skin.id === "evangelina" ? "Booking request received!" : skin.messaging.bookingSuccessMessage}</h1>
         <p className="mt-2 text-[14px] text-[var(--gray)]">
           {formatUnitDisplay(selected.unitNumber, selected.shortName)} · {STAY_TYPES[stayType].label} · {peso(quote.total)}
         </p>
@@ -283,10 +358,13 @@ export function BookFlowView() {
 
   return (
     <div className="mx-auto max-w-[700px] px-4 py-9 sm:px-6">
-      <h1 className="text-[22px] font-extrabold tracking-tight">Book your stay</h1>
-
+      {(step === "search" || step === "select") && skin.messaging.bookingLabel && (
+        <p className="mb-3 text-center text-[13px] font-bold" style={{ color: skin.colors.secondary }}>
+          {skin.emoji} {skin.messaging.bookingLabel} Stay
+        </p>
+      )}
       {(step === "search" || step === "select") && (
-        <form onSubmit={search} className="card mt-5 space-y-4 p-5">
+        <form onSubmit={search} className="card space-y-4 p-5">
           <div className="flex flex-wrap gap-1.5">
             {(["Daycation", "Night", "Full", "Flexible"] as StayType[]).map((st) => (
               <Pill key={st} on={stayType === st} onClick={() => setStayType(st)}>{STAY_TYPES[st].label}</Pill>

@@ -27,7 +27,7 @@ export function YourListingsSection({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={u.photoUrl} alt={u.name} className="h-28 w-full object-cover" />
               ) : (
-                <div className="flex h-28 items-center justify-center bg-gradient-to-br from-rausch/15 to-violet/10 text-3xl">🏠</div>
+                <div className="flex h-28 items-center justify-center bg-gradient-to-br from-violet/20 to-violet/5 text-3xl">🏠</div>
               )}
               <div className="space-y-1.5 p-4">
                 <div className="flex items-center justify-between gap-2">

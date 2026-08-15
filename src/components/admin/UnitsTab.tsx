@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon } from "@/components/ui/Icons";
 import { peso, formatUnitDisplay, fmtDate } from "@/lib/format";
@@ -16,7 +16,7 @@ type Unit = {
   ttlockLockId: number | null; ttlockLockName: string | null; ttlockHasGateway: boolean | null; ttlockBatteryPct: number | null; ttlockBatterySyncedAt: string | null; ttlockSyncError: string | null; ttlockBatteryReplacedAt: string | null;
   owners?: { user: { id: string; name: string } }[];
 };
-type TtlockLockOption = { lockId: number; lockAlias: string; lockName: string; electricQuantity: number; hasGateway: boolean; alreadyLinked: boolean };
+type TtlockLockOption = { lockId: number; lockAlias: string; lockName: string; electricQuantity: number; hasGateway: boolean };
 
 // Same default tiers as Settings.batteryLowThresholdPct/batteryCriticalThresholdPct
 // (30/20) — this admin config page doesn't thread live Settings through just for
@@ -37,11 +37,36 @@ const EMPTY = {
 
 export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Unit[]; onUnitsChange: (units: Unit[]) => void; ownerCandidates: OwnerCandidate[] }) {
   const toast = useToast();
-  const [modal, setModal] = useState<{ unit?: Unit } | null>(null);
+  const [modal, setModal] = useState<{ unit?: Unit; justCreated?: boolean } | null>(null);
+  const [refreshingLocks, setRefreshingLocks] = useState(false);
 
   async function refresh() {
     const res = await fetch("/api/units");
     if (res.ok) onUnitsChange(await res.json());
+  }
+
+  // On-demand version of the daily TTLock sync — battery/gateway status
+  // otherwise only updates on a real unlock event or once a day, which
+  // leaves this page showing stale numbers whenever someone actually needs
+  // a current reading (e.g. checking whether a low-battery lock has really
+  // been fixed yet). One call covers every linked unit, so this refreshes
+  // the whole list rather than one unit at a time.
+  const lockedUnitCount = units.filter((u) => u.ttlockLockId !== null).length;
+  async function refreshLockStatus() {
+    if (refreshingLocks) return;
+    setRefreshingLocks(true);
+    try {
+      const res = await fetch("/api/ttlock/refresh", { method: "POST" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) { toast(j?.error ?? "Couldn't refresh lock status", true); return; }
+      const failed = (j?.results ?? []).filter((r: { ok: boolean }) => !r.ok);
+      await refresh();
+      toast(failed.length ? `Refreshed — ${failed.length} lock${failed.length === 1 ? "" : "s"} couldn't be reached` : "Lock status refreshed ✓", failed.length > 0);
+    } catch {
+      toast("Couldn't refresh lock status", true);
+    } finally {
+      setRefreshingLocks(false);
+    }
   }
 
   async function save(form: typeof EMPTY, id?: string) {
@@ -51,8 +76,19 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
       body: JSON.stringify(form),
     });
     if (!res.ok) { toast("Couldn't save unit", true); return; }
-    toast(id ? "Unit updated ✓" : "Unit added ✓");
-    setModal(null);
+    if (id) {
+      toast("Unit updated ✓");
+      setModal(null);
+    } else {
+      // Switch straight into edit mode for the unit just created instead of
+      // closing the modal — a brand-new unit's Airbnb export link (POST
+      // /api/units already mints an icalToken on create) was otherwise only
+      // reachable by closing this modal and reopening the new card's Edit,
+      // which is exactly the extra step that made this easy to miss.
+      const created = await res.json();
+      toast("Unit added ✓ — copy the Airbnb calendar link below");
+      setModal({ unit: created, justCreated: true });
+    }
     refresh();
   }
 
@@ -70,9 +106,22 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-[13.5px] text-[var(--gray)]">{units.length} units on the platform.</p>
-        <button onClick={() => setModal({})} className="btn-primary"><PlusIcon className="h-4 w-4" /> Add unit</button>
+        <div className="flex flex-none items-center gap-2">
+          {lockedUnitCount > 0 && (
+            <button
+              onClick={refreshLockStatus}
+              disabled={refreshingLocks}
+              title="Query TTLock live for every linked lock's current door/battery status"
+              className="btn-sm btn"
+            >
+              <span className={refreshingLocks ? "animate-spin" : ""} aria-hidden="true">🔄</span>
+              {refreshingLocks ? "Refreshing…" : "Refresh lock status"}
+            </button>
+          )}
+          <button onClick={() => setModal({})} className="btn-primary"><PlusIcon className="h-4 w-4" /> Add unit</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -103,12 +152,25 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
                 Owner{(u.owners?.length ?? 0) !== 1 ? "s" : ""}: {u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "none assigned — visible to admin only"}
               </p>
               {u.ttlockLockId !== null && (
-                <div className="mt-2 flex items-center gap-1.5">
-                  <span className={cn("rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", batteryTier(u.ttlockBatteryPct).className)}>
-                    🔋 {u.ttlockBatteryPct ?? "—"}% {batteryTier(u.ttlockBatteryPct).label}
-                  </span>
-                  {u.ttlockHasGateway === false && (
-                    <span className="rounded-md bg-[var(--bg-2)] px-1.5 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">Offline</span>
+                <div className="mt-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn("rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", batteryTier(u.ttlockBatteryPct).className)}>
+                      🔋 {u.ttlockBatteryPct ?? "—"}% {batteryTier(u.ttlockBatteryPct).label}
+                    </span>
+                    {u.ttlockHasGateway === false && (
+                      <span className="rounded-md bg-[var(--bg-2)] px-1.5 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">Offline</span>
+                    )}
+                  </div>
+                  {u.ttlockBatterySyncedAt && (
+                    // A gateway-connected lock's battery % is only as fresh as the
+                    // gateway's own last report to TTLock's cloud (can lag the live
+                    // reading in the TTLock app itself by up to ~a day) — showing
+                    // this timestamp is what tells an owner a number that looks
+                    // "wrong" next to the TTLock app is actually just not caught up
+                    // yet, not a bug. Same timestamp already shown in the detail view.
+                    <p className="mt-1 text-[10.5px] text-[var(--gray)]">
+                      As of {new Date(u.ttlockBatterySyncedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </p>
                   )}
                 </div>
               )}
@@ -117,13 +179,20 @@ export function UnitsTab({ units, onUnitsChange, ownerCandidates }: { units: Uni
         ))}
       </div>
 
-      {modal && <UnitModal unit={modal.unit} ownerCandidates={ownerCandidates} onClose={() => setModal(null)} onSave={save} />}
+      {modal && (
+        // key forces a fresh mount when save() swaps a just-created unit
+        // into this same modal (see save() above) — UnitModal derives its
+        // form/icalToken/lockState state from `unit` only once, on mount,
+        // so without this the newly-minted icalToken would never appear.
+        <UnitModal key={modal.unit?.id ?? "new"} unit={modal.unit} justCreated={modal.justCreated} ownerCandidates={ownerCandidates} onClose={() => setModal(null)} onSave={save} />
+      )}
     </div>
   );
 }
 
-function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ownerCandidates: OwnerCandidate[]; onClose: () => void; onSave: (v: typeof EMPTY, id?: string) => void }) {
+function UnitModal({ unit, justCreated, ownerCandidates, onClose, onSave }: { unit?: Unit; justCreated?: boolean; ownerCandidates: OwnerCandidate[]; onClose: () => void; onSave: (v: typeof EMPTY, id?: string) => void }) {
   const toast = useToast();
+  const exportSectionRef = useRef<HTMLDivElement | null>(null);
   const [form, setForm] = useState(
     unit
       ? {
@@ -147,6 +216,18 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
 
   const exportUrl = icalToken && typeof window !== "undefined" ? `${window.location.origin}/api/ical/${icalToken}.ics` : "";
 
+  // save() swaps this modal from "Add unit" into "Edit unit" for the unit
+  // just created (see UnitsTab's save()), which remounts it fresh via the
+  // `key` prop change — so the scrollable body (Modal.tsx's overflow-auto
+  // div) opens back at the top, well above the Export Calendar URL section
+  // near the bottom of a long form. Without this, the very link the admin
+  // just asked for reads as "not there" simply because it's off-screen.
+  useEffect(() => {
+    if (!justCreated) return;
+    exportSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Fetch the live, currently-unlinked TTLock lock list only when there's
   // actually a chance of using it (an existing unit with no lock linked yet)
   // — avoids an unnecessary TTLock API round-trip on every modal open.
@@ -155,7 +236,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
     setLoadingLocks(true);
     fetch("/api/ttlock/locks")
       .then((r) => r.json())
-      .then((data) => setAvailableLocks(Array.isArray(data) ? data.filter((l: TtlockLockOption) => !l.alreadyLinked) : []))
+      .then((data) => setAvailableLocks(Array.isArray(data) ? data : []))
       .catch(() => setAvailableLocks([]))
       .finally(() => setLoadingLocks(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -338,7 +419,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
             <div className="mt-1.5 space-y-1.5 rounded-xl border border-[var(--line)] p-2.5">
               {ownerCandidates.map((o) => (
                 <label key={o.id} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] font-semibold hover:bg-[var(--bg-2)]">
-                  <input type="checkbox" checked={form.ownerUserIds.includes(o.id)} onChange={() => toggleOwner(o.id)} className="h-4 w-4 accent-rausch" />
+                  <input type="checkbox" checked={form.ownerUserIds.includes(o.id)} onChange={() => toggleOwner(o.id)} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
                   {o.name}
                   <span className="ml-auto text-[11px] font-semibold text-[var(--gray)]">{o.role === "OWNER_ADMIN" ? "Owner/Admin" : "Co-owner"}</span>
                 </label>
@@ -370,7 +451,7 @@ function UnitModal({ unit, ownerCandidates, onClose, onSave }: { unit?: Unit; ow
           </div>
 
           {unit && (
-            <div className="mt-3">
+            <div ref={exportSectionRef} className={cn("mt-3 rounded-xl", justCreated && "-m-2 bg-[var(--skin-primary,#6c5ce7)]/10 p-2")}>
               <label className="field-label">Export Calendar URL (.ics)</label>
               <p className="mt-0.5 text-[11.5px] text-[var(--gray)]">Paste this into Airbnb (or any OTA) as an external calendar so it always sees this unit&rsquo;s live availability.</p>
               <div className="mt-1.5 flex flex-wrap gap-2">

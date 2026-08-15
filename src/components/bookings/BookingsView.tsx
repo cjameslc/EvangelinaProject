@@ -13,21 +13,23 @@ import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon,
 import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
-import { canEditBookings, canEditSpecificBooking, canDeleteBookings, isReadOnlyFinancials } from "@/lib/rbac";
+import { canEditSpecificBooking, canRevealAccessCredential } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
+import { DoorCodeReveal } from "@/components/access/DoorCodeReveal";
 import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
-import type { AvailabilityResult } from "./AvailabilityChat";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
-import type { ConversationSummary } from "@/lib/chat/clientTypes";
 import { OpportunityPanel } from "./OpportunityPanel";
 import { MotivationBanner } from "./MotivationBanner";
+import { SeasonalChallengeCard } from "@/components/skins/SeasonalChallengeCard";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
-import { manilaTodayISO } from "@/lib/manilaTime";
+import { manilaTodayISO, manilaTimeGreeting } from "@/lib/manilaTime";
 import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
-import { collectedAmountPesos } from "@/lib/finance";
+import { collectedAmountPesos, grossAmountPesos } from "@/lib/finance";
 
 type Employee = { id: string; name: string; role: string };
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate: number; owners?: { user: { name: string } }[] };
@@ -53,6 +55,12 @@ type Booking = {
 // Manila calendar date instead of the server/runtime's own timezone.
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+
+// Placeholder monthly goal for the Seasonal Challenge Card (brief section
+// 19/20) — not yet an Admin-configurable Settings field; the count itself
+// is always real (myBookingsThisMonthCount), only this target is a fixed
+// default.
+const BOOKER_MONTHLY_CHALLENGE_TARGET = 40;
 
 // A distinct border/text color per unit (cycling through the palette
 // entries that actually have full numbered shades — see the Tailwind
@@ -90,12 +98,10 @@ function effectiveRange(b: Booking) {
 }
 
 export function BookingsView({
-  role, units, employees, initialBookings, defaultDpFee, ownEmployeeId, rates, dailyRevenueGoal = null,
-  currentUserId, initialConversations, initialSinceIso, initialFirstBookingIds,
+  role, additionalActionAccess = [], units, employees, initialBookings, defaultDpFee, ownEmployeeId, rates, dailyRevenueGoal = null,
+  initialSinceIso, initialFirstBookingIds,
 }: {
-  role: string; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; rates: RateTable; dailyRevenueGoal?: number | null;
-  currentUserId: string;
-  initialConversations: ConversationSummary[];
+  role: string; additionalActionAccess?: string[]; units: Unit[]; employees: Employee[]; initialBookings: Booking[]; defaultDpFee: number; ownEmployeeId: string | null; rates: RateTable; dailyRevenueGoal?: number | null;
   /** The lower date bound the initial `initialBookings` load was scoped to
    * (YYYY-MM-DD) — null once "Show older bookings" has been triggered and
    * the full unbounded history is loaded. Threaded into refresh() so a
@@ -108,6 +114,7 @@ export function BookingsView({
   initialFirstBookingIds: string[];
 }) {
   const toast = useToast();
+  const skin = useSeasonalSkin();
   const [bookings, setBookings] = useState(initialBookings);
   const [emps, setEmps] = useState(employees);
   const [sinceIso, setSinceIso] = useState<string | null>(initialSinceIso);
@@ -124,8 +131,8 @@ export function BookingsView({
   // Memoizing on editing's identity keeps the same object across renders
   // for the same edit session.
   const editingInitial = useMemo(() => (editing ? fromBooking(editing) : undefined), [editing]);
-  // Lets an external link (e.g. a chat message's booking card "Quick Open")
-  // land here with the search box already filled in, via /bookings?search=.
+  // Lets an external link (e.g. a bookmarked or shared URL) land here with
+  // the search box already filled in, via /bookings?search=.
   // Read once on mount only — the search box itself is still a normal
   // uncontrolled-by-the-URL input after that, exactly as before.
   const searchParams = useSearchParams();
@@ -148,7 +155,6 @@ export function BookingsView({
   const [bookingPrefill, setBookingPrefill] = useState<Partial<BookingFormValue> | null>(null);
   const [logAccordionKey, setLogAccordionKey] = useState(0);
   const [forceLogOpen, setForceLogOpen] = useState(false);
-  const [lastAvailability, setLastAvailability] = useState<{ data: AvailabilityResult; unitLabel: string } | null>(null);
 
   // Availability chat's "Log this booking" hands off unitId/date/stayType
   // here — bumping the key forces the (uncontrolled) Accordion to remount
@@ -171,8 +177,21 @@ export function BookingsView({
     requestAnimationFrame(() => document.getElementById("log-new-booking-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
-  const canEdit = canEditBookings(role as any);
-  const readOnly = isReadOnlyFinancials(role as any);
+  // The Individual Unit Calendar's "click an empty day" hands off
+  // unitId/date the same way Availability Chat's "Log this booking" does
+  // (handlePrefillBooking above) — just via a URL instead of an in-page
+  // callback, since that's a different page: /bookings?prefillUnit=X&
+  // prefillDate=Y[&prefillStayType=Z]. Read once on mount only, same
+  // discipline as the ?search= param below.
+  useEffect(() => {
+    const prefillUnit = searchParams?.get("prefillUnit");
+    const prefillDate = searchParams?.get("prefillDate");
+    if (!prefillUnit || !prefillDate) return;
+    handlePrefillBooking({ unitId: prefillUnit, date: prefillDate, stayType: searchParams?.get("prefillStayType") ?? "Full" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canEdit = hasActionAccess("bookings.edit", role, additionalActionAccess);
 
   async function refresh() {
     // Re-request whatever window is already on screen — sinceIso stays
@@ -353,6 +372,16 @@ export function BookingsView({
     () => (role === "BOOKER" && ownEmployeeId ? bookings.filter((b) => b.bookerId === ownEmployeeId) : bookings),
     [bookings, role, ownEmployeeId]
   );
+
+  // Real count for the Seasonal Challenge Card below (brief section 19/20)
+  // — every non-cancelled booking this Booker logged this calendar month,
+  // never a fabricated number. BOOKER_MONTHLY_CHALLENGE_TARGET is a
+  // reasonable placeholder goal (not yet an Admin-configurable Settings
+  // field) — the milestone framing, not the exact target, is the point.
+  const myBookingsThisMonthCount = useMemo(() => {
+    const monthPrefix = dayOf(new Date()).slice(0, 7);
+    return myBookings.filter((b) => !b.cancelledAt && b.date.slice(0, 7) === monthPrefix).length;
+  }, [myBookings]);
 
   // Upcoming check-ins — the Bookings-tab mirror of Housekeeping's
   // "Cleaning schedule" (same Today/Tomorrow/This week bucketing, same
@@ -667,6 +696,12 @@ export function BookingsView({
     <div className="mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
       <MotivationBanner occupiedUnits={occupiedUnitsToday} totalUnits={units.length} onFillSlots={openAddBooking} canEdit={canEdit} />
 
+      {isBookerView && (
+        <div className="mb-5">
+          <SeasonalChallengeCard current={myBookingsThisMonthCount} target={BOOKER_MONTHLY_CHALLENGE_TARGET} />
+        </div>
+      )}
+
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[28px] font-extrabold tracking-tight sm:text-[32px]">Bookings</h1>
@@ -691,9 +726,13 @@ export function BookingsView({
       )}
 
       {isBookerView && greetingStats && (
-        <div className="mb-5 rounded-2xl border border-rausch/20 bg-gradient-to-br from-rausch/10 via-transparent to-transparent p-5">
+        <div
+          className="mb-5 rounded-2xl border border-rausch/20 bg-gradient-to-br from-rausch/10 via-transparent to-transparent p-5"
+          style={skin.id === "evangelina" ? undefined : { boxShadow: `0 6px 24px -10px ${skin.colors.glow}` }}
+        >
           <h2 className="text-[19px] font-extrabold tracking-tight">
-            Welcome back, {emps.find((e) => e.id === ownEmployeeId)?.name.split(" ")[0] ?? "there"}! 👋
+            {manilaTimeGreeting()}, {emps.find((e) => e.id === ownEmployeeId)?.name.split(" ")[0] ?? "there"}!{" "}
+            {skin.id === "evangelina" ? "👋" : skin.emoji}
           </h2>
           <p className="mt-1 text-[13.5px] text-[var(--gray)]">You currently have:</p>
           <ul className="mt-2 space-y-1 text-[13.5px] font-semibold">
@@ -875,13 +914,6 @@ export function BookingsView({
             <BookingAssistantPanel
               units={units}
               onPrefillBooking={handlePrefillBooking}
-              onAvailabilityResult={(data, unitLabel) => setLastAvailability({ data, unitLabel })}
-              currentUserId={currentUserId}
-              isAdmin={role === "OWNER_ADMIN"}
-              initialConversations={initialConversations}
-              recentBookings={bookings.slice(0, 10).map((b) => ({ confirmationNumber: b.confirmationNumber ?? null, guests: b.guests, unit: { unitNumber: b.unit.unitNumber, name: b.unit.name } }))}
-              lastAvailability={lastAvailability}
-              onOpenCreateBooking={openAddBooking}
             />
           </div>
           <div className="mb-3 flex justify-end">
@@ -966,7 +998,7 @@ export function BookingsView({
         <>
           <div className="mb-3 flex items-center justify-between text-[13px] font-semibold text-[var(--gray)]">
             <span>{filtered.length} booking{filtered.length !== 1 ? "s" : ""} shown</span>
-            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.refundedAt).reduce((s, b) => s + b.amount, 0))} total</span>
+            <span className="text-[15px] font-extrabold text-[var(--ink)]">{peso(filtered.filter((b) => !b.refundedAt).reduce((s, b) => s + grossAmountPesos(b), 0))} total</span>
           </div>
           <div className="space-y-6">
             {pagedAgenda.map(([iso, { checkins, checkouts, occupied }]) => (
@@ -993,7 +1025,9 @@ export function BookingsView({
                           key={`out-${b.id}`} b={b} kind="checkout"
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
-                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={hasActionAccess("bookings.delete", role, additionalActionAccess)}
+                          canRevealAccessCode={canRevealAccessCredential(role as any)}
+                          canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           toast={toast}
                         />
@@ -1012,7 +1046,9 @@ export function BookingsView({
                           key={`in-${b.id}`} b={b} kind="checkin"
                           unitColor={unitBadgeColor(b.unitId, units)}
                           isFirstBooking={firstBookingIds.has(b.id)}
-                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={canDeleteBookings(role as any)}
+                          canEdit={canEditSpecificBooking(role as any, b.bookerId, ownEmployeeId, b.platform)} canDelete={hasActionAccess("bookings.delete", role, additionalActionAccess)}
+                          canRevealAccessCode={canRevealAccessCredential(role as any)}
+                          canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           toast={toast}
                         />
@@ -1181,7 +1217,7 @@ function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed
 }
 
 function BookingLine({
-  b, kind, unitColor, isFirstBooking, canEdit, canDelete, onEdit, onCancel, onRefund, onDelete, onRemove, toast,
+  b, kind, unitColor, isFirstBooking, canEdit, canDelete, canRevealAccessCode, canGenerateAccessLink, onEdit, onCancel, onRefund, onDelete, onRemove, toast,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
@@ -1189,6 +1225,9 @@ function BookingLine({
   isFirstBooking: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canRevealAccessCode: boolean;
+  /** Owner/Admin only, and never for Airbnb bookings — those guests are managed through Airbnb's own messaging, not this app's guest portal. See DoorCodeReveal's own comment for why a booking with no confirmation number can't have a working /my-bookings link at all. */
+  canGenerateAccessLink: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onRefund: () => void;
@@ -1283,6 +1322,12 @@ function BookingLine({
         {b.dpReceivedBy && <div><span className="text-[var(--gray)]">DP To </span><span className="font-bold text-blue">{b.dpReceivedBy.name}</span></div>}
         {b.receivedBy && <div><span className="text-[var(--gray)]">FP To </span><span className="font-bold text-blue">{b.receivedBy.name}</span></div>}
       </div>
+
+      {canRevealAccessCode && !b.cancelledAt && (
+        <div className="mt-2 rounded-lg border border-[var(--line)] px-2.5 py-2 text-[12.5px]">
+          <DoorCodeReveal bookingId={b.id} guestName={b.guests[0]} canGenerateLink={canGenerateAccessLink} />
+        </div>
+      )}
 
       {b.notes && <div className="mt-2 text-[11px] text-[var(--gray)]">📝 {b.notes}</div>}
       {b.cancelledAt && b.cancellationReason && (

@@ -20,17 +20,28 @@ function randomPassword() {
 async function main() {
   console.log("Seeding clean production state…");
 
-  await prisma.settings.upsert({
-    where: { id: 1 },
+  // Settings is now one row per Owner (tenant), not a global singleton —
+  // see the Settings model's doc comment in schema.prisma. This script
+  // predates multi-owner support, so it needs its own Owner row to hang
+  // everything off, same as the real migration this app actually ran
+  // (scratch/migrate-owner-foundation.mjs).
+  const owner = await prisma.owner.upsert({
+    where: { slug: "evangelinas" },
     update: {},
-    create: { id: 1, businessName: "Evangelina's Staycation", address: "Cubao, Quezon City", nightlyRate: 1799, dpFee: 500 },
+    create: { businessName: "Evangelina's Staycation", slug: "evangelinas" },
+  });
+
+  await prisma.settings.upsert({
+    where: { ownerId: owner.id },
+    update: {},
+    create: { ownerId: owner.id, businessName: "Evangelina's Staycation", address: "Cubao, Quezon City", nightlyRate: 1799, dpFee: 500 },
   });
 
   for (const [i, u] of UNIT_DEFS.entries()) {
     const unit = await prisma.unit.upsert({
       where: { id: `unit-${i}` },
       update: {},
-      create: { id: `unit-${i}`, ...u, location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.85, sortOrder: i },
+      create: { id: `unit-${i}`, ...u, ownerId: owner.id, location: "Cubao, Araneta City", nightlyRate: 1799, rating: 4.85, sortOrder: i },
     });
     await prisma.housekeepingUnitState.upsert({
       where: { unitId: unit.id },
@@ -49,11 +60,12 @@ async function main() {
       username: "owner",
       name: "Evangelina Santos",
       role: "OWNER_ADMIN",
+      ownerId: owner.id,
       passwordHash,
       mustChangePassword: true,
     },
   });
-  await prisma.employee.upsert({ where: { userId: admin.id }, update: {}, create: { name: admin.name, role: "OWNER_ADMIN", userId: admin.id } });
+  await prisma.employee.upsert({ where: { userId_ownerId: { userId: admin.id, ownerId: owner.id } }, update: {}, create: { name: admin.name, role: "OWNER_ADMIN", userId: admin.id, ownerId: owner.id } });
 
   await prisma.auditLog.create({ data: { actorUserId: admin.id, action: "system.fresh_start", entity: "System", meta: { units: UNIT_DEFS.length } as any } });
 

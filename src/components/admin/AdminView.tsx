@@ -6,12 +6,17 @@ import { UnitsTab } from "./UnitsTab";
 import { UsersTab } from "./UsersTab";
 import { SettingsTab } from "./SettingsTab";
 import { BrandKitTab } from "./BrandKitTab";
+import { StaycationProfileTab } from "./StaycationProfileTab";
 import { ChecklistTab } from "./ChecklistTab";
 import { LoginLogsTab } from "./LoginLogsTab";
+import { HousekeepingActivityLogTab } from "./HousekeepingActivityLogTab";
 import { ImpersonationLogsTab, type ImpersonationLog } from "./ImpersonationLogsTab";
 import { CouponsTab } from "./CouponsTab";
 import { FeedbackTab } from "./FeedbackTab";
+import { DeploymentTab } from "./DeploymentTab";
 import { PlaceInsightsPanel } from "./PlaceInsightsPanel";
+import { SeasonalSkinsTab } from "./SeasonalSkinsTab";
+import { AccessManagementTab } from "./AccessManagementTab";
 import { BillsPanel } from "@/components/housekeeping/BillsPanel";
 import { StockPanel } from "@/components/housekeeping/StockPanel";
 import { Pill } from "@/components/ui/Pill";
@@ -31,21 +36,40 @@ import { cn } from "@/lib/utils";
 // itself uses); Housekeeping checklist + Login logs are folded into
 // "Settings" as collapsible sections, since the checklist already lives on
 // the same Settings record. Units and Users & roles are untouched.
-const TABS = ["Units", "Users & roles", "Operations", "Feedback", "Settings"] as const;
+const TABS = ["Units", "Users & roles", "Operations", "Feedback", "Deployment", "Settings"] as const;
+
+// The Settings tab grew to 11 flat accordions as features shipped — hard to
+// scan for "where's the thing I want." Grouped here into 4 subcategories
+// (a second-level pill selector, same pattern as Operations' Bills/Supplies
+// toggle above) purely for navigation; every existing Accordion/component
+// underneath is unchanged, just organized under a shorter list at a time.
+const SETTINGS_GROUPS = ["Branding & Appearance", "Business & Rates", "Access & Security", "Operations"] as const;
+type SettingsGroup = (typeof SETTINGS_GROUPS)[number];
 
 export function AdminView({
   units: initialUnits, users: initialUsers, settings: initialSettings, loginLogs,
   bills: initialBills, stocks: initialStocks, coupons: initialCoupons,
-  feedback, feedbackAnalytics, guidebookCategories, placeInsightSummary, impersonationLogs,
+  feedback, feedbackAnalytics, guidebookCategories, placeInsightSummary, impersonationLogs, housekeepingActivityLogs,
+  ownerProfile: initialOwnerProfile,
+  isPlatformAdmin,
 }: {
   units: any[]; users: any[]; settings: any; loginLogs: any[];
   bills: any[]; stocks: any[]; coupons: any[];
   feedback: any[]; feedbackAnalytics: any;
   guidebookCategories: any[]; placeInsightSummary: any[];
   impersonationLogs: ImpersonationLog[];
+  housekeepingActivityLogs: any[];
+  ownerProfile: { businessName: string; logoUrl: string | null };
+  /** Deployment/maintenance events are a real platform-wide singleton, not
+   * tenant data (DeploymentEvent has no ownerId) — the API routes behind
+   * this tab are now platform-admin-gated, so the tab itself is hidden
+   * from a regular tenant Owner/Admin rather than showing them a shell
+   * that 403s on every action. */
+  isPlatformAdmin: boolean;
 }) {
   const searchParams = useSearchParams();
-  const initialTab = TABS.find((t) => t.toLowerCase() === searchParams?.get("tab")?.toLowerCase()) ?? "Units";
+  const visibleTabs = isPlatformAdmin ? TABS : TABS.filter((t) => t !== "Deployment");
+  const initialTab = visibleTabs.find((t) => t.toLowerCase() === searchParams?.get("tab")?.toLowerCase()) ?? "Units";
   const [tab, setTab] = useState<(typeof TABS)[number]>(initialTab);
   const [units, setUnits] = useState(initialUnits);
   const [users, setUsers] = useState(initialUsers);
@@ -53,7 +77,9 @@ export function AdminView({
   const [stocks, setStocks] = useState(initialStocks);
   const [settings, setSettings] = useState(initialSettings);
   const [coupons, setCoupons] = useState(initialCoupons);
+  const [ownerProfile, setOwnerProfile] = useState(initialOwnerProfile);
   const [opsView, setOpsView] = useState<"Bills" | "Supplies">("Bills");
+  const [settingsGroup, setSettingsGroup] = useState<SettingsGroup>("Branding & Appearance");
 
   async function refreshBills() {
     const res = await fetch("/api/housekeeping/bills");
@@ -72,8 +98,13 @@ export function AdminView({
       </div>
 
       <div className="mb-5 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--line)] bg-[var(--card)] p-1.5">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={cn("whitespace-nowrap rounded-xl px-4 py-2 text-[13px] font-bold transition", tab === t ? "bg-rausch text-white" : "text-[var(--gray)] hover:bg-[var(--bg-2)]")}>
+        {visibleTabs.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn("whitespace-nowrap rounded-xl px-4 py-2 text-[13px] font-bold transition", tab !== t && "text-[var(--gray)] hover:bg-[var(--bg-2)]")}
+            style={tab === t ? { background: "var(--skin-primary, #6c5ce7)", color: "var(--skin-primary-text, #fff)" } : undefined}
+          >
             {t}
           </button>
         ))}
@@ -95,29 +126,71 @@ export function AdminView({
 
       {tab === "Feedback" && <FeedbackTab feedback={feedback} analytics={feedbackAnalytics} />}
 
+      {tab === "Deployment" && <DeploymentTab />}
+
       {tab === "Settings" && (
         <div>
-          <Accordion title="Business & payroll rates">
-            <SettingsTab initial={settings} onSaved={setSettings} />
-          </Accordion>
-          <Accordion title="Brand Kit" sub="Logo, colors, and social handles for exported graphics" defaultOpen={false}>
-            <BrandKitTab initial={settings} onSaved={setSettings} />
-          </Accordion>
-          <Accordion title="Coupons" defaultOpen={false}>
-            <CouponsTab coupons={coupons} onCouponsChange={setCoupons} />
-          </Accordion>
-          <Accordion title="Housekeeping checklist" defaultOpen={false}>
-            <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />
-          </Accordion>
-          <Accordion title="Login logs" defaultOpen={false}>
-            <LoginLogsTab logs={loginLogs} />
-          </Accordion>
-          <Accordion title="Security" sub="Impersonation logs" defaultOpen={false}>
-            <ImpersonationLogsTab logs={impersonationLogs} />
-          </Accordion>
-          <Accordion title="Nearby places data" defaultOpen={false}>
-            <PlaceInsightsPanel categories={settings.guidebookCategories ?? guidebookCategories} initialSummary={placeInsightSummary} />
-          </Accordion>
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {SETTINGS_GROUPS.map((g) => (
+              <Pill key={g} on={settingsGroup === g} onClick={() => setSettingsGroup(g)}>{g}</Pill>
+            ))}
+          </div>
+
+          {settingsGroup === "Branding & Appearance" && (
+            <div>
+              <Accordion title="Staycation Profile" sub="Your staycation's name and icon — shown in the nav bar" defaultOpen>
+                <StaycationProfileTab initial={ownerProfile} onSaved={setOwnerProfile} />
+              </Accordion>
+              <Accordion title="Brand Kit" sub="Logo, colors, and social handles for exported graphics" defaultOpen={false}>
+                <BrandKitTab initial={settings} onSaved={setSettings} />
+              </Accordion>
+              <Accordion title="Seasonal Skins" sub="Preview and activate site-wide seasonal themes" defaultOpen={false}>
+                <SeasonalSkinsTab
+                  activeSeasonalSkinId={settings.activeSeasonalSkinId ?? null}
+                  onSaved={(patch) => setSettings((s: any) => ({ ...s, ...patch }))}
+                />
+              </Accordion>
+            </div>
+          )}
+
+          {settingsGroup === "Business & Rates" && (
+            <div>
+              <Accordion title="Business & payroll rates" defaultOpen>
+                <SettingsTab initial={settings} onSaved={setSettings} />
+              </Accordion>
+              <Accordion title="Coupons" defaultOpen={false}>
+                <CouponsTab coupons={coupons} onCouponsChange={setCoupons} />
+              </Accordion>
+            </div>
+          )}
+
+          {settingsGroup === "Access & Security" && (
+            <div>
+              <Accordion title="Access Management" sub="Grant individual members extra page access beyond their role" defaultOpen>
+                <AccessManagementTab />
+              </Accordion>
+              <Accordion title="Login logs" defaultOpen={false}>
+                <LoginLogsTab logs={loginLogs} />
+              </Accordion>
+              <Accordion title="Security" sub="Impersonation logs" defaultOpen={false}>
+                <ImpersonationLogsTab logs={impersonationLogs} />
+              </Accordion>
+            </div>
+          )}
+
+          {settingsGroup === "Operations" && (
+            <div>
+              <Accordion title="Housekeeping checklist" defaultOpen>
+                <ChecklistTab initial={settings.checklistGroups ?? []} units={units} />
+              </Accordion>
+              <Accordion title="Housekeeping activity log" sub="Cleaning, access codes, shifts" defaultOpen={false}>
+                <HousekeepingActivityLogTab logs={housekeepingActivityLogs} />
+              </Accordion>
+              <Accordion title="Nearby places data" defaultOpen={false}>
+                <PlaceInsightsPanel categories={settings.guidebookCategories ?? guidebookCategories} initialSummary={placeInsightSummary} />
+              </Accordion>
+            </div>
+          )}
         </div>
       )}
     </div>

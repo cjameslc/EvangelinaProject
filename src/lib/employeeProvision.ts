@@ -12,7 +12,7 @@ import { isPayrollRole } from "@/lib/payroll";
  */
 export async function ensureEmployeeForUser(user: { id: string; name: string; role: string; ownerId: string | null }) {
   if (!isPayrollRole(user.role)) return;
-  const existing = await prisma.employee.findUnique({ where: { userId: user.id } });
+  const existing = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId } });
   if (existing) {
     // The actual bug this fixes: an Admin editing a User's role (e.g.
     // Booker -> Housekeeping) previously left the linked Employee row's

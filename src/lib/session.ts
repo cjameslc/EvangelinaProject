@@ -87,6 +87,28 @@ export async function isUnitInScope(user: OwnerScopedUser, unitId: string | null
 }
 
 /**
+ * The 403 to send after an {@link isUnitInScope} failure — every call site
+ * used to just return `new Response("Forbidden", { status: 403 })`, plain
+ * text with no JSON body. Every mutation-side fetch() on the frontend does
+ * `res.json().catch(() => null)` then falls back to a generic "Couldn't
+ * update booking" when that parse fails (it always does, against plain
+ * text) — so a real account-setup bug (e.g. a user row missing `ownerId`,
+ * which happened for real and made every save on every unit fail with no
+ * usable explanation) read to the person hitting it as an unexplained,
+ * seemingly random save failure. `!user.ownerId` is specifically that
+ * class of problem — the account itself is broken, not a legitimate
+ * cross-tenant boundary — so it gets a distinct, actionable message; the
+ * ordinary "wrong unit for this account" case still gets a boundary
+ * message with no unit/owner details leaked.
+ */
+export function forbiddenUnitScopeResponse(user: OwnerScopedUser): Response {
+  const error = user.ownerId
+    ? "You don't have access to this unit."
+    : "Your account isn't linked to a business yet — ask an admin to fix your account, then try again.";
+  return new Response(JSON.stringify({ error }), { status: 403, headers: { "Content-Type": "application/json" } });
+}
+
+/**
  * Dashboard-only scoping: unlike {@link unitWhere}, an Owner/Admin with units
  * explicitly assigned to them sees only their own portfolio here — their
  * unrestricted "all" access on every other page (Bookings, Calendar,

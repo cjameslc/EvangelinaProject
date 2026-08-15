@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { canSeeDashboard } from "@/lib/rbac";
-import { generateDashboardInsight, type DashboardInsightMetrics } from "@/lib/ai/dashboardInsight";
+import { generateDashboardInsight, type DashboardInsightMetrics, type BusinessContext } from "@/lib/ai/dashboardInsight";
 import { rateLimit } from "@/lib/rateLimit";
 
-// Cached per exact metrics snapshot (unstable_cache incorporates the
-// function's arguments into its cache key) — repeated dashboard loads with
-// unchanged numbers never re-hit Gemini; a real change in the underlying
-// figures naturally busts the cache. 10min covers a normal browsing
-// session without costing a fresh call on every page revisit.
+// Cached per exact metrics snapshot + business context (unstable_cache
+// incorporates the function's arguments into its cache key) — repeated
+// dashboard loads with unchanged numbers never re-hit Gemini; a real
+// change in the underlying figures naturally busts the cache. 10min
+// covers a normal browsing session without costing a fresh call on every
+// page revisit.
 const getCachedInsight = unstable_cache(
-  (metrics: DashboardInsightMetrics) => generateDashboardInsight(metrics),
+  (metrics: DashboardInsightMetrics, business: BusinessContext) => generateDashboardInsight(metrics, business),
   ["dashboard-insight"],
   { revalidate: 600 }
 );
@@ -30,7 +32,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const insight = await getCachedInsight(metrics);
+    const [owner, unitCount] = await Promise.all([
+      prisma.owner.findUnique({ where: { id: user.ownerId! }, select: { businessName: true } }),
+      prisma.unit.count({ where: { ownerId: user.ownerId, active: true } }),
+    ]);
+    const settings = await prisma.settings.findUnique({ where: { ownerId: user.ownerId! }, select: { address: true } });
+    const business: BusinessContext = {
+      businessName: owner?.businessName ?? "Evangelina's Staycation",
+      unitCount: unitCount || 1,
+      address: settings?.address ?? "Cubao, Quezon City, Philippines",
+    };
+    const insight = await getCachedInsight(metrics, business);
     return NextResponse.json({ insight });
   } catch {
     // Non-critical cosmetic upgrade — the Dashboard already has a solid

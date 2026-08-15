@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prismaPool } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { periodRangeFor, type AnalyticsPeriodType } from "@/lib/analytics/period";
 import { computeTeamBreakdown, isPayrollRole, salaryForPeriod, type PayrollRates, type DashboardPeriodType } from "@/lib/payroll";
@@ -19,7 +19,7 @@ const dayOf = (d: Date) =>
  * pulling its own independent window.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireUser(["OWNER_ADMIN", "CO_OWNER"]);
+  const { user, error } = await requireUser(["OWNER_ADMIN", "CO_OWNER"]);
   if (error) return error;
 
   const sp = req.nextUrl.searchParams;
@@ -31,18 +31,21 @@ export async function GET(req: NextRequest) {
   const periodDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
   const salaryPeriod: DashboardPeriodType = rangeType === "quarterly" ? "custom" : (rangeType as DashboardPeriodType);
 
+  // ownerId scoping throughout — an Owner/Co-owner must only ever see their
+  // own tenant's staff/bookings/cleanings here, never every tenant on the
+  // platform (Booking has no direct ownerId, so it's scoped via unit.ownerId).
   const [employees, settings, bookings, cleaningLogs, activeUnitCount] = await Promise.all([
-    prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[0].employee.findMany({ where: { active: true, ownerId: user.ownerId }, orderBy: { name: "asc" } }),
+    prismaPool[1].settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
     // Booker/cleaner attribution needs anyone active in the window regardless
     // of exact check-in date vs. checkout, so this pulls a slightly wider
     // net (whole days the range touches) the same way my-earnings does.
-    prisma.booking.findMany({
-      where: { date: { gte: start, lt: end } },
+    prismaPool[2].booking.findMany({
+      where: { date: { gte: start, lt: end }, unit: { ownerId: user.ownerId } },
       select: { id: true, unitId: true, bookerId: true, cleanerId: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, platform: true, paid: true, amount: true, dpAmount: true, refundedAt: true, cancelledAt: true, cancellationCategory: true },
     }),
-    prisma.cleaningLog.findMany({ where: { startedAt: { gte: start, lt: end } }, select: { employeeId: true, unitId: true, startedAt: true } }),
-    prisma.unit.count({ where: { active: true } }),
+    prismaPool[3].cleaningLog.findMany({ where: { startedAt: { gte: start, lt: end }, unit: { ownerId: user.ownerId } }, select: { employeeId: true, unitId: true, startedAt: true } }),
+    prismaPool[4].unit.count({ where: { active: true, ownerId: user.ownerId } }),
   ]);
 
   const rates: PayrollRates = {

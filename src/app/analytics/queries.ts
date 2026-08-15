@@ -1,13 +1,14 @@
 import { unstable_cache } from "next/cache";
-import { prismaPool } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { dashboardUnitIdWhere } from "@/lib/session";
 import { resolveAnalyticsPeriod, periodRangeFor, daysInRange, manilaNowPlaceholder, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
 import { computeOccupancy, computeADR, computeRevPAR, occupancyCalendarGrid, OCCUPANCY_CALENDAR_MAX_DAYS, type CalendarCell } from "@/lib/analytics/occupancy";
-import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
+import { collectedRevenueCentavos, revenueGrowthPct, revenueSeries, revenueByDimension, elapsedBookings, type RevenuePoint, type RevenueDimensionRow } from "@/lib/analytics/revenue";
 import { cancellationRate, avgStayLengthNights, bookingFunnel, leadTimeDistribution, peakDayCounts } from "@/lib/analytics/bookings";
 import { guestRepeatRate, guestLifetimeValue, topGuests as topGuestsFn, frequentGuests as frequentGuestsFn, avgGuestsPerBooking } from "@/lib/analytics/guests";
 import { trailingAverageForecast } from "@/lib/analytics/forecast";
 import { netProfitCentavos, marginPct, paidExpensesCentavos, cashFlowCentavos, pendingExpensesCentavos, outstandingBalanceCentavos, accruedOperationalCostsCentavos } from "@/lib/analytics/financials";
+import { grossAmountCentavos } from "@/lib/finance";
 import { cleaningStats, cleanerPerformance, delayedCleanings, roomsReadySnapshot } from "@/lib/analytics/housekeeping";
 import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
@@ -100,10 +101,16 @@ async function fetchKpiData(
     // to find whichever rate was actually effective at periodStart.
     prismaPool[6].employee.findMany({ where: { ownerId }, select: { id: true, role: true, monthlySalary: true, active: true } }),
     prismaPool[7].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
-    prismaPool[8].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
-    prismaPool[9].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true } }),
-    prismaPool[10].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
-    prismaPool[11].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true, status: true } }),
+    // ownerId directly on WeeklyExpense (TIKTOK_ADS is always untargeted, so
+    // there's no employee to scope through — see its own doc comment) and
+    // via employee.ownerId on ExpenseRequest (employeeId is required there).
+    // Previously unscoped: every tenant's ad spend/approved expenses were
+    // being subtracted from every other tenant's Net Profit, including a
+    // brand-new owner with zero real activity showing a negative number.
+    prismaPool[8].weeklyExpense.findMany({ where: { ownerId, category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
+    prismaPool[9].weeklyExpense.findMany({ where: { ownerId, category: "TIKTOK_ADS", date: { gte: previous.start, lt: previous.end } }, select: { category: true, amount: true } }),
+    prismaPool[10].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
+    prismaPool[11].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: previous.start, lt: previous.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
     // Airbnb's own officially-reported monthly totals (Feb 2025 - Mar 2026,
     // mostly pre-dating this app) — same record-keeping fallback Dashboard's
     // Earnings card already applies (useEarningsData.ts), ported here so
@@ -152,6 +159,11 @@ export type ExecutiveKPIs = {
   marginPct: number;
   marginPctPointsDelta: number | null;
   bookingsGrowthPct: number | null;
+  // Real daily collected-revenue series for the elapsed portion of the
+  // current period, in pesos — feeds the Revenue KPI card's sparkline.
+  // Never fabricated: fewer than 2 real buckets (e.g. viewing "Today")
+  // just means no sparkline renders, see Sparkline.tsx.
+  revenueSparkline: number[];
   occupancyPct: number;
   adrCentavos: number;
   revparCentavos: number;
@@ -262,7 +274,7 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   // future date by definition, so currentOtherCostsCents/
   // currentPaidExpensesCents need no separate clipping here.
   const elapsedCutoff = new Date(Math.min(manilaNowPlaceholder().getTime(), currentEnd.getTime()));
-  const elapsedCurrentBookings = currentBookings.filter((b: any) => new Date(b.date).getTime() < elapsedCutoff.getTime());
+  const elapsedCurrentBookings = elapsedBookings<(typeof currentBookings)[number]>(currentBookings, currentEnd);
   const mtdRevenueCentavos = collectedRevenueCentavos(elapsedCurrentBookings);
   const mtdNetProfitCentavos = netProfitCentavos({ revenueCentavos: mtdRevenueCentavos, paidExpensesCentavos: currentPaidExpensesCents, otherPaidCostsCentavos: currentOtherCostsCents });
   const comparisonPeriodLabel = formatDateRangeShort(previousStart, new Date(previousEnd.getTime() - 86400000));
@@ -277,12 +289,15 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
   // are) — rather than approximate it without them, this stays an honest
   // "no prior period" in the UI until that query is added.
   const bookingsGrowthPct = revenueGrowthPct(currentBookings.length, previousBookings.length);
+  const revenueSparkline = revenueSeries(elapsedCurrentBookings, "day", currentStart, elapsedCutoff)
+    .map((p: RevenuePoint) => p.collectedCentavos / 100);
 
   return {
     totalRevenueCentavos,
     mtdRevenueCentavos,
     mtdNetProfitCentavos,
     comparisonPeriodLabel,
+    revenueSparkline,
     netProfitCentavos: netProfit,
     netProfitNote: "Revenue minus paid bills, accrued staff payroll, and approved expenses for this period.",
     marginPct: currentMarginPct,
@@ -423,8 +438,9 @@ async function fetchFinancialData(
     // gone out the door.
     prismaPool[3].employee.findMany({ where: { ownerId }, select: { id: true, role: true, monthlySalary: true, active: true } }),
     prismaPool[4].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
-    prismaPool[5].weeklyExpense.findMany({ where: { category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
-    prismaPool[6].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true, status: true } }),
+    // See the matching comment in fetchKpiData above — same owner-leak fix.
+    prismaPool[5].weeklyExpense.findMany({ where: { ownerId, category: "TIKTOK_ADS", date: { gte: current.start, lt: current.end } }, select: { category: true, amount: true } }),
+    prismaPool[6].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: current.start, lt: current.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
   ]);
 
   return JSON.parse(JSON.stringify({ bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests }));
@@ -448,7 +464,12 @@ export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: 
   const { bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests } = data;
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
 
-  const grossRevenueCentavos = bookings.reduce((s: number, b: any) => (b.cancelledAt ? s : s + b.amount * 100), 0);
+  // grossAmountCentavos, not bare amount*100 — amount alone is only the
+  // remaining balance once a downpayment's been verified (see its doc
+  // comment in finance.ts). Using amount alone here was a real, confirmed
+  // bug: it could make Net Revenue (paid + dpAmount, correctly reconstructed)
+  // read HIGHER than Gross Revenue for the same real bookings.
+  const grossRevenueCentavos = bookings.reduce((s: number, b: any) => (b.cancelledAt ? s : s + grossAmountCentavos(b)), 0);
   const netRevenueCentavos = collectedRevenueCentavos(bookings);
   const paidExpensesCents = paidExpensesCentavos(paidBills);
   const pendingExpensesCents = pendingExpensesCentavos(pendingBills);
@@ -793,9 +814,9 @@ async function fetchStaffData(
       select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true, cancelledAt: true, cancellationCategory: true, dpAmount: true, refundedAt: true },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
-    prismaPool[2].weeklyExpense.findMany({ where: { date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),
+    prismaPool[2].weeklyExpense.findMany({ where: { ownerId, date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),
     prismaPool[3].employee.findMany({ where: { ownerId }, select: { id: true, name: true, role: true, active: true } }),
-    prismaPool[4].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[4].settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! } }),
   ]);
   return JSON.parse(JSON.stringify({ bookings, cleaningLogs, expenses, employees, settings }));
 }
@@ -826,6 +847,45 @@ export async function getStaffAnalytics(user: { role: string; ownedUnitIds: stri
   return {
     rows,
     bookings: bookings.map((b: any) => ({ id: b.id, date: b.date, stayType: b.stayType, bookerId: b.bookerId, cleanerId: b.cleanerId })),
+  };
+}
+
+export type CommissionAnalyticsRow = { employeeId: string; name: string; role: string; bookingsCount: number; commissionCentavos: number };
+export type CommissionAnalytics = { totalCommissionCentavos: number; bookerCommissionRate: number; rows: CommissionAnalyticsRow[] };
+
+/**
+ * Total commission paid out + who earned it, for the selected period.
+ * Deliberately reuses getStaffAnalytics's rows rather than a second
+ * bookings/commission calculation — commissionEarnedCentavos there already
+ * comes from computeTeamBreakdown, the exact same formula Dashboard's
+ * "Your team", My Earnings, and Admin's payroll all share, so this can
+ * never quietly disagree with those the way this app's revenue figures
+ * once did (see elapsedBookings's doc comment in analytics/revenue.ts).
+ * bookingsCount is derived from the amount (commission ÷ flat rate) rather
+ * than re-filtering bookings by isCommissionEligible a second time, for
+ * the same reason — one source of truth per number, not two paths to the
+ * same fact.
+ */
+export async function getCommissionAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<CommissionAnalytics> {
+  const [staff, settings] = await Promise.all([
+    getStaffAnalytics(user, filters),
+    prisma.settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
+  ]);
+  const rate = settings.bookerCommission;
+  const rows = staff.rows
+    .filter((r) => r.commissionEarnedCentavos > 0)
+    .map((r) => ({
+      employeeId: r.employeeId,
+      name: r.name,
+      role: r.role,
+      bookingsCount: rate > 0 ? Math.round(r.commissionEarnedCentavos / 100 / rate) : 0,
+      commissionCentavos: r.commissionEarnedCentavos,
+    }))
+    .sort((a, b) => b.commissionCentavos - a.commissionCentavos);
+  return {
+    totalCommissionCentavos: rows.reduce((s, r) => s + r.commissionCentavos, 0),
+    bookerCommissionRate: rate,
+    rows,
   };
 }
 
@@ -909,7 +969,7 @@ async function fetchRevenueGoalsData(role: string, ownedUnitIds: string[], owner
     prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, shortName: true, unitNumber: true, monthlyRevenueTargetOverride: true } }),
     prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: goalBookingSelect }),
     prismaPool[2].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: previous.start, lt: previous.end } }, select: goalBookingSelect }),
-    prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 }, select: { monthlyRevenueTargetPerUnit: true } }),
+    prismaPool[3].settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! }, select: { monthlyRevenueTargetPerUnit: true } }),
   ]);
 
   return JSON.parse(JSON.stringify({

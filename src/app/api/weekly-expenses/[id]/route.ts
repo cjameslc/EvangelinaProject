@@ -9,7 +9,7 @@ import { weeklyExpenseSchema } from "@/lib/validation";
 // an expense are audited.
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error } = await requireUser(["OWNER_ADMIN"]);
+  const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
 
   let body;
@@ -19,7 +19,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
 
-  const existing = await prisma.weeklyExpense.findUnique({ where: { id: params.id }, select: { category: true } });
+  // Was missing — same audit sweep as Units/Users/Employees.
+  const existing = await prisma.weeklyExpense.findUnique({ where: { id: params.id }, select: { category: true, ownerId: true } });
+  if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Expense not found." }, { status: 404 });
   const nextCategory = body.category ?? existing?.category ?? "GENERAL";
 
   const data: Record<string, unknown> = {};
@@ -45,6 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  const existing = await prisma.weeklyExpense.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Expense not found." }, { status: 404 });
 
   await prisma.weeklyExpense.delete({ where: { id: params.id } });
   await logAudit(user.id, "expense.delete", "WeeklyExpense", params.id);

@@ -5,20 +5,34 @@ import { ChevronDownIcon, CheckIcon } from "@/components/ui/Icons";
 import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { PhotoCapture } from "@/components/housekeeping/PhotoCapture";
+import { CleaningTimer } from "@/components/housekeeping/CleaningTimer";
+import { MyAccessCode } from "@/components/housekeeping/MyAccessCode";
+import { GenerateHousekeepingCode } from "@/components/housekeeping/GenerateHousekeepingCode";
 import { cn } from "@/lib/utils";
-import { formatUnitDisplay } from "@/lib/format";
+import { formatUnitDisplay, fmtDate } from "@/lib/format";
 
 type Unit = { id: string; name: string; shortName: string; unitNumber: string; owners?: { user: { name: string } }[] };
-type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked?: boolean[][]; photoUrls?: string[] };
+// endedAt/updatedAt were already coming back from the API on every load
+// (housekeepingUnitState.findMany has no `select`, so every column is
+// fetched) — just never typed or rendered here, so a genuinely-cleaned
+// room and a room that defaulted to "Clean" with nothing ever scheduled
+// looked identical, with no way to see who cleaned it or when short of
+// checking the DB directly.
+type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked?: boolean[][]; photoUrls?: string[]; startedAt?: string | null; endedAt?: string | null; updatedAt?: string | null };
 type ChecklistGroup = { name: string; optional?: boolean; items: string[] };
 
 export function RoomCard({
-  unit, state, canEdit, currentUserName, onChange, checklistGroups, pendingBookingId, hasAnyCheckoutToday,
+  unit, state, canEdit, currentUserName, role, canGrantAccess, housekeepers, onChange, checklistGroups, pendingBookingId, hasAnyCheckoutToday,
 }: {
   unit: Unit;
   state: HkState | undefined;
   canEdit: boolean;
   currentUserName: string;
+  /** Gates the "my access code" card (Housekeeping only, spec section 9) — every other role keeps seeing exactly what they saw before this field existed. */
+  role: string;
+  /** canGrantHousekeepingAccess(role) — Owner/Booker only, spec section 6. */
+  canGrantAccess: boolean;
+  housekeepers: { id: string; name: string }[];
   onChange: (unitId: string, patch: any) => Promise<void>;
   checklistGroups: ChecklistGroup[];
   /** The specific booking whose checkout still needs cleaning today, earliest first — null if nothing's left to address. */
@@ -28,11 +42,14 @@ export function RoomCard({
 }) {
   const [openGroup, setOpenGroup] = useState<number | null>(0);
   const rawStatus = state?.status ?? "todo";
-  // Untouched + nothing ever scheduled today defaults to Clean, not To
-  // clean — a room only actually needs cleaning once a guest has checked
-  // out of it. Distinct from "genuinely finished" below: that also shows
-  // Clean, but only after real work (so Reset has something to undo).
-  const isDefaultClean = rawStatus === "todo" && !hasAnyCheckoutToday;
+  // A room resting between checkouts (raw "todo", nothing due today) only
+  // reads as Clean if it's actually been cleaned at least once before
+  // (state.endedAt set) — otherwise a genuinely never-cleaned room (a new
+  // unit, or one whose HousekeepingUnitState row was never touched) would
+  // silently show as ready for a guest with zero real evidence it's clean.
+  // Distinct from "genuinely finished" below: that also shows Clean, but
+  // only after real work (so Reset has something to undo).
+  const isDefaultClean = rawStatus === "todo" && !hasAnyCheckoutToday && !!state?.endedAt;
   // A unit can have more than one checkout in a day (e.g. a Daycation guest
   // leaving in the evening plus a separate Night booking leaving that same
   // day) — pendingBookingId is whichever of today's checkouts hasn't been
@@ -89,12 +106,26 @@ export function RoomCard({
       {status === "clean" ? (
         <div className="flex items-center gap-2">
           <p className="text-[12.5px] font-semibold text-[var(--gray)]">
-            {isDefaultClean ? "Nothing scheduled — the checklist opens once a guest checks out." : "Cleaned — checklist cleared."}
+            {isDefaultClean
+              ? "Nothing scheduled — the checklist opens once a guest checks out."
+              : `Cleaned${state?.byName ? ` by ${state.byName}` : ""}${
+                  state?.endedAt ? ` · ${fmtDate(state.endedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""
+                }.`}
           </p>
           {canEdit && genuinelyFinished && <button onClick={reset} className="btn-sm btn-ghost ml-auto flex-none">Reset</button>}
         </div>
       ) : (
         <>
+          {status === "cleaning" && state?.startedAt && <CleaningTimer startedAt={state.startedAt} />}
+
+          {/* Keyed by status so it remounts (and refetches) the moment
+              Start Cleaning flips status to "cleaning" — the code is
+              requested server-side at that exact moment (see
+              ensureHousekeepingCredentialOnStart), so a component that
+              only fetched once on initial mount would miss it. */}
+          {role === "HOUSEKEEPING" && status !== "clean" && <MyAccessCode key={status} unitId={unit.id} />}
+          {canGrantAccess && status !== "clean" && <GenerateHousekeepingCode unitId={unit.id} housekeepers={housekeepers} />}
+
           <div className="flex items-center gap-2">
             {canEdit && status === "todo" && <button onClick={() => setConfirming("start")} className="btn-sm btn-primary ml-auto">Start cleaning</button>}
             {canEdit && status === "cleaning" && <button onClick={() => setConfirming("finish")} className="btn-sm ml-auto" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Mark clean</button>}

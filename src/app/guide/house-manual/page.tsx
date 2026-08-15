@@ -1,4 +1,4 @@
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { HouseRulesSection, InsideTheBuildingSection } from "@/components/guest/GuidebookSections";
 import { peso } from "@/lib/format";
@@ -6,7 +6,7 @@ import { getCategoryImages } from "@/lib/unsplash/service";
 import { pickStable } from "@/lib/unsplash/pick";
 
 export default async function HouseManualPage() {
-  const [g, houseRulesImages] = await Promise.all([getGuidebookSettings(), getCategoryImages("house-rules")]);
+  const [g, houseRulesImages] = await Promise.all([getGuidebookSettingsForCurrentGuest(), getCategoryImages("house-rules")]);
   const headerImage = pickStable(houseRulesImages, "house-manual");
 
   return (

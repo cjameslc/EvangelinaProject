@@ -25,14 +25,6 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid", subtitle: "Today at a glance", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/analytics", label: "Analytics", icon: "chart", subtitle: "Performance & trends", group: "Insights", roles: ["OWNER_ADMIN", "CO_OWNER"] },
   { href: "/bookings", label: "Bookings", icon: "file", subtitle: "Reservations & guests", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
-  // Team chat now lives inside Bookings > Check availability (Team
-  // Collaboration panel) for every role that has a Bookings tab. Auditor is
-  // the one role with chat access but no Bookings access (canSeeBookings
-  // excludes AUDITOR by design) — this entry exists only so Auditor keeps a
-  // path to team chat. visibleNavItems() below special-cases this one item
-  // so even OWNER_ADMIN (who otherwise sees every tab) doesn't get a
-  // second, redundant "Chat" tab alongside Bookings.
-  { href: "/chat", label: "Chat", icon: "chat", subtitle: "Team messages", group: "Operations", roles: ["AUDITOR"] },
   { href: "/calendar", label: "Calendar", icon: "calendar", subtitle: "Availability & schedule", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER"] },
   { href: "/social", label: "Social", icon: "megaphone", subtitle: "Posts & promotions", group: "Marketing", roles: ["OWNER_ADMIN", "CO_OWNER", "BOOKER", "HOUSEKEEPING", "AUDITOR"] },
   { href: "/housekeeping", label: "Housekeeping", icon: "home", subtitle: "Cleaning & turnovers", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
@@ -42,12 +34,17 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
 ];
 
 // Shared by Navbar (desktop) and BottomNav (mobile) so the two nav surfaces
-// can never drift on which tabs a role sees.
-export function visibleNavItems(role: string | undefined) {
-  return NAV_ITEMS.filter((i) => {
-    if (i.href === "/chat") return role === "AUDITOR";
-    return role === "OWNER_ADMIN" || (role && i.roles.includes(role));
-  });
+// can never drift on which tabs a role sees. additionalPages is the
+// Owner-configurable grant layer on top of role defaults — see
+// effectivePageAccess() in src/lib/pageAccess.ts, the same resolver
+// middleware's route guard uses, so nav visibility and route enforcement
+// can never quietly disagree. enabledModules is that same function's
+// restrictive per-owner tier ceiling, applied last — null/undefined means
+// unrestricted (every owner from before this field existed).
+export function visibleNavItems(role: string | undefined, additionalPages: string[] = [], enabledModules?: string[] | null) {
+  const items = NAV_ITEMS.filter((i) => role === "OWNER_ADMIN" || (role && i.roles.includes(role)) || additionalPages.includes(i.href));
+  if (!enabledModules) return items;
+  return items.filter((i) => enabledModules.includes(i.href));
 }
 
 // Collaborative earning groups for My Earnings' Team Performance section —
@@ -73,6 +70,33 @@ export const STAY_TYPES = {
   Cleaning: { label: "Cleaning", short: "CLEAN", hrs: "", color: "#8E99AA" },
   Maintenance: { label: "Maintenance", short: "MAINT", hrs: "", color: "#C87D00" },
 } as const;
+
+// Calendar-grid display metadata (label/color/icon) — distinct from
+// STAY_TYPES above, which backs booking forms/tables elsewhere and keeps
+// its own labels ("Full stay") and palette. Shared by both calendar
+// surfaces (/calendar's multi-unit Gantt and /calendar/[unitId]'s monthly
+// view) so their legends and tile colors are the same thing, not two
+// independently-maintained lists that can drift apart.
+export const CALENDAR_TYPE_META: Record<string, { label: string; color: string; icon: string }> = {
+  Full: { label: "21-Hour", color: "#3B71E8", icon: "🛏️" },
+  Night: { label: "Night stay", color: "#7C5CE7", icon: "🌙" },
+  Daycation: { label: "Daycation", color: "#0D9E6E", icon: "☀️" },
+  Flexible: { label: "Flexible", color: "#0EA5A0", icon: "🕐" },
+  Cleaning: { label: "Cleaning", color: "#8E99AA", icon: "🧹" },
+  Maintenance: { label: "Maintenance", color: "#C87D00", icon: "🔧" },
+};
+
+// A Cleaning block that's been closed off (endDate set — housekeeping
+// marked the unit clean) gets this distinct color/icon instead of the
+// plain "in progress" Cleaning one above, on both calendar surfaces.
+export const CALENDAR_CLEANING_DONE = { label: "Cleaned", color: "#008A05", icon: "✅" };
+
+// Airbnb bookings get this dedicated tile color instead of their stay
+// type's — rausch, the app's brand red (itself Airbnb's own "Rausch"
+// brand color) — on both calendar surfaces, since Airbnb drives most of
+// the business and is worth recognizing at a glance. Airbnb has no
+// day-use product, so every Airbnb booking is a Full (21-Hour) stay.
+export const CALENDAR_AIRBNB_COLOR = "#FF385C";
 
 // Default check-in/check-out clock times per stay type, used both by
 // BookingForm's smartSchedule() (the UI pre-fill) and by stayRange.ts's

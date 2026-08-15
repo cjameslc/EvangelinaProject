@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { canSeeHousekeeping } from "@/lib/rbac";
+import { effectivePageAccess } from "@/lib/pageAccess";
 import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { CHECKLIST_GROUPS } from "@/lib/constants";
@@ -11,11 +11,11 @@ import { HousekeepingView } from "@/components/housekeeping/HousekeepingView";
 export default async function HousekeepingPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canSeeHousekeeping(user.role)) redirect("/");
+  if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/housekeeping")) redirect("/");
 
   const where = unitWhere(user);
   const month = manilaMonthStart();
-  await ensureRecurringBillsForMonth(month).catch(() => {});
+  await ensureRecurringBillsForMonth(month, user.ownerId).catch(() => {});
 
   // Cleaning-schedule window: today through the end of this week, plus a
   // few days of lookback so a multi-night stay that checked in earlier but
@@ -38,9 +38,15 @@ export default async function HousekeepingPage() {
     prismaPool[4].employee.findMany({ where: { active: true, role: { in: ["HOUSEKEEPING", "OWNER_ADMIN"] }, ownerId: user.ownerId } }),
     prismaPool[5].shift.findFirst({ where: { userId: user.id, clockOut: null } }),
     prismaPool[6].bill.findMany({ where: { ...where, month }, include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } } }),
-    prismaPool[7].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[7].settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
     prismaPool[8].booking.findMany({
-      where: { ...where, date: { gte: scheduleFrom, lte: scheduleTo } },
+      // cancelledAt: null — was missing, so a cancelled booking still showed
+      // up as a real checkout needing cleaning, letting a housekeeper "Mark
+      // clean" for a guest who never actually stayed. Confirmed against real
+      // data: a booking cancelled 2026-08-03 still generated a Cleaning
+      // CalendarBlock on 2026-08-04, showing as a second, spurious "Cleaned"
+      // tile on /calendar alongside that day's real checkout.
+      where: { ...where, date: { gte: scheduleFrom, lte: scheduleTo }, cancelledAt: null },
       select: {
         id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, guests: true,
         unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },

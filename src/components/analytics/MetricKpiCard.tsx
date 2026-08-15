@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { Wallet, TrendingUp, Percent, Home, Tag, Gauge, CalendarCheck } from "lucide-react";
+import { Sparkline } from "@/components/ui/Sparkline";
 
 // A string key, not a component reference, crosses the analytics/page.tsx
 // (Server Component) -> MetricKpiCard (Client Component) boundary — Next's
@@ -38,6 +39,7 @@ export function MetricKpiCard({
   deltaUnit = "%",
   comparisonLabel,
   index = 0,
+  sparkline,
 }: {
   icon: MetricIconKey;
   label: string;
@@ -48,6 +50,11 @@ export function MetricKpiCard({
   comparisonLabel: string;
   /** Stagger position for the entrance animation — brief section 27: "KPI cards 100-250ms stagger". */
   index?: number;
+  /** Optional real per-day series for this exact metric/period (e.g. daily
+   * collected revenue) — omitted, never fabricated, when no such series
+   * exists for a given metric (Margin/RevPAR/ADR/Bookings don't have one
+   * computed anywhere yet). See Sparkline's own doc comment. */
+  sparkline?: number[];
 }) {
   const prefersReduced = useReducedMotion();
   const isUp = delta !== null && delta >= 0;
@@ -60,9 +67,14 @@ export function MetricKpiCard({
       transition={{ duration: 0.4, ease: "easeOut", delay: prefersReduced ? 0 : 0.1 + index * 0.05 }}
       className="card p-4"
     >
-      <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-[var(--gray)]">
-        <Icon className="h-4 w-4" style={{ color: "var(--skin-primary, #6C5CE7)" }} />
-        {label}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-[var(--gray)]">
+          <span className="grid h-7 w-7 flex-none place-items-center rounded-lg" style={{ background: "color-mix(in srgb, var(--skin-primary, #6c5ce7) 14%, transparent)" }}>
+            <Icon className="h-4 w-4" style={{ color: "var(--skin-primary, #6C5CE7)" }} />
+          </span>
+          {label}
+        </div>
+        {sparkline && sparkline.length >= 2 && <Sparkline data={sparkline} width={64} height={22} strokeWidth={1.75} />}
       </div>
       <div className="mt-2 text-[24px] font-extrabold tracking-tight text-[var(--ink)]">{value}</div>
       {delta !== null ? (

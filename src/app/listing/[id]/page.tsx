@@ -2,15 +2,21 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { peso, formatUnitDisplay } from "@/lib/format";
 import { STAY_TYPES } from "@/lib/constants";
-import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
+import { prisma } from "@/lib/prisma";
 
-export default async function ListingPage({ params }: { params: { id: string } }) {
-  // Same cached list the home page and booking-quote already use — a
-  // second DB round trip here for one row wasn't buying anything the
-  // shared cache doesn't already have warm.
-  const units = await getCachedActiveUnits();
-  const unit = units.find((u) => u.id === params.id);
+export default async function ListingPage({ params, searchParams }: { params: { id: string }; searchParams: { owner?: string } }) {
+  // Fetched directly by id rather than filtered out of
+  // getCachedActiveUnits() (which is scoped to a single owner) — a unit's
+  // id is globally unique regardless of which owner it belongs to, so this
+  // works for any owner's listing without needing an /o/[ownerSlug] variant
+  // of this page. ownerSlug (searchParams.owner, carried from ListingsGrid's
+  // link when present) only affects the "Check availability" link below.
+  const unit = await prisma.unit.findUnique({
+    where: { id: params.id, active: true },
+    select: { id: true, name: true, unitNumber: true, location: true, nightlyRate: true, photoUrl: true, rating: true },
+  });
   if (!unit) notFound();
+  const bookHref = searchParams.owner ? `/o/${searchParams.owner}/book?unit=${unit.id}` : `/book?unit=${unit.id}`;
 
   return (
     <div className="mx-auto max-w-[900px] px-4 py-9 sm:px-6">
@@ -45,7 +51,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <div className="text-[22px] font-extrabold">{peso(unit.nightlyRate)}</div>
           <div className="text-[13px] text-[var(--gray)]">starting rate / night</div>
         </div>
-        <Link href={`/book?unit=${unit.id}`} className="btn-primary">Check availability</Link>
+        <Link href={bookHref} className="btn-primary">Check availability</Link>
       </div>
     </div>
   );

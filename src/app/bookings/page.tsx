@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { canSeeBookings } from "@/lib/rbac";
+import { effectivePageAccess } from "@/lib/pageAccess";
 import { prismaPool } from "@/lib/prisma";
 import { unitWhere, unitIdWhere } from "@/lib/session";
 import { BookingsView } from "@/components/bookings/BookingsView";
@@ -8,7 +8,7 @@ import { BookingsView } from "@/components/bookings/BookingsView";
 export default async function BookingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canSeeBookings(user.role)) redirect("/");
+  if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/bookings")) redirect("/");
 
   const where = unitWhere(user);
 
@@ -49,8 +49,8 @@ export default async function BookingsPage() {
         receivedBy: { select: { id: true, name: true } },
       },
     }),
-    prismaPool[3].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
-    prismaPool[4].employee.findUnique({ where: { userId: user.id }, select: { id: true } }),
+    prismaPool[3].settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
+    prismaPool[4].employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } }),
     // "1st booking" tag needs real all-time data (a guest's very first
     // stay could easily be older than the 90-day window above), but only
     // ever needs a Set of ids — a lean select over the full history is far
@@ -78,6 +78,7 @@ export default async function BookingsPage() {
   return (
     <BookingsView
       role={user.role}
+      additionalActionAccess={user.additionalActionAccess}
       units={JSON.parse(JSON.stringify(units))}
       employees={JSON.parse(JSON.stringify(employees))}
       initialBookings={JSON.parse(JSON.stringify(bookings))}

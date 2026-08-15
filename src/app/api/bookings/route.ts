@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { requireUser, unitWhere } from "@/lib/session";
 import { bookingSchema } from "@/lib/validation";
-import { canEditBookings } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { createBookingRecord } from "@/lib/bookingService";
 import { parseOrError } from "@/lib/apiValidation";
 import { rateLimit } from "@/lib/rateLimit";
+import { createGuestAccessCode } from "@/lib/access/service";
 
 export async function GET(req: NextRequest) {
   const { user, error } = await requireUser();
@@ -44,7 +46,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
-  if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+  if (!hasActionAccess("bookings.create", user.role, user.additionalActionAccess)) return new Response("Forbidden", { status: 403 });
 
   // Staff-only surface (not guest-facing), but still worth a generous cap —
   // one account spamming create/edit/cancel/refund/delete shares this same
@@ -64,10 +66,37 @@ export async function POST(req: NextRequest) {
   // importer calls createBookingRecord directly with a bookerId resolved
   // per-row from the sheet's own "Booker Name" column and must keep doing
   // that, since a bulk import's rows can each have a different real booker.
-  const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+  const ownEmployee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
   if (ownEmployee) body.bookerId = ownEmployee.id;
+
+  // A role/member without the financial action (Housekeeping by default)
+  // may still log a new booking's price at intake (amount is a required
+  // field of the form/schema and that ability is genuinely relied on
+  // today), but may not create it pre-marked as paid — same "never write
+  // financial records" boundary as the PATCH route's field-stripping,
+  // applied to the one financial fact a brand-new row can assert that an
+  // edit can't undo just by omission.
+  if (!hasActionAccess("bookings.financial", user.role, user.additionalActionAccess)) body.paid = false;
 
   const result = await createBookingRecord(user, body);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+
+  // A real, confirmed gap: unlike the guest self-service route, a
+  // staff-logged booking never got a door code generated at all — staff
+  // had to remember to separately click "Grant emergency access," and a
+  // guest reaching their own confirmation-number bootstrap (verify-
+  // confirmation/route.ts, /b/[cn]) was the only other safety net. This
+  // gives every manually-entered booking (phone/iMessage/walk-in) a real
+  // code immediately, ready for staff to relay right away — same
+  // best-effort waitUntil the guest route already uses; a TTLock hiccup
+  // here must never block or fail the booking itself.
+  waitUntil(
+    createGuestAccessCode({
+      bookingId: result.booking.id, unitId: result.booking.unitId, guestId: result.booking.guestId,
+      stayType: result.booking.stayType, date: result.booking.date, checkOutDate: result.booking.checkOutDate,
+      checkInTime: result.booking.checkInTime, checkOutTime: result.booking.checkOutTime, platform: result.booking.platform,
+    }).catch(() => {})
+  );
+
   return NextResponse.json(result.booking, { status: 201 });
 }

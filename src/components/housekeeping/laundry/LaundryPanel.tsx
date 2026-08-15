@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { canEditHousekeeping, isReadOnlyFinancials } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { LaundryDashboard } from "./LaundryDashboard";
 import { LaundryOrdersList } from "./LaundryOrdersList";
 import { LaundryOrderForm } from "./LaundryOrderForm";
@@ -24,7 +24,7 @@ type Tab = (typeof TABS)[number];
  * staff won't touch every visit — same "fetch on demand" pattern already
  * used by Admin's PlaceInsightsPanel.
  */
-export function LaundryPanel({ role, units }: { role: string; units: Unit[] }) {
+export function LaundryPanel({ role, units, additionalActionAccess = [] }: { role: string; units: Unit[]; additionalActionAccess?: string[] }) {
   const [tab, setTab] = useState<Tab>("Dashboard");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -38,8 +38,8 @@ export function LaundryPanel({ role, units }: { role: string; units: Unit[] }) {
   const [detailOrder, setDetailOrder] = useState<LaundryOrderDetailType | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const canEdit = canEditHousekeeping(role as any);
-  const canPay = canEdit && !isReadOnlyFinancials(role as any);
+  const canEdit = hasActionAccess("housekeeping.edit", role, additionalActionAccess);
+  const canPay = hasActionAccess("housekeeping.financial", role, additionalActionAccess);
   const canManageServices = role === "OWNER_ADMIN";
 
   async function loadAll() {

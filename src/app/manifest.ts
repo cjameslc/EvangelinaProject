@@ -1,10 +1,20 @@
 import type { MetadataRoute } from "next";
+import { prisma } from "@/lib/prisma";
+import { getDefaultOwnerId } from "@/lib/ownerScope";
 
-export default function manifest(): MetadataRoute.Manifest {
+// A PWA manifest is one identity per install, resolved before anyone is
+// known to be signed in — same "default owner" resolution every other
+// session-less guest-facing surface uses (see getDefaultOwnerId's doc
+// comment). A plain DB read with no cookies()/headers() dependency, so
+// this stays build-time-static like the rest of the guest site.
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const ownerId = await getDefaultOwnerId();
+  const owner = ownerId ? await prisma.owner.findUnique({ where: { id: ownerId }, select: { businessName: true } }) : null;
+  const businessName = owner?.businessName ?? "Evangelina's Staycation";
   return {
-    name: "Evangelina's Staycation",
-    short_name: "Evangelina's",
-    description: "Bookings, calendar, housekeeping and admin for Evangelina's Staycation units.",
+    name: businessName,
+    short_name: businessName.split("'")[0] || businessName,
+    description: `Bookings, calendar, housekeeping and admin for ${businessName} units.`,
     // "/" used to be staff-only (redirected straight to /login), so
     // start_url pointed at /dashboard to skip that bounce. Now "/" is the
     // public guest homepage — a guest reopening the installed app needs to

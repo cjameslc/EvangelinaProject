@@ -8,11 +8,21 @@ import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { AIAssistantWidget } from "@/components/guest/AIAssistantWidget";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
+import { DeploymentBanner } from "@/components/layout/DeploymentBanner";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { manilaDayStart } from "@/lib/format";
 import { getCachedActiveUnitCount } from "@/lib/bookingEngine/unitsCache";
+import { getCachedActiveSkinId } from "@/lib/bookingEngine/settingsCache";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-manrope" });
 
+// Deliberately static, not per-session — a getCurrentUser()/cookies() read
+// here (tried and reverted) forces the whole route tree dynamic, which
+// silently knocked every static-prerendered guest guidebook page
+// (/guide/welcome, /guide/amenities, etc.) off static rendering too. Owner
+// branding for the browser tab/footer isn't worth that guest-facing cost;
+// the nav bar (Navbar.tsx, a Client Component reading useSession()) is
+// where per-owner branding actually shows up instead.
 export const metadata: Metadata = {
   title: "Evangelina's Staycation",
   description: "Bookings, calendar, housekeeping and admin for Evangelina's Staycation units.",
@@ -33,14 +43,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // it must track whatever's actually configured there. Cached (see
   // getCachedActiveUnitCount) since this renders on every single page.
   const unitCount = await getCachedActiveUnitCount().catch(() => 0);
+  // Seasonal Skin System (src/lib/skins/) — resolved once here (Manual >
+  // Scheduled > Evangelina Violet default) and set directly on <html> so
+  // every page's CSS picks up the right [data-skin="..."] token overrides
+  // from the very first server-rendered byte, no client flash. Falls back
+  // to the permanent default on any error rather than ever blocking the app.
+  const skinId = await getCachedActiveSkinId().catch(() => "evangelina" as const);
 
   return (
-    <html lang="en" className={manrope.variable}>
+    <html lang="en" className={manrope.variable} data-skin={skinId}>
       <body className="font-sans antialiased">
-        <Providers>
+        <Providers skinId={skinId}>
           <ServiceWorkerRegister />
           <div className="sticky top-0 z-40">
+            <OfflineBanner />
             <ImpersonationBanner />
+            <DeploymentBanner />
             <Navbar />
           </div>
           <main className="pb-16 md:pb-0">{children}</main>

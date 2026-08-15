@@ -33,7 +33,7 @@ export function BookingSectionClient({ data }: { data: BookingAnalytics }) {
       <div className="card p-4">
         <h3 className="mb-2 text-[14px] font-extrabold">Lead time</h3>
         <p className="mb-2 text-[11.5px] text-[var(--gray)]">How far in advance guests book, relative to check-in.</p>
-        <CountBarChart data={data.leadTime.map((r) => ({ label: r.bucket, count: r.count }))} color="#6C5CE7" />
+        <CountBarChart data={data.leadTime.map((r) => ({ label: r.bucket, count: r.count }))} />
       </div>
 
       <div className="card p-4">

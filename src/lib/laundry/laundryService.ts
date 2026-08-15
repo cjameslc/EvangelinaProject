@@ -21,9 +21,13 @@ export const laundryOrderSelect = {
 
 export type LaundryOrderInput = z.infer<typeof laundryOrderSchema>;
 
-async function resolveTotals(input: LaundryOrderInput) {
-  const service = await prisma.laundryService.findUnique({ where: { id: input.serviceId }, select: { pricePerKg: true, pricePerItem: true } });
-  if (!service) throw new Error("That service no longer exists.");
+async function resolveTotals(input: LaundryOrderInput, ownerId: string | null) {
+  // ownerId-scoped — without this, an order could be priced against
+  // another tenant's rate card (and, worse, an order could reference a
+  // service id that isn't even this tenant's, once services stop being
+  // shared platform-wide — see the LaundryService.ownerId doc comment).
+  const service = await prisma.laundryService.findUnique({ where: { id: input.serviceId }, select: { pricePerKg: true, pricePerItem: true, ownerId: true } });
+  if (!service || service.ownerId !== ownerId) throw new Error("That service no longer exists.");
   const totals = itemTotals(input.items);
   const subtotal = computeSubtotal(totals, service);
   const discountAmount = input.discountAmount ?? 0;
@@ -33,13 +37,14 @@ async function resolveTotals(input: LaundryOrderInput) {
   return { ...totals, subtotal, discountAmount, additionalCharges, taxAmount, totalAmount };
 }
 
-export async function createLaundryOrder(userId: string, input: LaundryOrderInput) {
-  const totals = await resolveTotals(input);
+export async function createLaundryOrder(userId: string, input: LaundryOrderInput, ownerId: string | null) {
+  const totals = await resolveTotals(input, ownerId);
   const orderNumber = await generateLaundryOrderNumber();
 
   const order = await prisma.laundryOrder.create({
     data: {
       orderNumber,
+      ownerId,
       customerName: input.customerName,
       roomNumber: input.roomNumber || null,
       unitId: input.unitId || null,
@@ -60,10 +65,16 @@ export async function createLaundryOrder(userId: string, input: LaundryOrderInpu
   return order;
 }
 
-export async function updateLaundryOrder(id: string, userId: string, input: LaundryOrderInput) {
-  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { id: true, status: true, totalAmount: true } });
-  if (!existing) throw new Error("Laundry order not found.");
-  const totals = await resolveTotals(input);
+export async function updateLaundryOrder(id: string, userId: string, input: LaundryOrderInput, ownerId: string | null) {
+  // Treated the same as "not found" for a cross-tenant id — this app's
+  // established convention elsewhere (isUnitInScope-guarded routes) uses a
+  // distinct 403, but these lib functions already collapse "doesn't exist"
+  // into one thrown Error each call site turns into a 404; folding the
+  // ownerId mismatch into that same check is the minimal, consistent fix
+  // rather than introducing a second error shape through every route here.
+  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { id: true, status: true, totalAmount: true, ownerId: true } });
+  if (!existing || existing.ownerId !== ownerId) throw new Error("Laundry order not found.");
+  const totals = await resolveTotals(input, ownerId);
 
   const order = await prisma.$transaction(async (tx) => {
     await tx.laundryItem.deleteMany({ where: { orderId: id } });
@@ -89,9 +100,9 @@ export async function updateLaundryOrder(id: string, userId: string, input: Laun
   return order;
 }
 
-export async function cancelLaundryOrder(id: string, userId: string, reason: string) {
-  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { status: true } });
-  if (!existing) throw new Error("Laundry order not found.");
+export async function cancelLaundryOrder(id: string, userId: string, reason: string, ownerId: string | null) {
+  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { status: true, ownerId: true } });
+  if (!existing || existing.ownerId !== ownerId) throw new Error("Laundry order not found.");
   if (existing.status === "Cancelled") throw new Error("This order is already cancelled.");
 
   const order = await prisma.$transaction(async (tx) => {
@@ -109,9 +120,9 @@ export async function cancelLaundryOrder(id: string, userId: string, reason: str
 
 export type LaundryStatusUpdateInput = z.infer<typeof laundryStatusUpdateSchema>;
 
-export async function updateLaundryStatus(id: string, userId: string, input: LaundryStatusUpdateInput) {
-  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { status: true } });
-  if (!existing) throw new Error("Laundry order not found.");
+export async function updateLaundryStatus(id: string, userId: string, input: LaundryStatusUpdateInput, ownerId: string | null) {
+  const existing = await prisma.laundryOrder.findUnique({ where: { id }, select: { status: true, ownerId: true } });
+  if (!existing || existing.ownerId !== ownerId) throw new Error("Laundry order not found.");
   if (existing.status === "Cancelled") throw new Error("This order is cancelled — reactivate it isn't supported, create a new order instead.");
 
   const order = await prisma.$transaction(async (tx) => {
@@ -125,9 +136,9 @@ export async function updateLaundryStatus(id: string, userId: string, input: Lau
 
 export type LaundryPaymentInput = z.infer<typeof laundryPaymentSchema>;
 
-export async function addLaundryPayment(id: string, userId: string, input: LaundryPaymentInput) {
-  const order = await prisma.laundryOrder.findUnique({ where: { id }, select: { id: true, totalAmount: true, payments: { select: { amount: true } } } });
-  if (!order) throw new Error("Laundry order not found.");
+export async function addLaundryPayment(id: string, userId: string, input: LaundryPaymentInput, ownerId: string | null) {
+  const order = await prisma.laundryOrder.findUnique({ where: { id }, select: { id: true, totalAmount: true, ownerId: true, payments: { select: { amount: true } } } });
+  if (!order || order.ownerId !== ownerId) throw new Error("Laundry order not found.");
   const alreadyPaid = order.payments.reduce((sum, p) => sum + p.amount, 0);
   if (alreadyPaid >= order.totalAmount) throw new Error("This order is already fully paid.");
 
@@ -138,15 +149,16 @@ export async function addLaundryPayment(id: string, userId: string, input: Laund
   return payment;
 }
 
-export async function getLaundryOrder(id: string) {
-  return prisma.laundryOrder.findUnique({
+export async function getLaundryOrder(id: string, ownerId: string | null) {
+  const order = await prisma.laundryOrder.findUnique({
     where: { id },
-    select: { ...laundryOrderSelect, statusHistory: { orderBy: { createdAt: "desc" }, include: { changedBy: { select: { id: true, name: true } } } } },
+    select: { ...laundryOrderSelect, ownerId: true, statusHistory: { orderBy: { createdAt: "desc" }, include: { changedBy: { select: { id: true, name: true } } } } },
   });
+  return order && order.ownerId === ownerId ? order : null;
 }
 
-export async function listLaundryOrders(opts: { take?: number } = {}) {
-  return prisma.laundryOrder.findMany({ orderBy: { createdAt: "desc" }, select: laundryOrderSelect, ...(opts.take ? { take: opts.take } : {}) });
+export async function listLaundryOrders(ownerId: string | null, opts: { take?: number } = {}) {
+  return prisma.laundryOrder.findMany({ where: { ownerId }, orderBy: { createdAt: "desc" }, select: laundryOrderSelect, ...(opts.take ? { take: opts.take } : {}) });
 }
 
 /** Every list-shaped laundry endpoint (order list, dashboard, reports) needs
@@ -163,26 +175,27 @@ export async function listLaundryOrders(opts: { take?: number } = {}) {
  * not a performance win. Same unbounded-growth shape this session already
  * fixed for /bookings (see docs/Performance.md), applied narrowly here
  * rather than as a blanket change to every caller. */
-export async function listLaundryOrdersForUser(user: { role: string; ownedUnitIds: string[] }, opts: { take?: number } = {}) {
+export async function listLaundryOrdersForUser(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, opts: { take?: number } = {}) {
   const scope = unitScope(user.role as any, user.ownedUnitIds);
-  if (scope === "all") return listLaundryOrders(opts);
+  if (scope === "all") return listLaundryOrders(user.ownerId, opts);
   return prisma.laundryOrder.findMany({
-    where: { OR: [{ unitId: null }, { unitId: { in: scope } }] },
+    where: { ownerId: user.ownerId, OR: [{ unitId: null }, { unitId: { in: scope } }] },
     orderBy: { createdAt: "desc" },
     select: laundryOrderSelect,
     ...(opts.take ? { take: opts.take } : {}),
   });
 }
 
-export async function listLaundryServices() {
-  return prisma.laundryService.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+export async function listLaundryServices(ownerId: string | null) {
+  return prisma.laundryService.findMany({ where: { ownerId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
 }
 
 export type LaundryServiceInput = z.infer<typeof laundryServiceSchema>;
 
-export async function createLaundryService(userId: string, input: LaundryServiceInput) {
+export async function createLaundryService(userId: string, input: LaundryServiceInput, ownerId: string | null) {
   const service = await prisma.laundryService.create({
     data: {
+      ownerId,
       name: input.name, description: input.description || null,
       pricePerKg: input.pricePerKg ?? null, pricePerItem: input.pricePerItem ?? null,
       estimatedTurnaroundHours: input.estimatedTurnaroundHours ?? 24,
@@ -193,7 +206,9 @@ export async function createLaundryService(userId: string, input: LaundryService
   return service;
 }
 
-export async function updateLaundryService(id: string, userId: string, input: Partial<LaundryServiceInput>) {
+export async function updateLaundryService(id: string, userId: string, input: Partial<LaundryServiceInput>, ownerId: string | null) {
+  const existing = await prisma.laundryService.findUnique({ where: { id }, select: { ownerId: true } });
+  if (!existing || existing.ownerId !== ownerId) throw new Error("That service no longer exists.");
   const service = await prisma.laundryService.update({
     where: { id },
     data: {

@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import { useSession } from "next-auth/react";
+import { manilaTimeGreeting } from "@/lib/manilaTime";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { RevenueGoalsPanel } from "@/components/shared/RevenueGoalsPanel";
 import { useRevenueGoalsPanelData } from "@/components/shared/useRevenueGoalsPanelData";
 import type { SalaryHistoryEntry } from "@/lib/payroll";
@@ -13,6 +15,7 @@ import { useBillsSummary } from "./hooks/useBillsSummary";
 import { useBatteryHealth } from "./hooks/useBatteryHealth";
 import { useReserveCodeStats } from "./hooks/useReserveCodeStats";
 import { useMonthlyProfitSummary } from "./hooks/useMonthlyProfitSummary";
+import { useKeyMetricsComparison } from "./hooks/useKeyMetricsComparison";
 import { useEarningsData } from "./hooks/useEarningsData";
 import { EarningsSection } from "./sections/EarningsSection";
 import { KeyMetricsSection } from "./sections/KeyMetricsSection";
@@ -20,6 +23,8 @@ import { StayMixSection } from "./sections/StayMixSection";
 import { NeedsAttentionSection } from "./sections/NeedsAttentionSection";
 import { BatteryHealthSection } from "./sections/BatteryHealthSection";
 import { EmergencyAccessCodesSection } from "./sections/EmergencyAccessCodesSection";
+import { SecurityMonitorSection } from "./sections/SecurityMonitorSection";
+import { HousekeepingOperationsSection } from "./sections/HousekeepingOperationsSection";
 import { YourListingsSection } from "./sections/YourListingsSection";
 import { UpcomingExpensesSection } from "./sections/UpcomingExpensesSection";
 
@@ -52,6 +57,8 @@ export function DashboardView({
   monthRangeEnd,
   dismissedAttentionKeys,
   airbnbHistoricalMonthly,
+  billsRecent,
+  expenseRequestsRecent,
 }: {
   role: string;
   units: Unit[];
@@ -88,9 +95,17 @@ export function DashboardView({
    * real historical figure instead of showing ₱0. Never touches a month
    * the app already has real tracked income for. */
   airbnbHistoricalMonthly?: Record<string, number>;
+  /** Real bill/expense-request history for the current month plus the 3
+   * months before it — feeds Key Metrics' "vs last month" / "vs 3-month
+   * benchmark" comparisons (see useKeyMetricsComparison). Additive to, and
+   * independent of, `bills`/`expenseRequestsMonth` above, which stay
+   * current-month-only for everything that already reads them. */
+  billsRecent: { unitId: string | null; month: string; paid: boolean; paidAt: string | null; amountDue: number; amountPaid: number | null; amountDueCentavos?: number | null; amountPaidCentavos?: number | null }[];
+  expenseRequestsRecent: { category: string; amount: number; status: string; date: string }[];
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
+  const skin = useSeasonalSkin();
 
   // Business runs in Manila (UTC+8) — computed once here and threaded down
   // as a plain string into every hook that needs "today," rather than each
@@ -98,7 +113,7 @@ export function DashboardView({
   const todayIso = dayOf(new Date());
 
   const { unitStatus, statusCategory } = useUnitStatus({ hkStates, bookingsWeek, todayIso });
-  const { billMeta, dueDateFor, dueBills, overdueCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, billsDueMonth, billsPaidMonth } = useBillsSummary({ bills, todayIso });
+  const { billMeta, dueDateFor, dueBills, overdueCentavos, dueThisWeekBills, dueThisWeekCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, billsDueMonth, billsPaidMonth } = useBillsSummary({ bills, todayIso });
   const { batteryTier, lockedUnits, batteryStats, upcomingCheckinRiskUnits } = useBatteryHealth({ units, bookingsWeek, batteryLowThresholdPct, batteryCriticalThresholdPct });
   const reserveCodeStats = useReserveCodeStats({ reserveAccessCodes, units });
 
@@ -127,6 +142,28 @@ export function DashboardView({
     billsDueMonthCentavos,
     billsPaidMonthCentavos,
     todayIso,
+  });
+
+  // Real month-start Date (Manila) for the date-aware comparison periods
+  // below — monthRangeStart is the exact server-fetched window boundary
+  // (see dashboard/page.tsx), reused here rather than re-deriving "now" so
+  // this never disagrees with what bookingsMonth/calendarBlocksOccupancy
+  // were actually fetched for.
+  const monthStartDate = useMemo(() => new Date(monthRangeStart), [monthRangeStart]);
+  const maintenanceBlocksAll = useMemo(() => calendarBlocksOccupancy.filter((b) => b.type === "Maintenance"), [calendarBlocksOccupancy]);
+  const cleaningBlocksAll = useMemo(() => calendarBlocksOccupancy.filter((b) => b.type === "Cleaning"), [calendarBlocksOccupancy]);
+  const keyMetricsComparison = useKeyMetricsComparison({
+    todayIso,
+    monthStart: monthStartDate,
+    bookings: earningsBookings,
+    bills: billsRecent,
+    expenseRequests: expenseRequestsRecent,
+    weeklyExpenses,
+    employees,
+    salaryHistory,
+    unitCount: units.length,
+    maintenanceBlocks: maintenanceBlocksAll,
+    cleaningBlocks: cleaningBlocksAll,
   });
 
   const stayCounts = useMemo(() => {
@@ -206,11 +243,12 @@ export function DashboardView({
   });
 
   return (
-    <div className="mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
+    <div className="dashboard-metrics mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-[26px] font-extrabold tracking-tight sm:text-[32px]">
-            Welcome back, {name} <span className="ml-1 rounded-full bg-amber/15 px-2.5 py-1 text-[12px] font-bold text-amber align-middle">★ Superhost</span>
+            {manilaTimeGreeting()}, {name} {skin.id !== "evangelina" && <span aria-hidden="true">{skin.emoji}</span>}{" "}
+            <span className="ml-1 rounded-full bg-amber/15 px-2.5 py-1 text-[12px] font-bold text-amber align-middle">★ Superhost</span>
           </h1>
           <p className="mt-1 text-[15px] text-[var(--gray)]">Here&rsquo;s how your {units.length} stays in Cubao are performing.</p>
         </div>
@@ -270,7 +308,6 @@ export function DashboardView({
       <KeyMetricsSection
         netProfit={netProfit}
         netProfitRaw={netProfitRaw}
-        forecastProfit={forecastProfit}
         margin={margin}
         marginRaw={marginRaw}
         cashFlow={cashFlow}
@@ -290,6 +327,17 @@ export function DashboardView({
         forecastProfitCents={forecastProfitCents}
         monthIncome={monthIncome}
         bookingsMonth={bookingsMonth}
+        comparison={keyMetricsComparison}
+        // Occupancy/RevPAR/ADR follow the Earnings card's own adjustable
+        // period filter (Weekly/Monthly/Yearly/Custom — see useEarningsData),
+        // not a period fixed to "this month" the way Profit/Margin/Cash
+        // Flow are. keyMetricsComparison's "vs Jul 1–8" figures are only
+        // ever computed for the current month-to-date, so showing them next
+        // to, say, a Yearly-scoped Occupancy value would silently compare
+        // two different periods — exactly the "Aug 1–8 vs all of July"
+        // mismatch this whole feature exists to prevent. Only shown when
+        // the filter is at its (default) current-month state.
+        occupancyComparisonValid={rangeType === "monthly" && periodOffset === 0}
       />
 
       <StayMixSection stayCounts={stayCounts} stayTotal={stayTotal} />
@@ -323,7 +371,9 @@ export function DashboardView({
         batteryCriticalThresholdPct={batteryCriticalThresholdPct}
       />
 
-      <EmergencyAccessCodesSection reserveCodeStats={reserveCodeStats} ttlockStatus={ttlockStatus} />
+      <EmergencyAccessCodesSection role={role} units={units} reserveCodeStats={reserveCodeStats} ttlockStatus={ttlockStatus} />
+      <SecurityMonitorSection role={role} />
+      <HousekeepingOperationsSection />
 
       <YourListingsSection units={units} bookingsWeek={bookingsWeek} unitStatus={unitStatus} batteryTier={batteryTier} />
 
@@ -334,6 +384,8 @@ export function DashboardView({
         billsPaidMonthCentavos={billsPaidMonthCentavos}
         billsDueMonthCentavos={billsDueMonthCentavos}
         overdueCentavos={overdueCentavos}
+        dueThisWeekBills={dueThisWeekBills}
+        dueThisWeekCentavos={dueThisWeekCentavos}
         todayIso={todayIso}
       />
     </div>

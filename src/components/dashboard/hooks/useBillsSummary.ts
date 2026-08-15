@@ -44,6 +44,25 @@ export function useBillsSummary({ bills, todayIso }: { bills: Bill[]; todayIso: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueBills, todayIso]);
 
+  // Due within the next 7 days (today through +6, inclusive) — distinct
+  // from overdueCentavos above (already past due) and from the "Upcoming
+  // expenses" widget's own list (which only ever shows overdue bills, per
+  // an earlier explicit ask to drop "due soon" from that view). This is a
+  // real, separate "due this week" figure — not yet late, but close enough
+  // to plan around — so it never double-counts a bill that's already
+  // overdue.
+  const dueThisWeekBills = useMemo(() => {
+    const todayDate = new Date(`${todayIso}T00:00:00Z`);
+    const weekEnd = new Date(todayDate);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    return dueBills.filter((b) => {
+      const d = dueDateFor(b);
+      return !!d && d >= todayDate && d < weekEnd;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dueBills, todayIso]);
+  const dueThisWeekCentavos = useMemo(() => dueThisWeekBills.reduce((s, b) => s + billCentavos(b), 0), [dueThisWeekBills]);
+
   // Centavo-precise (recurring-expense templates carry real cents, e.g.
   // ₱18,300.26) — summed here, then only rounded to whole pesos at the very
   // end for display, so the cents aren't lost partway through Net
@@ -56,5 +75,5 @@ export function useBillsSummary({ bills, todayIso }: { bills: Bill[]; todayIso: 
   const billsDueMonth = Math.round(billsDueMonthCentavos / 100);
   const billsPaidMonth = Math.round(billsPaidMonthCentavos / 100);
 
-  return { billMeta, dueDateFor, dueBills, overdueCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, billsDueMonth, billsPaidMonth };
+  return { billMeta, dueDateFor, dueBills, overdueCentavos, dueThisWeekBills, dueThisWeekCentavos, billsDueMonthCentavos, billsPaidMonthCentavos, billsDueMonth, billsPaidMonth };
 }

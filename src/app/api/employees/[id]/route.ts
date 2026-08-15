@@ -9,7 +9,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (error) return error;
   const body = employeeSchema.partial().parse(await req.json());
 
-  const existing = await prisma.employee.findUnique({ where: { id: params.id }, select: { monthlySalary: true, salaryType: true, salaryRate: true } });
+  // Was missing — same audit sweep as Units/Users; without this any
+  // OWNER_ADMIN/CO_OWNER could edit another tenant's employee (salary
+  // rate, role, active status).
+  const existing = await prisma.employee.findUnique({ where: { id: params.id }, select: { monthlySalary: true, salaryType: true, salaryRate: true, ownerId: true } });
+  if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
   const data = { ...body };
   if (body.salaryType && body.salaryRate != null) {
     data.monthlySalary = monthlySalaryFromRate(body.salaryType, body.salaryRate);
@@ -32,6 +36,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN", "CO_OWNER"]);
   if (error) return error;
+  const existing = await prisma.employee.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
   await prisma.employee.update({ where: { id: params.id }, data: { active: false } });
   await logAudit(user.id, "employee.deactivate", "Employee", params.id);
   return NextResponse.json({ ok: true });

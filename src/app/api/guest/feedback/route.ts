@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     contactName: typeof body?.contactName === "string" ? body.contactName.slice(0, 120) : "",
     contactPhone: typeof body?.contactPhone === "string" ? body.contactPhone.slice(0, 40) : "",
     contactEmail: typeof body?.contactEmail === "string" ? body.contactEmail.slice(0, 200) : null,
+    publicReviewText: typeof body?.publicReviewText === "string" ? body.publicReviewText.slice(0, 500) : null,
+    publicDisplayConsent: body?.publicDisplayConsent === true,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

@@ -1,7 +1,7 @@
-import { manilaDayKey } from "@/lib/analytics/period";
+import { manilaDayKey, manilaNowPlaceholder } from "@/lib/analytics/period";
 import { PAYMENT_METHOD_LABEL } from "@/lib/constants";
 import { occupiedRange } from "@/lib/stayRange";
-import { totalCollectedCentavos, collectedAmountCentavos, type CollectibleBooking } from "@/lib/finance";
+import { totalCollectedCentavos, collectedAmountCentavos, grossAmountCentavos, type CollectibleBooking } from "@/lib/finance";
 
 export type RevenueBooking = CollectibleBooking & {
   cancelledAt?: string | Date | null;
@@ -19,6 +19,28 @@ export type RevenueBooking = CollectibleBooking & {
  */
 export function collectedRevenueCentavos(bookings: RevenueBooking[]): number {
   return totalCollectedCentavos(bookings);
+}
+
+/**
+ * The one shared definition of "so far this period" — bookings dated
+ * before now (or the period's own end, whichever comes first). Both
+ * Dashboard's "You've earned this month" headline (useEarningsData.ts) and
+ * Analytics' "This month's revenue" Hero/KPI card (analytics/queries.ts)
+ * call this exact function now, instead of each independently deciding
+ * what "elapsed" means — confirmed live to disagree by ~₱14,000 for the
+ * same real August bookings before this fix (Dashboard summed the whole
+ * month including confirmed future-dated stays; Analytics excluded them).
+ * `now` defaults to the same Manila-placeholder "now" every other period
+ * boundary in this app uses (see manilaNowPlaceholder's own doc comment)
+ * so this never mixes a true UTC instant against a placeholder boundary.
+ */
+export function elapsedBookings<T extends { date: string | Date }>(
+  bookings: T[],
+  periodEnd: Date,
+  now: Date = manilaNowPlaceholder()
+): T[] {
+  const cutoff = new Date(Math.min(periodEnd.getTime(), now.getTime()));
+  return bookings.filter((b) => new Date(b.date).getTime() < cutoff.getTime());
 }
 
 /**
@@ -100,7 +122,7 @@ export function revenueSeries(
     const checkOutDate = b.checkOutDate ? new Date(b.checkOutDate) : null;
     const { start, end } = occupiedRange(b.stayType, new Date(b.date), checkOutDate);
     const totalNights = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
-    const grossPerNight = b.cancelledAt ? 0 : (b.amount * 100) / totalNights;
+    const grossPerNight = b.cancelledAt ? 0 : grossAmountCentavos(b) / totalNights;
     const collectedPerNight = collectedTotal / totalNights;
     const clipStart = start.getTime() > periodStart.getTime() ? start : periodStart;
     const clipEnd = end.getTime() < periodEnd.getTime() ? end : periodEnd;
@@ -172,7 +194,7 @@ export function revenueByDimension(
     const row = rows.get(key) ?? { key, label, grossCentavos: 0, collectedCentavos: 0, count: 0 };
     row.collectedCentavos += collectedTotal;
     if (!b.cancelledAt) {
-      row.grossCentavos += b.amount * 100;
+      row.grossCentavos += grossAmountCentavos(b);
       row.count += 1;
     }
     rows.set(key, row);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, unitWhere, logAudit } from "@/lib/session";
+import { requireUser, unitWhere, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { canAddHousekeepingStock } from "@/lib/rbac";
 
 export async function GET() {
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
   if (error) return error;
   if (!canAddHousekeepingStock(user.role as any)) return new Response("Forbidden", { status: 403 });
   const { unitId, name, count } = await req.json();
+  if (!await isUnitInScope(user, unitId)) return forbiddenUnitScopeResponse(user);
   const stock = await prisma.stock.create({ data: { unitId, name, count: count ?? 0 } });
   await logAudit(user.id, "stock.create", "Stock", stock.id, { name });
   return NextResponse.json(stock, { status: 201 });

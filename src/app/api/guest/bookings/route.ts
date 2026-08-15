@@ -7,12 +7,14 @@ import { quotePrice, applyCouponDiscount } from "@/lib/bookingEngine/pricingServ
 import { checkCoupon } from "@/lib/bookingEngine/couponService";
 import { findOrCreateGuestByEmail } from "@/lib/bookingEngine/guestService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
+import { getDefaultOwnerId } from "@/lib/ownerScope";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
 import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
 import { mintGuestSessionToken, guestCookieOptions, GUEST_COOKIE_NAME } from "@/lib/guestSession";
 import { sendBookingConfirmationEmail } from "@/lib/email";
-import { createGuestAccessCode } from "@/lib/ttlock/reliability";
+import { createGuestAccessCode } from "@/lib/access/service";
+import { rateLimit, clientIp } from "@/lib/rateLimit";
 import type { StayType } from "@/lib/bookingEngine/availabilityService";
 
 const VALID_STAY_TYPES: StayType[] = ["Daycation", "Night", "Full", "Flexible"];
@@ -22,6 +24,16 @@ function isValidDateString(value: unknown): value is string {
 }
 
 export async function POST(req: NextRequest) {
+  // No guest session exists yet at this point (this route is *how* one
+  // gets created) — keyed by IP, same convention as the assistant route's
+  // anonymous-visitor limiter. This is the one write in the whole guest
+  // surface that creates a real Booking row, calls out to TTLock for a real
+  // access code, and sends a real email, yet previously had zero
+  // throttling — every other guest write (feedback, payment-proof upload,
+  // login) already had this.
+  const limited = rateLimit(`guest-booking:${clientIp(req)}`, 8, 10 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down and try again in a bit." }, { status: 429 });
+
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
@@ -59,12 +71,29 @@ export async function POST(req: NextRequest) {
   // three sequential round trips (unit lookup only rarely fails, so the
   // rare wasted guest upsert on an invalid unitId is worth the latency win
   // on every valid booking, which is the overwhelming common case).
-  const [unit, settings, guest] = await Promise.all([
-    prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true, shortName: true } }),
-    getCachedBookingSettings(),
+  const [unit, guest] = await Promise.all([
+    prisma.unit.findUnique({ where: { id: unitId, active: true }, select: { id: true, shortName: true, ownerId: true } }),
     findOrCreateGuestByEmail(email, name.trim()),
   ]);
   if (!unit) return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
+  // The unit being booked already tells us the real owner — no need to
+  // fall back to getDefaultOwnerId() here the way booking-quote/
+  // coupon-check do (they only ever see an aggregate unit list, never one
+  // specific unit).
+  const resolvedOwnerId = unit.ownerId ?? (await getDefaultOwnerId())!;
+  const [settings, owner] = await Promise.all([
+    getCachedBookingSettings(resolvedOwnerId),
+    prisma.owner.findUnique({ where: { id: resolvedOwnerId }, select: { businessName: true, status: true } }),
+  ]);
+  // Owner.status was a real field with no actual enforcement anywhere until
+  // now — see the matching sign-in block in auth.ts's authorize() for the
+  // other half of this schema-documented promise ("its booking page stops
+  // accepting new bookings"). Same generic message as unit-not-found —
+  // a suspended tenant's booking page shouldn't read as a distinct,
+  // debuggable "why is this blocked" case to a guest poking at it.
+  if (owner?.status === "SUSPENDED") {
+    return NextResponse.json({ error: "That unit isn't available." }, { status: 404 });
+  }
   // Same-day booking window — deliberately the exact same generic message
   // as "unit not found," so this never reads as its own distinct rule.
   if (!isStayTypeBookableNow(stayType, date, checkInTime)) {
@@ -91,7 +120,7 @@ export async function POST(req: NextRequest) {
   let appliedCouponCode: string | null = null;
   let couponDiscountAmount: number | null = null;
   if (typeof couponCode === "string" && couponCode.trim()) {
-    const couponCheck = await checkCoupon(couponCode, quote.total);
+    const couponCheck = await checkCoupon(couponCode, quote.total, resolvedOwnerId);
     if (!couponCheck.ok) return NextResponse.json({ error: couponCheck.error }, { status: 400 });
     quote = applyCouponDiscount(quote, couponCheck.discountAmount, settings.dpFee);
     appliedCouponCode = couponCheck.code;
@@ -135,7 +164,7 @@ export async function POST(req: NextRequest) {
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
 
   // Best-effort, never awaited into the response — createGuestAccessCode()
-  // itself never throws (see src/lib/ttlock/reliability.ts), but this is
+  // itself never throws (see src/lib/access/service.ts), but this is
   // never allowed to be the thing that delays or breaks a booking either
   // way. Runs after the response is already being built below; the guest's
   // door-code reveal on /my-bookings just won't have a code yet for the
@@ -150,8 +179,12 @@ export async function POST(req: NextRequest) {
       bookingId: result.booking.id,
       unitId: unitId,
       guestId: guest.id,
-      checkIn: result.booking.date,
-      checkOut: result.booking.checkOutDate,
+      stayType: result.booking.stayType,
+      date: result.booking.date,
+      checkOutDate: result.booking.checkOutDate,
+      checkInTime: result.booking.checkInTime,
+      checkOutTime: result.booking.checkOutTime,
+      platform: result.booking.platform,
     }).catch(() => {})
   );
 
@@ -167,6 +200,7 @@ export async function POST(req: NextRequest) {
       paymentType: result.booking.paymentType,
       dpAmount: quote.dpAmount,
       balanceDue: quote.balanceDue,
+      businessName: owner?.businessName,
     }).catch(() => {})
   );
 

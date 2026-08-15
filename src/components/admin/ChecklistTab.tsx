@@ -96,7 +96,7 @@ export function ChecklistTab({ initial, units }: { initial: ChecklistGroup[]; un
                       className="field-input min-w-[160px] flex-1"
                     />
                     <label className="flex flex-none items-center gap-2 text-[13px] font-semibold">
-                      <input type="checkbox" checked={!!g.optional} onChange={(e) => updateGroup(gi, { optional: e.target.checked })} className="h-4 w-4 accent-rausch" />
+                      <input type="checkbox" checked={!!g.optional} onChange={(e) => updateGroup(gi, { optional: e.target.checked })} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
                       Optional group
                     </label>
                     <button onClick={() => removeGroup(gi)} className="btn-sm btn-ghost !text-rausch">

@@ -19,7 +19,7 @@ export function RevenueBarChart({ data }: { data: DimensionRow[] }) {
         <XAxis type="number" tick={{ fontSize: 11 }} stroke="var(--gray)" tickFormatter={(v) => peso(v)} />
         <YAxis type="category" dataKey="label" tick={{ fontSize: 11.5, fontWeight: 700 }} stroke="var(--gray)" width={110} />
         <Tooltip formatter={(value: any, _name: any, item: any) => [peso(Number(value)), `${item.payload.count} booking${item.payload.count === 1 ? "" : "s"}`]} labelStyle={{ fontWeight: 700 }} />
-        <Bar dataKey="collected" fill="#FF385C" radius={[0, 6, 6, 0]} />
+        <Bar dataKey="collected" fill="var(--skin-primary, #6c5ce7)" radius={[0, 6, 6, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

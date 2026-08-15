@@ -23,7 +23,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         className={cn(
           "fixed left-1/2 bottom-6 z-[90] max-w-[90vw] -translate-x-1/2 rounded-full px-5 py-3 text-center text-sm font-bold text-white shadow-card transition-all duration-200",
           state.bad ? "bg-rausch" : "bg-[var(--ink)] dark:text-[var(--bg)]",
-          state.show ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-5 opacity-0"
+          state.show ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-5 opacity-0",
+          // A soft success glow (not for errors — a warning should never
+          // look celebratory) reusing the existing glow-pulse keyframe
+          // rather than a bespoke toast animation.
+          state.show && !state.bad && "animate-glow-pulse"
         )}
       >
         {state.msg}

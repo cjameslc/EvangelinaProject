@@ -23,12 +23,15 @@ type EliteChallengeMonthData = {
 };
 
 const getEliteChallengeMonthData = unstable_cache(
-  async (monthStartIso: string, nextMonthStartIso: string): Promise<EliteChallengeMonthData> => {
+  async (monthStartIso: string, nextMonthStartIso: string, ownerId: string | null): Promise<EliteChallengeMonthData> => {
     const monthStart = new Date(monthStartIso);
     const nextMonthStart = new Date(nextMonthStartIso);
+    // ownerId-scoped — the Elite Challenge is a per-tenant competition (its
+    // own bookers, slots, and rankings), not one company-wide pool shared
+    // across every Owner on the platform.
     const [allBookers, allMonthAwards] = await Promise.all([
-      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } }),
-      prisma.eliteBookerAward.findMany({ where: { month: monthStart } }),
+      prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true, ownerId }, select: { id: true } }),
+      prisma.eliteBookerAward.findMany({ where: { month: monthStart, employee: { ownerId } } }),
     ]);
     const allMonthBookings = await prisma.booking.findMany({
       where: { bookerId: { in: allBookers.map((b) => b.id) }, date: { gte: monthStart, lt: nextMonthStart }, cancelledAt: null },
@@ -92,12 +95,16 @@ export async function GET(req: NextRequest) {
   let employee;
   if (requestedEmployeeId) {
     if (!isAdminViewer) {
-      const own = await prisma.employee.findUnique({ where: { userId: user.id } });
+      const own = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId } });
       if (!own || own.id !== requestedEmployeeId) return new Response("Forbidden", { status: 403 });
     }
     employee = await prisma.employee.findUnique({ where: { id: requestedEmployeeId } });
+    // Even an admin viewer may only pick an employee from their own tenant —
+    // without this, an Owner/Co-owner could pass another owner's employeeId
+    // in the query string and view that person's payroll directly.
+    if (employee && employee.ownerId !== user.ownerId) return new Response("Forbidden", { status: 403 });
   } else {
-    employee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    employee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId } });
   }
 
   if (!employee) return NextResponse.json({ error: "No staff record linked to this account." }, { status: 404 });
@@ -105,7 +112,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Owners and Co-owners are not part of payroll.", employee: { id: employee.id, name: employee.name, role: employee.role } }, { status: 200 });
   }
 
-  const settings = await prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+  const settings = await prisma.settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } });
   const rates: PayrollRates = {
     housekeepingDayRate: settings.housekeepingDayRate,
     housekeepingNightBonus: settings.housekeepingNightBonus,
@@ -114,7 +121,7 @@ export async function GET(req: NextRequest) {
   };
 
   const isEliteChallengeEligible = (ELITE_CHALLENGE_ROLES as readonly string[]).includes(employee.role);
-  if (isEliteChallengeEligible) await syncEliteBookerAwards();
+  if (isEliteChallengeEligible) await syncEliteBookerAwards(employee.ownerId);
 
   // Spread across the read pool (not the single shared `prisma` client) —
   // the libSQL adapter serializes queries on one client behind an internal
@@ -170,7 +177,11 @@ export async function GET(req: NextRequest) {
     // This employee's real Team A/B/C group (Employee.teamKey) — roster plus
     // this month's real activity for the team as a whole, not the old
     // role-based Booking/Housekeeping/Operations display split.
-    employee.teamKey ? prismaPool[7].employee.findMany({ where: { teamKey: employee.teamKey, active: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+    // teamKey ("A"/"B"/"C") is a shared, global label — not owner-scoped on
+    // its own (see src/lib/constants.ts's TEAMS) — so without ownerId here
+    // two different owners' employees who both happen to be "Team A" would
+    // be shown as each other's teammates.
+    employee.teamKey ? prismaPool[7].employee.findMany({ where: { teamKey: employee.teamKey, active: true, ownerId: employee.ownerId }, orderBy: { name: "asc" } }) : Promise.resolve([]),
     employee.teamKey
       ? prismaPool[8].booking.findMany({
           where: { date: { gte: monthStartForTeam } },
@@ -325,7 +336,7 @@ export async function GET(req: NextRequest) {
     // what's already public on the admin leaderboard.
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-    const { allBookers, allMonthAwards, allMonthBookings } = await getEliteChallengeMonthData(monthStart.toISOString(), nextMonthStart.toISOString());
+    const { allBookers, allMonthAwards, allMonthBookings } = await getEliteChallengeMonthData(monthStart.toISOString(), nextMonthStart.toISOString(), user.ownerId);
     const countsByBooker = new Map<string, number>();
     allBookers.forEach((b) => countsByBooker.set(b.id, 0));
     allMonthBookings.forEach((b) => { if (b.bookerId && isBookingCompleted(b, now)) countsByBooker.set(b.bookerId, (countsByBooker.get(b.bookerId) ?? 0) + 1); });

@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) return NextResponse.json({ error: "Message is required." }, { status: 400 });
   if (message.length > 1000) return NextResponse.json({ error: "Message is too long." }, { status: 400 });
+  // Which owner's page the widget is currently mounted on (see
+  // AIAssistantWidget's usePathname-based /o/[ownerSlug] detection) — lets
+  // an anonymous visitor browsing a second owner's guest site get answers
+  // about THAT business, not always the default owner's.
+  const ownerSlug = typeof body.ownerSlug === "string" ? body.ownerSlug : null;
 
   // Client-maintained turn history (the widget's own prior messages) — capped
   // both in length and per-turn size so a manipulated/huge payload can't
@@ -37,7 +42,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { reply, escalate } = await askAssistant(guest?.id ?? null, message, history);
+    const { reply, escalate } = await askAssistant(guest?.id ?? null, message, history, ownerSlug);
     return NextResponse.json({ reply, escalate });
   } catch (e) {
     console.error("Assistant error", e);

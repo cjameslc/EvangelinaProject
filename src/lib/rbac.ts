@@ -70,6 +70,31 @@ export function isReadOnlyFinancials(role: Role) {
   return role === "AUDITOR" || role === "HOUSEKEEPING";
 }
 
+// Access Control Service (src/lib/access/service.ts) role gates.
+/** Reveal/copy/send a booking's guest door code — same population as canEditBookings minus Housekeeping (no reason for cleaners to see a guest's self-check-in code). */
+export function canRevealAccessCredential(role: Role) {
+  return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "BOOKER";
+}
+/** Manually revoke a live credential — an escalation, not a normal booking edit. */
+export function canRevokeAccessCredential(role: Role) {
+  return role === "OWNER_ADMIN" || role === "CO_OWNER";
+}
+/** Trigger a standalone emergency unit code, outside the normal per-booking flow. */
+export function canGrantEmergencyAccess(role: Role) {
+  return role === "OWNER_ADMIN";
+}
+/** Read the access-credential audit trail. */
+export function canViewAccessHistory(role: Role) {
+  return role === "OWNER_ADMIN" || role === "CO_OWNER" || role === "AUDITOR";
+}
+/** Housekeeping Workforce Management, spec section 6: only Owner/Admin and
+ * Booker may generate a housekeeper's temporary access code — explicitly
+ * NOT Housekeeping/Maintenance/Inspector/Guest, and (per the same spec)
+ * not CO_OWNER either, unlike the general canRevealAccessCredential gate. */
+export function canGrantHousekeepingAccess(role: Role) {
+  return role === "OWNER_ADMIN" || role === "BOOKER";
+}
+
 /**
  * Given a role and the list of unitIds a CO_OWNER is assigned to,
  * returns either "all" (no filtering needed) or the explicit unitId list

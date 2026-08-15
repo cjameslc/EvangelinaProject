@@ -9,6 +9,13 @@ import { isUniqueConstraintError } from "@/lib/apiValidation";
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  // Was missing entirely — the most severe gap in this audit: with no
+  // check here, any OWNER_ADMIN could PATCH any other tenant's User by id,
+  // including setting a new password (full account takeover) or changing
+  // their role. Found while sweeping every by-ID route after the same
+  // pattern turned up on Units.
+  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  if (!target || target.ownerId !== user.ownerId) return NextResponse.json({ error: "User not found." }, { status: 404 });
 
   const body = userSchema.partial().parse(await req.json());
   const data: any = {
@@ -53,6 +60,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  if (!target || target.ownerId !== user.ownerId) return NextResponse.json({ error: "User not found." }, { status: 404 });
   await prisma.user.update({ where: { id: params.id }, data: { active: false } });
   // Same reasoning as the PATCH path above — keep the linked Employee (and
   // therefore My Earnings/payroll) in sync with the account being archived.

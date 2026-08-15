@@ -14,6 +14,6 @@ export async function GET() {
   if (error) return error;
   if (!canSeeAuditor(user.role)) return NextResponse.json({ count: 0 });
 
-  const count = await prisma.auditFinding.count({ where: { resolved: false } });
+  const count = await prisma.auditFinding.count({ where: { resolved: false, ownerId: user.ownerId } });
   return NextResponse.json({ count });
 }

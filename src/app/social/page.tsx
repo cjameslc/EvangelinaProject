@@ -33,7 +33,7 @@ export default async function SocialMediaPage() {
       where: { ...unitWhere(user), cancelledAt: null },
       select: { unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true },
     }),
-    prismaPool[2].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[2].settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
   ]);
 
   return (

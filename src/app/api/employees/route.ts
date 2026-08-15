@@ -5,9 +5,12 @@ import { employeeSchema } from "@/lib/validation";
 import { monthlySalaryFromRate } from "@/lib/payroll";
 
 export async function GET() {
-  const { error } = await requireUser();
+  const { user, error } = await requireUser();
   if (error) return error;
-  const employees = await prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  // Was missing — same audit sweep as Units/Users/employees/[id]; without
+  // this every authenticated staff member (any role) saw every tenant's
+  // employee directory, including salary rate and pay-rate notes.
+  const employees = await prisma.employee.findMany({ where: { active: true, ownerId: user.ownerId }, orderBy: { name: "asc" } });
   return NextResponse.json(employees);
 }
 
@@ -18,7 +21,10 @@ export async function POST(req: NextRequest) {
   // salaryType/salaryRate (what Admin actually edits) is the source of truth
   // for monthlySalary whenever both are given — recomputed here rather than
   // trusted from the client.
-  const data = { ...body };
+  // ownerId: user.ownerId — was missing, so every employee created via
+  // this route was written tenant-less (invisible to every owner-scoped
+  // query, including this route's own GET above).
+  const data = { ...body, ownerId: user.ownerId };
   if (body.salaryType && body.salaryRate != null) {
     data.monthlySalary = monthlySalaryFromRate(body.salaryType, body.salaryRate);
   }

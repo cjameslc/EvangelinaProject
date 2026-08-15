@@ -14,9 +14,15 @@ export async function GET(req: NextRequest) {
 
   let employeeId = requestedEmployeeId;
   if (!isAdminViewer) {
-    const own = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+    const own = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
     if (!own || (requestedEmployeeId && requestedEmployeeId !== own.id)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     employeeId = own.id;
+  } else if (requestedEmployeeId) {
+    // Was missing — an Owner/Admin could pass another tenant's employeeId
+    // and read/create achievement records against it, same class of bug
+    // already fixed on the [id] sibling route.
+    const target = await prisma.employee.findUnique({ where: { id: requestedEmployeeId }, select: { ownerId: true } });
+    if (!target || target.ownerId !== user.ownerId) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
   }
   if (!employeeId) return NextResponse.json({ error: "employeeId is required" }, { status: 400 });
 
@@ -36,6 +42,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
+
+  // Was missing — same fix as GET above.
+  const targetEmployee = await prisma.employee.findUnique({ where: { id: body.employeeId }, select: { ownerId: true } });
+  if (!targetEmployee || targetEmployee.ownerId !== user.ownerId) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
 
   const achievement = await prisma.employeeAchievement.create({
     data: {

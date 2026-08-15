@@ -17,8 +17,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
 
-  const existing = await prisma.expenseRequest.findUnique({ where: { id: params.id }, select: { status: true } });
-  if (!existing) return NextResponse.json({ error: "Request not found." }, { status: 404 });
+  // ownerId check was missing — same audit sweep as Units/Users/Employees;
+  // without it, any OWNER_ADMIN could approve/reject another tenant's
+  // pending expense request, which feeds directly into Net Profit/Cash
+  // Flow once approved.
+  const existing = await prisma.expenseRequest.findUnique({ where: { id: params.id }, select: { status: true, employee: { select: { ownerId: true } } } });
+  if (!existing || existing.employee.ownerId !== user.ownerId) return NextResponse.json({ error: "Request not found." }, { status: 404 });
   if (existing.status !== "PENDING") return NextResponse.json({ error: "This request was already reviewed." }, { status: 409 });
 
   let body;

@@ -1,4 +1,4 @@
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { AmenitiesSection } from "@/components/guest/GuidebookSections";
 import { UnsplashImage } from "@/components/guest/UnsplashImage";
@@ -9,7 +9,7 @@ import { AMENITY_UNSPLASH_CATEGORIES } from "@/lib/unsplash/tileCategories";
 
 export default async function AmenitiesPage() {
   const [g, amenityImageBatch] = await Promise.all([
-    getGuidebookSettings(),
+    getGuidebookSettingsForCurrentGuest(),
     getCategoryImagesBatch(AMENITY_UNSPLASH_CATEGORIES.map((a) => a.category)),
   ]);
 

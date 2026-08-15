@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/session";
+import { requireUser, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { bookingsConflict, getOccupiedWindow } from "@/lib/calendarMirror";
 
 // Live conflict check used by the Booking form as the user picks a unit/
@@ -12,7 +12,7 @@ import { bookingsConflict, getOccupiedWindow } from "@/lib/calendarMirror";
 // ("Existing booking Aug 10 2:00 PM -> Aug 11 11:00 AM") instead of a bare
 // yes/no.
 export async function GET(req: NextRequest) {
-  const { error } = await requireUser();
+  const { user, error } = await requireUser();
   if (error) return error;
 
   const { searchParams } = req.nextUrl;
@@ -27,6 +27,10 @@ export async function GET(req: NextRequest) {
   if (!unitId || !date || !stayType) {
     return NextResponse.json({ conflict: false });
   }
+  // Was keyed only on the client-supplied unitId — any authenticated staff
+  // member could pass another tenant's unitId and learn that tenant's real
+  // booking dates/stay-types/platform for it via the conflict response.
+  if (!await isUnitInScope(user, unitId)) return forbiddenUnitScopeResponse(user);
 
   const others = await prisma.booking.findMany({
     where: { unitId, cancelledAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },

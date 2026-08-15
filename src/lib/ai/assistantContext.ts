@@ -3,6 +3,8 @@ import { STAY_TYPES } from "@/lib/constants";
 import { getGuestBookings } from "@/lib/bookingEngine/guestService";
 import { getPublicOccupiedDatesForUnits } from "@/lib/bookingEngine/calendarService";
 import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getDefaultOwnerId } from "@/lib/ownerScope";
+import { getGuestOwnerId } from "@/lib/bookingEngine/guestService";
 
 /**
  * Everything the assistant is allowed to know, gathered fresh from the real
@@ -21,18 +23,32 @@ import { getGuidebookSettings } from "@/lib/guidebookService";
  * guest's bookings) from scratch every single message is wasted DB work
  * for data that essentially never changes mid-conversation.
  */
-export async function buildAssistantContext(guestId: string | null) {
-  const units = await prisma.unit.findMany({
-    where: { active: true },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, shortName: true, unitNumber: true, location: true, nightlyRate: true, rating: true },
-  });
+/**
+ * ownerIdArg lets the widget tell the assistant which owner's page it's
+ * currently on (see AIAssistantWidget's ownerSlug detection) — otherwise a
+ * signed-in guest's own real booking owner wins (getGuestOwnerId), and an
+ * anonymous visitor with neither falls back to the default owner. Without
+ * this, every conversation used Evangelina's units/guidebook regardless of
+ * which owner's guest was actually asking — the same cross-tenant leak
+ * getCachedActiveUnits/getCachedPublicReviews had before their own owner
+ * filters were added.
+ */
+export async function buildAssistantContext(guestId: string | null, ownerIdArg?: string) {
+  const ownerId = ownerIdArg ?? (guestId ? await getGuestOwnerId(guestId) : null) ?? (await getDefaultOwnerId());
+  const [units, owner] = await Promise.all([
+    prisma.unit.findMany({
+      where: { active: true, ownerId },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, shortName: true, unitNumber: true, location: true, nightlyRate: true, rating: true },
+    }),
+    prisma.owner.findUnique({ where: { id: ownerId! }, select: { businessName: true } }),
+  ]);
 
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 86400000);
   const [occupancy, guidebook] = await Promise.all([
     getPublicOccupiedDatesForUnits(units.map((u) => u.id), now, in30Days),
-    getGuidebookSettings(),
+    getGuidebookSettings(ownerId ?? undefined),
   ]);
 
   const bookings = guestId ? await getGuestBookings(guestId) : [];
@@ -49,6 +65,7 @@ export async function buildAssistantContext(guestId: string | null) {
   const guideUnitById = new Map(guideUnits.map((u) => [u.id, u]));
 
   return {
+    businessName: owner?.businessName ?? "Evangelina's Staycation",
     stayTypes: Object.entries(STAY_TYPES)
       .filter(([k]) => k !== "Cleaning" && k !== "Maintenance")
       .map(([k, v]) => ({ type: k, label: v.label, duration: v.hrs })),
@@ -88,12 +105,15 @@ export type AssistantContext = Awaited<ReturnType<typeof buildAssistantContext>>
 const CACHE_TTL_MS = 20_000;
 const cache = new Map<string, { context: AssistantContext; expiresAt: number }>();
 
-export async function getCachedAssistantContext(guestId: string | null): Promise<AssistantContext> {
-  const key = guestId ?? "anon";
+export async function getCachedAssistantContext(guestId: string | null, ownerIdArg?: string): Promise<AssistantContext> {
+  // ownerIdArg folded into the cache key too — a signed-in guest bouncing
+  // between owners' pages (rare, but possible) must not get served a
+  // stale different-owner context out of this in-memory cache.
+  const key = `${guestId ?? "anon"}:${ownerIdArg ?? ""}`;
   const hit = cache.get(key);
   if (hit && Date.now() < hit.expiresAt) return hit.context;
 
-  const context = await buildAssistantContext(guestId);
+  const context = await buildAssistantContext(guestId, ownerIdArg);
   cache.set(key, { context, expiresAt: Date.now() + CACHE_TTL_MS });
   return context;
 }

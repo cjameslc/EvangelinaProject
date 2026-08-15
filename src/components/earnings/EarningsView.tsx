@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
 import { PageLoading } from "@/components/ui/PageLoading";
@@ -161,6 +162,7 @@ export function EarningsView({
   ownEmployeeId: string | null;
   employees: EmployeeLite[];
 }) {
+  const { data: session } = useSession();
   // Owners land on the company-wide summary by default rather than a
   // specific employee's earnings — that's the primary reason for being on
   // this page as an owner in the first place.
@@ -266,7 +268,7 @@ export function EarningsView({
     };
     doc.setFont("helvetica", "bold");
     doc.setFontSize(17);
-    doc.text("Evangelina's Staycation", 14, 18);
+    doc.text(session?.user?.ownerBusinessName || "Evangelina's Staycation", 14, 18);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(110);
@@ -685,11 +687,13 @@ export function EarningsView({
   );
 }
 
-const EXPENSE_CATEGORY_LABEL: Record<string, string> = { TIKTOK_ADS: "TikTok Ads", UNIT_EXPENSE: "Unit Expense" };
+const EXPENSE_CATEGORY_LABEL: Record<string, string> = { TIKTOK_ADS: "TikTok Ads", UNIT_EXPENSE: "Unit Expense", PASA_GUEST: "Pasa Guest", OTHER: "Other" };
 
-// Employee-facing submission form — TikTok Ads (company-wide) or Unit
-// Expense (requires picking which unit). Submits PENDING; never affects
-// Realized/Forecast profit or payroll until an Owner/Admin approves it.
+// Employee-facing submission form — TikTok Ads (company-wide), Unit Expense
+// (requires picking which unit), Pasa Guest (an item bought on a guest's
+// behalf, reimbursed), or Other (anything else, explained in the note).
+// Submits PENDING; never affects Realized/Forecast profit or payroll until
+// an Owner/Admin approves it.
 /** Manual free-text entries (an expense note, etc.) always get their first
  * letter capitalized on submit — a small consistency touch so "shower" and
  * "Shower" don't show up side by side depending on who typed it. */
@@ -699,7 +703,7 @@ function capitalizeFirst(s: string): string {
 
 function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmitted: () => void }) {
   const toast = useToast();
-  const [category, setCategory] = useState<"TIKTOK_ADS" | "UNIT_EXPENSE">("TIKTOK_ADS");
+  const [category, setCategory] = useState<"TIKTOK_ADS" | "UNIT_EXPENSE" | "PASA_GUEST" | "OTHER">("TIKTOK_ADS");
   const [unitId, setUnitId] = useState("");
   const [amount, setAmount] = useState<number | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -744,8 +748,8 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 rounded-full bg-[var(--bg-2)] p-1 w-fit">
-        {(["TIKTOK_ADS", "UNIT_EXPENSE"] as const).map((c) => (
+      <div className="flex flex-wrap gap-1 rounded-full bg-[var(--bg-2)] p-1 w-fit">
+        {(["TIKTOK_ADS", "UNIT_EXPENSE", "PASA_GUEST", "OTHER"] as const).map((c) => (
           <button
             key={c}
             type="button"
@@ -781,8 +785,13 @@ function ExpenseSubmitForm({ units, onSubmitted }: { units: UnitLite[]; onSubmit
         </div>
       </div>
       <div>
-        <label className="field-label">Note</label>
-        <input value={note} onChange={(e) => setNote(e.target.value)} className="field-input mt-1.5" placeholder="e.g. boosted post campaign, replacement pillows" />
+        <label className="field-label">{category === "OTHER" ? "Reason" : "Note"}</label>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="field-input mt-1.5"
+          placeholder={category === "OTHER" ? "e.g. describe what this expense was for" : "e.g. boosted post campaign, replacement pillows"}
+        />
       </div>
       <button onClick={submit} disabled={saving} className="btn-primary">{saving ? "Submitting…" : "Submit for approval"}</button>
     </div>

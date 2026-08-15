@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContaine
 
 export type CountRow = { label: string; count: number };
 
-export function CountBarChart({ data, color = "#FF385C" }: { data: CountRow[]; color?: string }) {
+export function CountBarChart({ data, color = "var(--skin-primary, #6c5ce7)" }: { data: CountRow[]; color?: string }) {
   if (data.every((d) => d.count === 0)) {
     return <div className="grid h-[180px] place-items-center text-[13px] text-[var(--gray)]">No bookings in this period yet.</div>;
   }

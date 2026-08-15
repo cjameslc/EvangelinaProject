@@ -3,6 +3,7 @@ import { checkAvailabilityForUnits } from "@/lib/bookingEngine/availabilityServi
 import { quotePrice } from "@/lib/bookingEngine/pricingService";
 import { getCachedBookingSettings } from "@/lib/bookingEngine/settingsCache";
 import { getCachedActiveUnits } from "@/lib/bookingEngine/unitsCache";
+import { getDefaultOwnerId, getOwnerBySlug } from "@/lib/ownerScope";
 import { normalizeGuestCheckOutDate } from "@/lib/bookingEngine/guestCheckout";
 import { isStayTypeBookableNow } from "@/lib/bookingEngine/bookingWindow";
 import { isPastManilaDate } from "@/lib/manilaTime";
@@ -32,7 +33,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "A Flexible stay needs both a check-in and check-out time." }, { status: 400 });
   }
 
-  const [units, settings] = await Promise.all([getCachedActiveUnits(), getCachedBookingSettings()]);
+  // ownerSlug lets /o/[ownerSlug]/book's own search widget scope results to
+  // that owner's units — an unrecognized/malformed slug 400s rather than
+  // silently falling back to the default owner's inventory.
+  const ownerSlug = req.nextUrl.searchParams.get("ownerSlug");
+  let ownerId: string | undefined;
+  if (ownerSlug) {
+    const owner = await getOwnerBySlug(ownerSlug);
+    if (!owner || owner.status === "SUSPENDED") return NextResponse.json({ error: "That business isn't available." }, { status: 404 });
+    ownerId = owner.id;
+  } else {
+    ownerId = (await getDefaultOwnerId()) ?? undefined;
+  }
+  const [units, settings] = await Promise.all([getCachedActiveUnits(ownerId), getCachedBookingSettings(ownerId!)]);
 
   // Never trust a client-supplied checkOutDate for a Night stay — always
   // exactly one night. Full stay may span more; Daycation never has one.

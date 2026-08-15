@@ -32,14 +32,6 @@ export async function uploadGuestRequestPhoto(file: File, bookingId: string) {
   return blob.url;
 }
 
-// Chat image attachments — same reasoning as every other photo field above.
-export async function uploadChatImage(file: File, conversationId: string) {
-  const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
-  const key = `chat/${conversationId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
-  return blob.url;
-}
-
 // Unit listing photo — was base64-in-DB until it turned out to be a real
 // Fast Origin Transfer cost: every guest who opens the public /book page
 // or a listing detail re-downloads all 5 units' full photo bytes from the
@@ -88,6 +80,17 @@ export async function uploadHostPhoto(file: File) {
   return blob.url;
 }
 
+// Guest payment QR code (Settings.paymentQrUrl) — keyed by ownerId (unlike
+// uploadHostPhoto above, a pre-existing gap not worth touching in passing)
+// since this one's added fresh with the per-owner Settings model already
+// in place.
+export async function uploadPaymentQr(file: File, ownerId: string) {
+  const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+  const key = `settings/payment-qr/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
 // Auditor finding photo — same reasoning as every other photo field above.
 export async function uploadAuditFindingPhoto(file: File) {
   const ext = (file.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "");
@@ -115,6 +118,18 @@ export async function uploadExpenseReceipt(file: File) {
 export async function uploadBrandLogo(file: File) {
   const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
   const key = `branding/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = await put(key, file, { access: "public", addRandomSuffix: false });
+  return blob.url;
+}
+
+// Per-tenant Owner.logoUrl — the icon shown in the staff nav for that
+// owner's own account, distinct from Settings.logoUrl/uploadBrandLogo above
+// (which is Evangelina's global Social Media Center export asset, not
+// per-owner). ownerId is optional because Platform Admin uploads this
+// during owner creation, before the Owner row exists yet.
+export async function uploadOwnerLogo(file: File, ownerId?: string) {
+  const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+  const key = `owner-branding/${ownerId ?? "pending"}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const blob = await put(key, file, { access: "public", addRandomSuffix: false });
   return blob.url;
 }

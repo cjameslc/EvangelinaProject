@@ -51,9 +51,24 @@ const config: Config = {
         "ken-burns": { "0%": { transform: "scale(1) translate(0,0)" }, "50%": { transform: "scale(1.14) translate(-2%,-1.5%)" }, "100%": { transform: "scale(1) translate(0,0)" } },
         sheen: { "0%": { backgroundPosition: "220% 0" }, "100%": { backgroundPosition: "-220% 0" } },
         dust: { "0%": { transform: "translateY(0)", opacity: "0" }, "10%": { opacity: "0.8" }, "85%": { opacity: "0.3" }, "100%": { transform: "translateY(-46px)", opacity: "0" } },
+        // GPU-accelerated (transform only) — moves exactly one duplicated
+        // content-track width, so looping the track twice back-to-back
+        // reads as one continuous, seamless scroll with no jump/reset.
+        marquee: { "0%": { transform: "translateX(0)" }, "100%": { transform: "translateX(-50%)" } },
         "confetti-fall": {
           "0%": { transform: "translateY(0) translateX(0) rotate(0deg)", opacity: "1" },
           "100%": { transform: "translateY(105vh) translateX(var(--confetti-drift)) rotate(var(--confetti-rotate))", opacity: "0.3" },
+        },
+        // Shared ambience effect for SeasonalAmbience — one keyframe drives
+        // every skin's floating decorations (snowflakes, petals, lanterns,
+        // sparkles...), each particle randomizing --sd-drift-x/y/rotate via
+        // inline style, matching the confetti-fall/dust convention above.
+        "seasonal-drift": {
+          "0%": { transform: "translate(0,0) rotate(0deg)", opacity: "0" },
+          "12%": { opacity: "var(--sd-opacity, 0.8)" },
+          "50%": { transform: "translate(var(--sd-drift-x, 10px), var(--sd-drift-y, -18px)) rotate(var(--sd-rotate, 8deg))" },
+          "88%": { opacity: "var(--sd-opacity, 0.8)" },
+          "100%": { transform: "translate(0,0) rotate(0deg)", opacity: "0" },
         },
       },
       animation: {
@@ -66,7 +81,9 @@ const config: Config = {
         "ken-burns": "ken-burns 16s ease-in-out infinite",
         sheen: "sheen 7s linear infinite",
         dust: "dust 7s ease-in-out infinite",
+        marquee: "marquee 42s linear infinite",
         "confetti-fall": "confetti-fall linear forwards",
+        "seasonal-drift": "seasonal-drift ease-in-out infinite",
       },
     },
   },

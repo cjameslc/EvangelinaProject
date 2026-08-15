@@ -1,12 +1,12 @@
 import { TransitionLink } from "@/components/guest/TransitionLink";
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { MeetYourHostSection, MeetOurTeamSection } from "@/components/guest/GuidebookSections";
 import { telUrl } from "@/lib/guideUtils";
 import { GALLERY } from "@/lib/galleryContent";
 
 export default async function WelcomePage() {
-  const guidebook = await getGuidebookSettings();
+  const guidebook = await getGuidebookSettingsForCurrentGuest();
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">

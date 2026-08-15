@@ -33,8 +33,8 @@ function roleContext(role: string, ownedUnitIds: string[]): string {
     : "The reader is the Owner/Admin who manages the entire property portfolio.";
 }
 
-async function generate(focus: string, data: unknown, role: string, ownedUnitIds: string[]): Promise<AnalyticsInsightResult> {
-  const systemPrompt = `You are a business analyst writing AI-generated insights for the Analytics dashboard of Evangelina's Staycation, a short-term rental property (Daycation and overnight stays) in Cubao, Quezon City, Philippines.
+async function generate(focus: string, data: unknown, role: string, ownedUnitIds: string[], businessName: string): Promise<AnalyticsInsightResult> {
+  const systemPrompt = `You are a business analyst writing AI-generated insights for the Analytics dashboard of ${businessName}, a short-term rental property (Daycation and overnight stays).
 
 ${roleContext(role, ownedUnitIds)}
 
@@ -54,29 +54,32 @@ ${RESPONSE_SHAPE_INSTRUCTIONS}`;
   };
 }
 
-export function generateExecutiveInsight(data: unknown, role: string, ownedUnitIds: string[]) {
+export function generateExecutiveInsight(data: unknown, role: string, ownedUnitIds: string[], businessName: string) {
   return generate(
     "The Executive Summary — overall revenue, profit, occupancy, ADR, RevPAR, bookings, cancellations, repeat guests, and the period-over-period comparison and forecast included in the data.",
     data,
     role,
-    ownedUnitIds
+    ownedUnitIds,
+    businessName
   );
 }
 
-export function generateRevenueInsight(data: unknown, role: string, ownedUnitIds: string[]) {
+export function generateRevenueInsight(data: unknown, role: string, ownedUnitIds: string[], businessName: string) {
   return generate(
     "Revenue performance — the revenue trend over time, which units/booking sources/stay types/payment methods are driving revenue, and the financial position (cash flow, outstanding balances, expenses).",
     data,
     role,
-    ownedUnitIds
+    ownedUnitIds,
+    businessName
   );
 }
 
-export function generateOperationsInsight(data: unknown, role: string, ownedUnitIds: string[]) {
+export function generateOperationsInsight(data: unknown, role: string, ownedUnitIds: string[], businessName: string) {
   return generate(
     "Operations and team performance — the booking funnel and lead times, occupancy and peak days, guest mix (new vs. returning), housekeeping turnaround, staff/booker activity, and which units are the best and worst performers.",
     data,
     role,
-    ownedUnitIds
+    ownedUnitIds,
+    businessName
   );
 }

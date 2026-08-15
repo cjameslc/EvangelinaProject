@@ -23,6 +23,12 @@ export function useReserveCodeStats({
     const total = reserveAccessCodes.length;
     const available = reserveAccessCodes.filter((c) => c.status === "AVAILABLE").length;
     const exhaustedUnits = units.filter((u) => (byUnit.get(u.id)?.total ?? 0) > 0 && (byUnit.get(u.id)?.available ?? 0) === 0);
-    return { byUnit, total, available, inUse: total - available, exhaustedUnits };
+    // Distinct from exhaustedUnits above (had a pool, ran it out) — a
+    // locked unit that never got a pool provisioned at all has exactly the
+    // same "no fallback if TTLock is down" exposure, but total=0 excludes
+    // it from that filter entirely. Found via a real gateway outage where
+    // one unit's emergency-access button had nothing to fall back to.
+    const neverProvisionedUnits = units.filter((u) => !!u.ttlockLockId && (byUnit.get(u.id)?.total ?? 0) === 0);
+    return { byUnit, total, available, inUse: total - available, exhaustedUnits, neverProvisionedUnits };
   }, [reserveAccessCodes, units]);
 }

@@ -10,10 +10,13 @@ const INCLUDE = {
 } as const;
 
 export async function GET() {
-  const { error } = await requireUser();
+  const { user, error } = await requireUser();
   if (error) return error;
 
+  // Was missing entirely — findMany had no where clause at all, leaking
+  // every tenant's audit findings to every authenticated user platform-wide.
   const findings = await prisma.auditFinding.findMany({
+    where: { ownerId: user.ownerId },
     orderBy: { createdAt: "desc" },
     take: 300,
     include: INCLUDE,
@@ -35,6 +38,7 @@ export async function POST(req: NextRequest) {
 
   const finding = await prisma.auditFinding.create({
     data: {
+      ownerId: user.ownerId,
       auditorName: body.auditorName,
       reviewDate: new Date(body.reviewDate),
       unitId: body.unitId || null,

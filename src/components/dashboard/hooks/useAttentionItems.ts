@@ -6,6 +6,11 @@ import { manilaDayKey as dayOf } from "@/lib/analytics/period";
 import { isCompletedStay } from "./completedStay";
 import type { Unit, Booking, HkState, AttentionFinding, Stock, Bill } from "../types";
 
+// Same labels as the booker-facing submission form (EarningsView.tsx) —
+// kept in sync manually since this hook only needs the display string, not
+// the full submission form's state/logic.
+const EXPENSE_CATEGORY_LABEL: Record<string, string> = { TIKTOK_ADS: "TikTok Ads", UNIT_EXPENSE: "Unit Expense", PASA_GUEST: "Pasa Guest", OTHER: "Other" };
+
 /**
  * "Needs your attention" — cross-section of open Auditor findings, overdue
  * bills, and low stock. Purely a summary; each source's own page (Auditor /
@@ -279,7 +284,7 @@ export function useAttentionItems({
     if (pendingExpenseRequests.length > 0) {
       const total = pendingExpenseRequests.reduce((s, e) => s + e.amount, 0);
       const desc = pendingExpenseRequests
-        .map((e) => `${e.employee?.name ?? "Unknown"} — ${e.category === "TIKTOK_ADS" ? "TikTok Ads" : "Unit Expense"} (${peso(e.amount)})`)
+        .map((e) => `${e.employee?.name ?? "Unknown"} — ${EXPENSE_CATEGORY_LABEL[e.category] ?? e.category} (${peso(e.amount)})`)
         .join(", ");
       items.push({
         id: "attn-expense-requests",

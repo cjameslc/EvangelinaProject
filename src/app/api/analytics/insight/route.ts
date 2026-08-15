@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { canSeeAnalytics } from "@/lib/rbac";
 import { rateLimit } from "@/lib/rateLimit";
@@ -21,17 +22,17 @@ type Section = "executive" | "revenue" | "operations";
 // see AIInsightsPanel's comment for why these are also click-to-generate,
 // not auto-fetched.
 const getCachedExecutive = unstable_cache(
-  (data: unknown, role: string, ownedUnitIds: string[]) => generateExecutiveInsight(data, role, ownedUnitIds),
+  (data: unknown, role: string, ownedUnitIds: string[], businessName: string) => generateExecutiveInsight(data, role, ownedUnitIds, businessName),
   ["analytics-insight-executive"],
   { revalidate: 3600 }
 );
 const getCachedRevenue = unstable_cache(
-  (data: unknown, role: string, ownedUnitIds: string[]) => generateRevenueInsight(data, role, ownedUnitIds),
+  (data: unknown, role: string, ownedUnitIds: string[], businessName: string) => generateRevenueInsight(data, role, ownedUnitIds, businessName),
   ["analytics-insight-revenue"],
   { revalidate: 3600 }
 );
 const getCachedOperations = unstable_cache(
-  (data: unknown, role: string, ownedUnitIds: string[]) => generateOperationsInsight(data, role, ownedUnitIds),
+  (data: unknown, role: string, ownedUnitIds: string[], businessName: string) => generateOperationsInsight(data, role, ownedUnitIds, businessName),
   ["analytics-insight-operations"],
   { revalidate: 3600 }
 );
@@ -52,12 +53,14 @@ export async function POST(req: NextRequest) {
   }
 
   const scopedUser = { role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId };
+  const owner = await prisma.owner.findUnique({ where: { id: user.ownerId! }, select: { businessName: true } });
+  const businessName = owner?.businessName ?? "Evangelina's Staycation";
 
   try {
     let result: AnalyticsInsightResult;
     if (section === "executive") {
       const kpis = await getExecutiveKPIs(scopedUser, filters);
-      result = await getCachedExecutive(kpis, user.role, user.ownedUnitIds);
+      result = await getCachedExecutive(kpis, user.role, user.ownedUnitIds, businessName);
     } else if (section === "revenue") {
       const [revenue, financial] = await Promise.all([
         getRevenueAnalytics(scopedUser, filters),
@@ -67,7 +70,7 @@ export async function POST(req: NextRequest) {
       // (byUnit/bySource/byStayType/byPaymentMethod/series) are the real
       // signal; a full booking list would bloat the prompt for no benefit.
       const { bookings: _bookings, ...revenueForPrompt } = revenue;
-      result = await getCachedRevenue({ revenue: revenueForPrompt, financial }, user.role, user.ownedUnitIds);
+      result = await getCachedRevenue({ revenue: revenueForPrompt, financial }, user.role, user.ownedUnitIds, businessName);
     } else {
       const [booking, occupancy, guest, housekeeping, staff, units] = await Promise.all([
         getBookingAnalytics(scopedUser, filters),
@@ -82,7 +85,8 @@ export async function POST(req: NextRequest) {
       result = await getCachedOperations(
         { booking, occupancy: occupancyForPrompt, guest, housekeeping, staff: staffForPrompt, units },
         user.role,
-        user.ownedUnitIds
+        user.ownedUnitIds,
+        businessName
       );
     }
     return NextResponse.json(result);

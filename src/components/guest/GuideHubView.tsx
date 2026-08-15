@@ -1,4 +1,5 @@
 import { GUIDE_SECTIONS, type NearbySlug } from "@/lib/guideNav";
+import { manilaTimeGreeting } from "@/lib/manilaTime";
 import type { UnsplashImage as UnsplashImageData } from "@/lib/unsplash/types";
 import { TileCoverArt } from "@/components/guest/TileCoverArt";
 import { UnsplashImage } from "@/components/guest/UnsplashImage";
@@ -59,7 +60,7 @@ export function GuideHubView({
           Welcome to Evangelina&apos;s Staycation
         </h1>
         <p className="mx-auto mt-2 max-w-[560px] text-[13px] leading-relaxed text-[var(--gray)] sm:text-[14.5px]">
-          Everything you need for your stay in one place{hostName ? ` — hosted by ${hostName}` : ""}. Browse below, or{" "}
+          {manilaTimeGreeting()}! Everything you need for your stay in one place{hostName ? ` — hosted by ${hostName}` : ""}. Browse below, or{" "}
           <TransitionLink href="/book" className="font-bold text-rausch hover:underline">book a unit</TransitionLink>.
         </p>
         {showBookingUnlock && (

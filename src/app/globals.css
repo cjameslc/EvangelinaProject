@@ -17,6 +17,78 @@
   --bg-2: #f7f7f7;
   --card: #ffffff;
   --nav-bg: rgba(255, 255, 255, 0.92);
+  /* Semantic status tokens — defaults mirror --green/--amber/--rausch
+     above. Exist as their own variables (rather than referencing those
+     directly) so a Color Theme (see below) can retune them without
+     touching the fixed brand palette those three represent elsewhere. */
+  --success: #008a05;
+  --warning: #c87d00;
+  --destructive: #ff385c;
+}
+
+/* Scoped luxury palette for the guest booking storefront (/book) only —
+   deliberately not a global rebrand. --rausch etc. above remain the brand
+   color everywhere else in the app (staff tool, guidebook, other guest
+   pages); this token set is opted into by wrapping a subtree in
+   .book-luxury so it can't leak. */
+.book-luxury {
+  --gold: #c9a24b;
+  --gold-light: #e8cf94;
+  --bronze: #7a4f2d;
+  --matte: #15120e;
+  --matte-2: #221c15;
+  --cream: #f6efe1;
+  /* Pre-mixed alpha variants — Tailwind's text-[var(--x)]/NN opacity
+     modifier only works on colors it can decompose at build time (RGB-
+     channel custom properties), not on plain hex vars like these, so
+     translucent tones are baked in directly instead. */
+  --cream-75: rgba(246, 239, 225, 0.82);
+  --cream-70: rgba(246, 239, 225, 0.72);
+  --gold-20: rgba(201, 162, 75, 0.2);
+  --gold-40: rgba(201, 162, 75, 0.45);
+  --gold-90: rgba(201, 162, 75, 0.92);
+  --gold-light-70: rgba(232, 207, 148, 0.7);
+}
+
+/* Scoped luxury palette for the staff-facing Individual Unit Calendar only
+   (/calendar/[unitId]) — same "opt in per subtree" discipline as
+   .book-luxury above, kept separate since this page's brief specified its
+   own exact gold (#D4AF37) rather than reusing .book-luxury's warmer
+   #C9A24B. */
+.unit-cal-luxury {
+  --uc-gold: #d4af37;
+  --uc-gold-light: #e9cd6f;
+  /* --uc-charcoal is a fixed brand-dark fill (guest bars, the Month/Week
+     toggle, the floating ops button) — it never inverts, the same way a
+     solid dark CTA button doesn't flip color in dark mode elsewhere in
+     this app. --uc-ink is the one that carries page TEXT and does invert
+     below. --uc-gold-ink is for text sitting on the fixed-gold chips
+     (avatar initials, the ops-count badge) — those chips don't invert
+     either, so their text shouldn't invert out of contrast with them. */
+  --uc-charcoal: #1c1a17;
+  --uc-ink: #1c1a17;
+  --uc-gold-ink: #1c1a17;
+  --uc-warm-gray: #6b645c;
+  --uc-cream: #fdfbf7;
+  --uc-line: #ece6d9;
+  --uc-card: #ffffff;
+  --uc-gold-10: rgba(212, 175, 55, 0.1);
+  --uc-gold-20: rgba(212, 175, 55, 0.22);
+  --uc-charcoal-70: rgba(28, 26, 23, 0.75);
+}
+
+/* Same dark values the rest of the app already switches to via .dark above
+   — this page keeps its own gold accent rather than the site's rausch red,
+   but its background/card/border/text now track the same light/dark toggle
+   instead of being stuck on the light cream palette. */
+.dark .unit-cal-luxury {
+  --uc-ink: #f4f4f5;
+  --uc-warm-gray: #a6a6ad;
+  --uc-cream: #131316;
+  --uc-line: #2c2c31;
+  --uc-card: #1f1f23;
+  --uc-gold-10: rgba(212, 175, 55, 0.16);
+  --uc-gold-20: rgba(212, 175, 55, 0.32);
 }
 
 .dark {
@@ -28,6 +100,234 @@
   --bg-2: #1c1c20;
   --card: #1f1f23;
   --nav-bg: rgba(19, 19, 22, 0.9);
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --destructive: #f87171;
+}
+
+/* Seasonal Skin System (src/lib/skins/) — one shared token set every
+   skin-aware component reads (SeasonalHero, SeasonalChallengeCard,
+   SeasonalBadge, celebrate()'s confetti), never colors of its own. The
+   root layout sets data-skin="..." directly on <html> from the
+   server-resolved active skin (see getCachedActiveSkinId), so these
+   tokens are correct on the very first paint — no flash, no client-side
+   theme-swap. Deliberately a *separate* token set from --rausch/--green/
+   --amber/--teal (this app's existing semantic colors for danger/success/
+   caution) — a seasonal skin must never repaint a real warning (an
+   overdue bill, a critical battery) into a color that no longer reads as
+   "needs attention". Evangelina Violet's own values are the :root
+   default, so a skin-aware component never needs a null-check while data-
+   skin is still resolving. */
+:root {
+  --skin-primary: #6c5ce7;
+  --skin-primary-hover: #7d6ff0;
+  /* .btn-primary's label color — white by default (every seasonal skin's
+     primary clears WCAG AA with white text; verified). Only the personal
+     Color Theme system's pale-primary palettes (Champagne/Gold/Ivory/Sand)
+     override this to a dark color instead — see the [data-color-theme=...]
+     blocks below and colorThemes.ts's buttonText doc comment for why. */
+  --skin-primary-text: #ffffff;
+  --skin-secondary: #c9a24b;
+  --skin-accent: #c9a24b;
+  --skin-surface-from: rgba(108, 92, 231, 0.14);
+  --skin-surface-to: rgba(201, 162, 75, 0.08);
+  --skin-glow: rgba(108, 92, 231, 0.35);
+}
+[data-skin="christmas"] {
+  --skin-primary: #14532d;
+  --skin-secondary: #b3243a;
+  --skin-accent: #c9a24b;
+  --skin-surface-from: rgba(20, 83, 45, 0.16);
+  --skin-surface-to: rgba(179, 36, 58, 0.1);
+  --skin-glow: rgba(179, 36, 58, 0.35);
+}
+[data-skin="newYear"] {
+  --skin-primary: #3b1e7a;
+  --skin-secondary: #c9a24b;
+  --skin-accent: #f7e7ce;
+  --skin-surface-from: rgba(11, 19, 48, 0.55);
+  --skin-surface-to: rgba(201, 162, 75, 0.14);
+  --skin-glow: rgba(201, 162, 75, 0.4);
+}
+[data-skin="valentines"] {
+  --skin-primary: #6c5ce7;
+  --skin-secondary: #d6336c;
+  --skin-accent: #f8bbd0;
+  --skin-surface-from: rgba(108, 92, 231, 0.14);
+  --skin-surface-to: rgba(214, 51, 108, 0.1);
+  --skin-glow: rgba(214, 51, 108, 0.32);
+}
+[data-skin="chineseNewYear"] {
+  --skin-primary: #c8102e;
+  --skin-secondary: #c9a24b;
+  --skin-accent: #6b0f1a;
+  --skin-surface-from: rgba(200, 16, 46, 0.16);
+  --skin-surface-to: rgba(201, 162, 75, 0.12);
+  --skin-glow: rgba(201, 162, 75, 0.38);
+}
+[data-skin="spring"] {
+  --skin-primary: #6c5ce7;
+  --skin-secondary: #86c99a;
+  --skin-accent: #fbcfe8;
+  --skin-surface-from: rgba(134, 201, 154, 0.16);
+  --skin-surface-to: rgba(251, 207, 232, 0.14);
+  --skin-glow: rgba(134, 201, 154, 0.3);
+}
+[data-skin="independence"] {
+  --skin-primary: #0038a8;
+  --skin-secondary: #ce1126;
+  --skin-accent: #fcd116;
+  --skin-surface-from: rgba(0, 56, 168, 0.14);
+  --skin-surface-to: rgba(206, 17, 38, 0.1);
+  --skin-glow: rgba(252, 209, 22, 0.35);
+}
+[data-skin="halloween"] {
+  --skin-primary: #2a1245;
+  --skin-secondary: #f97316;
+  --skin-accent: #c87d00;
+  --skin-surface-from: rgba(42, 18, 69, 0.6);
+  --skin-surface-to: rgba(249, 115, 22, 0.14);
+  --skin-glow: rgba(249, 115, 22, 0.35);
+}
+[data-skin="summer"] {
+  --skin-primary: #6c5ce7;
+  --skin-secondary: #0ea5e9;
+  --skin-accent: #fbbf24;
+  --skin-surface-from: rgba(14, 165, 233, 0.14);
+  --skin-surface-to: rgba(251, 191, 36, 0.1);
+  --skin-glow: rgba(14, 165, 233, 0.3);
+}
+[data-skin="anniversary"] {
+  --skin-primary: #6c5ce7;
+  --skin-secondary: #c9a24b;
+  --skin-accent: #f7e7ce;
+  --skin-surface-from: rgba(108, 92, 231, 0.18);
+  --skin-surface-to: rgba(201, 162, 75, 0.16);
+  --skin-glow: rgba(201, 162, 75, 0.4);
+}
+[data-skin="airbnb"] {
+  --skin-primary: #ff385c;
+  --skin-secondary: #ffffff;
+  --skin-accent: #f5f5f5;
+  --skin-surface-from: rgba(255, 56, 92, 0.06);
+  --skin-surface-to: rgba(34, 34, 34, 0.04);
+  --skin-glow: rgba(255, 56, 92, 0.28);
+}
+
+/* Personal Color Themes (src/lib/colorThemes.ts) — a per-account
+   preference (User.colorTheme), set client-side on <html> by
+   ColorThemeProvider once the session is known (never server-side in the
+   root layout — that's shared with the anonymous guest site, and reading
+   session there once already broke static rendering for every guest
+   guidebook page; see layout.tsx's own comment on why it stays
+   session-less). Placed after both .dark and the skin blocks above so a
+   selected theme's full palette wins regardless of dark-mode state or the
+   active seasonal skin's own --skin-primary — this is a complete,
+   self-sufficient palette a user opted into for their own screen, not a
+   tint layered on top of the other two dimensions. Deliberately only
+   overrides --skin-primary/-hover (buttons, focus rings, card glow),
+   never --skin-secondary, --skin-accent, --skin-surface-from/-to, or
+   --skin-glow — those remain the active seasonal skin's own values, since none of these
+   six themes define a secondary/accent/decorative palette of their own. */
+[data-color-theme="midnightChampagne"] {
+  --bg: #0f172a; --bg-2: #101a30; --card: #172033; --nav-bg: rgba(15, 23, 42, 0.92);
+  --ink: #f8f5ef; --gray: #a8b0bd; --line: #2a3445; --line-2: #384258;
+  --skin-primary: #d4af72; --skin-primary-hover: #e2c48a; --skin-primary-text: #0f172a;
+  --success: #4ade80; --warning: #fbbf24; --destructive: #f87171;
+}
+[data-color-theme="charcoalGold"] {
+  --bg: #18181b; --bg-2: #1d1d20; --card: #242428; --nav-bg: rgba(24, 24, 27, 0.92);
+  --ink: #fafaf9; --gray: #a1a1aa; --line: #3f3f46; --line-2: #4c4c54;
+  --skin-primary: #c9a227; --skin-primary-hover: #ddba45; --skin-primary-text: #18181b;
+  --success: #4ade80; --warning: #facc15; --destructive: #f87171;
+}
+[data-color-theme="deepNavyIvory"] {
+  --bg: #0b1f33; --bg-2: #0e253b; --card: #132c43; --nav-bg: rgba(11, 31, 51, 0.92);
+  --ink: #f5f1e8; --gray: #aab7c4; --line: #294158; --line-2: #33506b;
+  --skin-primary: #c6a15b; --skin-primary-hover: #d9ba7a; --skin-primary-text: #0b1f33;
+  --success: #4ade80; --warning: #fbbf24; --destructive: #fb7185;
+}
+[data-color-theme="forestChampagne"] {
+  --bg: #12372a; --bg-2: #163e2f; --card: #1a4637; --nav-bg: rgba(18, 55, 42, 0.92);
+  --ink: #faf9f4; --gray: #b8c7be; --line: #315746; --line-2: #3c6854;
+  --skin-primary: #e8d8b0; --skin-primary-hover: #f0e3c2; --skin-primary-text: #12372a;
+  --success: #86efac; --warning: #fde68a; --destructive: #fda4af;
+}
+[data-color-theme="warmBlackRose"] {
+  --bg: #171414; --bg-2: #1c1818; --card: #241e20; --nav-bg: rgba(23, 20, 20, 0.92);
+  --ink: #f7f0ea; --gray: #b9afb0; --line: #403638; --line-2: #4d4143;
+  --skin-primary: #b76e79; --skin-primary-hover: #cc8792; --skin-primary-text: #171414;
+  --success: #86efac; --warning: #fcd34d; --destructive: #fb7185;
+}
+[data-color-theme="slateSand"] {
+  --bg: #263238; --bg-2: #2c3a41; --card: #34444a; --nav-bg: rgba(38, 50, 56, 0.92);
+  --ink: #f5f1ea; --gray: #b8c0c3; --line: #4a5a60; --line-2: #566b72;
+  --skin-primary: #d8c3a5; --skin-primary-hover: #e5d2b8; --skin-primary-text: #263238;
+  --success: #86efac; --warning: #fcd34d; --destructive: #fb7185;
+}
+/* Primary is violet-600 (#7c3aed), not the lighter violet-500 — chosen so
+   white button text clears WCAG AA (5.70:1) instead of needing the same
+   dark-buttonText treatment as the six pale-primary themes above. */
+[data-color-theme="royalViolet"] {
+  --bg: #1a0f2e; --bg-2: #1f1338; --card: #241640; --nav-bg: rgba(26, 15, 46, 0.92);
+  --ink: #f5f0ff; --gray: #b8a9d9; --line: #3d2a5e; --line-2: #4a3670;
+  --skin-primary: #7c3aed; --skin-primary-hover: #8b5cf6; --skin-primary-text: #ffffff;
+  --success: #86efac; --warning: #fcd34d; --destructive: #fb7185;
+}
+/* The one light theme in this set — background/surface/nav-bg are light,
+   not dark like the seven above, and it deliberately keeps working: every
+   rule referencing --bg/--card/--ink etc. is already theme-agnostic, none
+   of them assume a dark value. Real Airbnb Rausch red as primary — white
+   button text is Airbnb's own actual choice too (their red doesn't clear
+   4.5:1 with white either; darkening it to force a pass would stop looking
+   like Airbnb, defeating the point of this theme). */
+[data-color-theme="airbnbInspired"] {
+  --bg: #ffffff; --bg-2: #fafafa; --card: #f7f7f7; --nav-bg: rgba(255, 255, 255, 0.92);
+  --ink: #222222; --gray: #717171; --line: #dddddd; --line-2: #c4c4c4;
+  --skin-primary: #ff385c; --skin-primary-hover: #e31c5f; --skin-primary-text: #ffffff;
+  --success: #00a699; --warning: #fc642d; --destructive: #c13515;
+}
+
+/* Dashboard-only visual uplift (rounder cards, richer shadow) — opted into
+   by wrapping the Dashboard page's root in .dashboard-metrics, same "opt
+   in per subtree" discipline as .book-luxury/.unit-cal-luxury above, so
+   .card/.stat-card everywhere else in the app (Bookings, Analytics,
+   Housekeeping's own page, etc.) are completely unaffected.
+   .btn-primary no longer needs its own override here — it's skin-reactive
+   app-wide now (see the @layer components rule above), so the Dashboard's
+   buttons already match without a special case. Same for the gradient
+   bars: color-mix() off --skin-primary instead of a hardcoded violet, so
+   they track whichever skin is active (including "airbnb", which puts
+   them back to the original rausch red) same as everywhere else. */
+.dashboard-metrics .card {
+  border-radius: 24px;
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(20, 15, 55, 0.04), 0 12px 28px color-mix(in srgb, var(--skin-primary, #6c5ce7) 14%, transparent);
+}
+.dark .dashboard-metrics .card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 32px rgba(0, 0, 0, 0.45);
+}
+.dashboard-metrics .stat-card {
+  border-radius: 18px;
+  background: var(--bg-2);
+  border-color: transparent;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+/* Subtle premium lift on hover, scoped to Dashboard only — .stat-card is
+   used all over the app (Housekeeping, Admin, etc.), this only ever
+   applies inside .dashboard-metrics. */
+.dashboard-metrics .stat-card:hover {
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--skin-primary, #6c5ce7) 16%, transparent);
+  transform: translateY(-1px);
+}
+.dashboard-metrics .dash-gradient-bar {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--skin-primary, #6c5ce7) 55%, white) 0%, var(--skin-primary, #6c5ce7) 100%);
+}
+/* Same gradient, left-to-right — for horizontal progress/breakdown fills
+   (Revenue by platform, etc.), where a top-to-bottom gradient would be
+   imperceptible against a bar only a few px tall. */
+.dashboard-metrics .dash-gradient-bar-h {
+  background: linear-gradient(90deg, var(--skin-primary, #6c5ce7) 0%, color-mix(in srgb, var(--skin-primary, #6c5ce7) 55%, white) 100%);
 }
 
 * {
@@ -42,13 +342,49 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* App-wide reduced-motion safeguard — celebrate()'s confetti (any skin)
+   and the marquee/ken-burns/sheen/dust ambient-motion keyframes all still
+   render their DOM, just without moving, for anyone who's asked their OS
+   not to animate things. Duration 0.01ms rather than "none" so a
+   forwards-filled animation (confetti-fall) still lands on its end frame
+   instead of snapping back to its 0% state. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Reusable component classes so pages stay close to the original markup. */
 @layer components {
   .btn {
-    @apply inline-flex items-center gap-2 rounded-xl border border-[var(--line-2)] bg-[var(--card)] px-4 py-2.5 text-sm font-bold text-[var(--ink)] transition hover:border-[var(--ink)] hover:shadow-s disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply inline-flex items-center gap-2 rounded-xl border border-[var(--line-2)] bg-[var(--card)] px-4 py-2.5 text-sm font-bold text-[var(--ink)] transition duration-150 hover:border-[var(--ink)] hover:shadow-s active:scale-[.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
   }
+  /* The app's one primary-action color, everywhere — deliberately the
+     active seasonal skin's own primary (--skin-primary, :root default is
+     Evangelina Violet's #6C5CE7; the "airbnb" skin sets this to the
+     original #FF385C rausch red, so selecting it puts every button back
+     to exactly the pre-skin-system color). Every .btn-primary app-wide
+     (Bookings' "+ Add booking", admin saves, booking CTAs, etc.) follows
+     from this one rule — no per-page overrides needed anymore. Gradient
+     stops are computed from the skin color itself via color-mix(), not a
+     second hardcoded palette, so a new skin needs only its one primary hex
+     to get a correct-looking button. Destructive/error UI (Cancel, Delete,
+     validation borders) intentionally does NOT route through this — those
+     still use the fixed `rausch` Tailwind color directly at each call
+     site, so a "Delete booking" button stays recognizably red no matter
+     which skin is active (see globals.css's danger-token comment below).
+  */
   .btn-primary {
-    @apply btn border-rausch bg-rausch text-white hover:shadow-[0_6px_16px_rgba(255,56,92,.35)];
+    @apply btn border-transparent shadow-[0_2px_8px_rgba(0,0,0,.16)] hover:-translate-y-px active:translate-y-0;
+    color: var(--skin-primary-text, #ffffff);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--skin-primary, #6c5ce7) 78%, white) 0%, var(--skin-primary, #6c5ce7) 55%, color-mix(in srgb, var(--skin-primary, #6c5ce7) 82%, black) 100%);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--skin-primary-hover, var(--skin-primary, #6c5ce7)) 78%, white) 0%, var(--skin-primary-hover, var(--skin-primary, #6c5ce7)) 55%, color-mix(in srgb, var(--skin-primary-hover, var(--skin-primary, #6c5ce7)) 82%, black) 100%);
+    box-shadow: 0 10px 22px color-mix(in srgb, var(--skin-primary, #6c5ce7) 38%, transparent);
   }
   .btn-ghost {
     @apply btn border-transparent bg-transparent text-[var(--gray)] shadow-none hover:text-[var(--ink)] hover:shadow-none;
@@ -60,10 +396,25 @@ body {
     @apply btn h-[42px] w-[42px] justify-center p-0;
   }
   .card {
-    @apply rounded-card border border-[var(--line)] bg-[var(--card)] shadow-s;
+    @apply rounded-card border border-[var(--line)] bg-[var(--card)] shadow-s transition-shadow duration-200;
   }
   .field-input {
-    @apply w-full rounded-field border border-[var(--line-2)] bg-[var(--card)] px-3.5 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-rausch focus:ring-4 focus:ring-rausch/15;
+    @apply w-full rounded-field border border-[var(--line-2)] bg-[var(--card)] px-3.5 py-3 text-sm text-[var(--ink)] outline-none transition;
+  }
+  /* Plain CSS (not @apply focus:ring-rausch/15) — Tailwind's opacity
+     modifier can't decompose an arbitrary var() at build time, and this
+     needs to track the active skin's primary color the same way
+     .btn-primary now does. */
+  .field-input:focus {
+    border-color: var(--skin-primary, #6c5ce7);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--skin-primary, #6c5ce7) 15%, transparent);
+  }
+  /* Same skin-reactive focus treatment as .field-input, for the handful of
+     non-<input> interactive surfaces (a paste-target div, etc.) that want
+     it without pulling in every other field-input rule. */
+  .brand-focus-target:focus {
+    border-color: var(--skin-primary, #6c5ce7);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--skin-primary, #6c5ce7) 15%, transparent);
   }
   .field-label {
     @apply text-[13px] font-bold text-[var(--ink)];
@@ -76,6 +427,27 @@ body {
   }
   .tag {
     @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold;
+  }
+  /* Skin-reactive equivalents of text-rausch/bg-rausch for "this is the
+     active/selected/brand thing" states (active nav tab, selected card,
+     chosen filter) — same var(--skin-primary) source as .btn-primary, so
+     these track the active seasonal skin instead of being pinned to red.
+     Not for destructive/error states — those stay on the fixed `rausch`
+     Tailwind color at their own call sites, unaffected by this. */
+  .brand-text {
+    color: var(--skin-primary, #6c5ce7);
+  }
+  .brand-bg-subtle {
+    background: color-mix(in srgb, var(--skin-primary, #6c5ce7) 10%, transparent);
+  }
+  .brand-bg-subtle-15 {
+    background: color-mix(in srgb, var(--skin-primary, #6c5ce7) 15%, transparent);
+  }
+  .brand-border {
+    border-color: var(--skin-primary, #6c5ce7);
+  }
+  .brand-ring {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--skin-primary, #6c5ce7) 40%, transparent);
   }
   .stat-card {
     @apply rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4;

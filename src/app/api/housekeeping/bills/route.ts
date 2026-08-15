@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUser, unitWhere, unitIdWhere, logAudit } from "@/lib/session";
-import { canEditHousekeeping } from "@/lib/rbac";
+import { requireUser, unitWhere, unitIdWhere, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { billCreateSchema } from "@/lib/validation";
 import { ensureRecurringBillsForMonth } from "@/lib/recurringExpenses";
 
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const now = monthParam ? new Date(monthParam + "-01T00:00:00.000Z") : new Date();
   const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-  await ensureRecurringBillsForMonth(month);
+  await ensureRecurringBillsForMonth(month, user.ownerId);
 
   // Carry forward any custom (hand-entered, non-template) bill marked
   // "recurring" from the previous month, so e.g. a one-off monthly charge
@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
     if (missing.length > 0) {
       await prisma.bill.createMany({
         data: missing.map((prev) => ({
+          ownerId: prev.ownerId,
           unitId: prev.unitId,
           key: "custom" as const,
           label: prev.label,
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
   }
 
   const bills = await prisma.bill.findMany({
-    where: { ...unitWhere(user), month },
+    where: { ...unitWhere(user), ownerId: user.ownerId, month },
     include: { unit: { select: { id: true, name: true, shortName: true, unitNumber: true } } },
   });
   return NextResponse.json(bills);
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
-  if (!canEditHousekeeping(user.role as any)) return new Response("Forbidden", { status: 403 });
+  if (!hasActionAccess("housekeeping.edit", user.role, user.additionalActionAccess)) return new Response("Forbidden", { status: 403 });
 
   let body;
   try {
@@ -73,10 +74,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
+  if (!await isUnitInScope(user, body.unitId)) return forbiddenUnitScopeResponse(user);
 
   const month = new Date(body.month + "-01T00:00:00.000Z");
   const bill = await prisma.bill.create({
     data: {
+      ownerId: user.ownerId,
       unitId: body.unitId,
       key: "custom",
       label: body.label,

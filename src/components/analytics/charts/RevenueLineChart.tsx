@@ -35,7 +35,7 @@ export function RevenueLineChart({ data, onPointClick }: { data: RevenuePoint[];
         <Tooltip formatter={(value: any, name: any) => [peso(Number(value)), name === "gross" ? "Gross" : "Collected"]} labelStyle={{ fontWeight: 700 }} />
         <Line type="monotone" dataKey="gross" stroke="#8E99AA" strokeWidth={2} dot={false} name="gross" />
         <Line
-          type="monotone" dataKey="collected" stroke="#FF385C" strokeWidth={2.5} name="collected"
+          type="monotone" dataKey="collected" stroke="var(--skin-primary, #6c5ce7)" strokeWidth={2.5} name="collected"
           dot={{ r: 4, style: { cursor: onPointClick ? "pointer" : "default" } } as any}
           activeDot={{ r: 6, style: { cursor: onPointClick ? "pointer" : "default" } } as any}
         />

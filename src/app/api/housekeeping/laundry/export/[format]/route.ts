@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { canSeeHousekeeping } from "@/lib/rbac";
 import { listLaundryOrdersForUser } from "@/lib/laundry/laundryService";
@@ -34,7 +35,8 @@ export async function GET(_req: NextRequest, { params }: { params: { format: str
       headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="${filename}"` },
     });
   }
-  const buf = await buildLaundryExportPdf(orders);
+  const owner = await prisma.owner.findUnique({ where: { id: user.ownerId! }, select: { businessName: true } });
+  const buf = await buildLaundryExportPdf(orders, owner?.businessName ?? "Evangelina's Staycation");
   return new Response(new Uint8Array(buf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${filename}"` },
   });

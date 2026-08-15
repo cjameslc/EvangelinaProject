@@ -46,7 +46,7 @@ async function createBookingCore(body: BookingInput & { guestId?: string | null 
     return { ok: false, error: "A Flexible stay needs both a check-in and check-out time." };
   }
 
-  const confirmationNumber = await generateConfirmationNumber();
+  const confirmationNumber = await generateConfirmationNumber(body.unitId);
 
   // The overlap guard (checkAvailability) and the actual insert have to
   // happen as one atomic unit — otherwise two near-simultaneous requests

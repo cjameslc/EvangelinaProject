@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { canSeeAnalytics } from "@/lib/rbac";
+import { effectivePageAccess } from "@/lib/pageAccess";
 import { dashboardUnitIdWhere } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { manilaTimeGreeting } from "@/lib/manilaTime";
@@ -18,6 +18,7 @@ import { OccupancySection } from "@/components/analytics/sections/OccupancySecti
 import { GuestSection } from "@/components/analytics/sections/GuestSection";
 import { HousekeepingSection } from "@/components/analytics/sections/HousekeepingSection";
 import { StaffSection } from "@/components/analytics/sections/StaffSection";
+import { CommissionSection } from "@/components/analytics/sections/CommissionSection";
 import { UnitPerformanceSection } from "@/components/analytics/sections/UnitPerformanceSection";
 import { ExportMenu } from "@/components/analytics/ExportMenu";
 import { AutoRefresh } from "@/components/analytics/AutoRefresh";
@@ -39,7 +40,7 @@ async function ExecutiveKpiSection({ user, filters }: { user: { role: string; ow
       <MetricsHero kpis={kpis} periodLabel={PERIOD_LABEL[filters.preset]} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <MetricKpiCard index={0} icon="wallet" label="Revenue" value={pesoCentavos(kpis.mtdRevenueCentavos)} delta={kpis.revenueGrowthPct} comparisonLabel={kpis.comparisonPeriodLabel} />
+        <MetricKpiCard index={0} icon="wallet" label="Revenue" value={pesoCentavos(kpis.mtdRevenueCentavos)} delta={kpis.revenueGrowthPct} comparisonLabel={kpis.comparisonPeriodLabel} sparkline={kpis.revenueSparkline} />
         <MetricKpiCard index={1} icon="trending-up" label="Net Profit" value={pesoCentavos(kpis.mtdNetProfitCentavos)} delta={kpis.profitGrowthPct} comparisonLabel={kpis.comparisonPeriodLabel} />
         <MetricKpiCard index={2} icon="percent" label="Profit Margin" value={`${kpis.marginPct}%`} delta={kpis.marginPctPointsDelta} deltaUnit="pts" comparisonLabel={kpis.comparisonPeriodLabel} />
         <MetricKpiCard index={3} icon="home" label="Occupancy" value={`${kpis.occupancyPct}%`} delta={null} comparisonLabel={kpis.comparisonPeriodLabel} />
@@ -58,7 +59,7 @@ async function ExecutiveKpiSection({ user, filters }: { user: { role: string; ow
 export default async function AnalyticsPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canSeeAnalytics(user.role)) redirect("/");
+  if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/analytics")) redirect("/");
 
   const availableUnits = await prisma.unit.findMany({
     where: dashboardUnitIdWhere(user),
@@ -171,6 +172,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
           <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`commission-${JSON.stringify(filters)}`}>
+          <CommissionSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 

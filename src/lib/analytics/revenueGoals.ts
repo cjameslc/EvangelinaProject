@@ -4,6 +4,7 @@
 // calendar month. No new database round trips for either page.
 
 import { collectedAmountPesos } from "@/lib/finance";
+import { elapsedBookings } from "@/lib/analytics/revenue";
 
 export type GoalBooking = {
   unitId: string;
@@ -62,7 +63,17 @@ export function computeUnitGoal(params: {
 }): UnitGoal {
   const { unitId, unitLabel, targetPesos, bookingsThisMonth, bookingsLastMonth, now, monthStart, monthEnd } = params;
   const own = bookingsThisMonth.filter((b) => b.unitId === unitId);
-  const currentPesos = collected(own);
+  // Elapsed-only (bookings dated before now) — same shared definition
+  // Analytics' "This month's revenue" and Dashboard's "You've earned this
+  // month" both already use (see elapsedBookings' own doc comment).
+  // Previously unfiltered here, which double-counted as a real, confirmed
+  // bug beyond just the headline number being wrong: dailyPaceSoFar below
+  // divides currentPesos by daysElapsed on the assumption that currentPesos
+  // is *only* the elapsed portion — with future-dated bookings' money
+  // folded in, that pace (and the projectedPesos/status built from it) was
+  // silently inflated toward "ahead of target."
+  const elapsedOwn = elapsedBookings(own, monthEnd, now);
+  const currentPesos = collected(elapsedOwn);
 
   const daysInMonth = Math.max(1, Math.round((monthEnd.getTime() - monthStart.getTime()) / 86400000));
   const rawElapsed = Math.floor((now.getTime() - monthStart.getTime()) / 86400000) + 1;

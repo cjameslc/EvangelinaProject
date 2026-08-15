@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { unitSchema } from "@/lib/validation";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  // Was missing entirely — the single most severe gap found in this whole
+  // audit: any OWNER_ADMIN, from any tenant, could PATCH or DELETE any
+  // unit on the platform by id, including another tenant's real property
+  // records (name, rates, TTLock lock id, active status, owner
+  // assignments). Found while investigating a much smaller Bill.ownerId
+  // fix — every other unit-targeted route in this app already had this
+  // check; this one, oddly, never did.
+  if (!await isUnitInScope(user, params.id)) return forbiddenUnitScopeResponse(user);
 
   const { ownerUserIds, icalImportUrl, ...body } = unitSchema.partial().parse(await req.json());
   const unit = await prisma.unit.update({
@@ -27,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN"]);
   if (error) return error;
+  if (!await isUnitInScope(user, params.id)) return forbiddenUnitScopeResponse(user);
 
   // Booking/Bill/CleaningLog are Restrict, not Cascade, at the DB level
   // (see schema.prisma) specifically so a unit with real history can never

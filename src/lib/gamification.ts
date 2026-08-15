@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaPool } from "@/lib/prisma";
 import { isBookingCompleted } from "@/lib/bookingStatus";
 
 export { isBookingCompleted };
@@ -29,10 +29,22 @@ export const ELITE_CHALLENGE_ROLES = ["BOOKER", "HOUSEKEEPING"] as const;
  * winner stays the winner even if new data would technically produce a
  * different ranking) — "paid once" is a hard guarantee, not just a display
  * convention.
+ *
+ * ownerId-scoped — the Challenge (real cash rewards, ₱500-5,000, with only
+ * 1-2 winner slots per tier) is per-tenant, same as everything else in the
+ * multi-owner brief. Previously unscoped: every owner's bookers/
+ * housekeeping staff competed for the same slots in one company-wide pool,
+ * so a second tenant's employee crossing a threshold first could take a
+ * real reward slot away from this tenant's own qualifying staff. The
+ * leaderboard's own *read* path (getRankedLeaderboard in
+ * leaderboard/route.ts, and my-earnings' own eliteBookerAward.findMany)
+ * was already fixed to filter by ownerId — this write path, which is what
+ * actually decides and persists who wins a slot, was the piece still
+ * missing.
  */
-export async function syncEliteBookerAwards() {
+export async function syncEliteBookerAwards(ownerId: string | null) {
   const now = new Date();
-  const bookers = await prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true }, select: { id: true } });
+  const bookers = await prisma.employee.findMany({ where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true, ownerId }, select: { id: true } });
   if (bookers.length === 0) return;
 
   // cancelledAt: null — a cancelled booking never counts toward crossing a
@@ -66,6 +78,10 @@ export async function syncEliteBookerAwards() {
   // round-trip at a time (this is called live on every leaderboard/
   // my-earnings request, see the "must never be skipped by cache" comment
   // at the call sites, so cutting the write latency here is the safe lever).
+  // Spread across prismaPool (round-robin below), not the single shared
+  // `prisma` client — libSQL serializes queries behind one mutex per
+  // client (see src/lib/prisma.ts), so Promise.all-ing writes on `prisma`
+  // alone got none of the real concurrency this was written to achieve.
   const upserts: ReturnType<typeof prisma.eliteBookerAward.upsert>[] = [];
   const monthKeys = new Set([...byEmployeeMonth.keys()].map((k) => k.split("::")[1]));
   for (const monthKey of monthKeys) {
@@ -83,7 +99,7 @@ export async function syncEliteBookerAwards() {
       for (let i = 0; i < winners.length; i++) {
         const w = winners[i];
         upserts.push(
-          prisma.eliteBookerAward.upsert({
+          prismaPool[upserts.length % prismaPool.length].eliteBookerAward.upsert({
             where: { employeeId_month_tier: { employeeId: w.employeeId, month, tier: t.tier } },
             update: {},
             create: { employeeId: w.employeeId, month, tier: t.tier, amount: t.amount, slotRank: i + 1, completedAt: w.completedAt },

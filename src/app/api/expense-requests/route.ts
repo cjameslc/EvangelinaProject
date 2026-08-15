@@ -23,9 +23,15 @@ export async function GET(req: NextRequest) {
   if (statusFilter) where.status = statusFilter;
 
   if (!isAdminViewer) {
-    const own = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+    const own = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
     if (!own) return NextResponse.json([]);
     where.employeeId = own.id;
+  } else {
+    // Employee.ownerId, not User.ownerId directly — matches how every
+    // other owner-scoped query in this app derives its tenant boundary
+    // (see unitWhere's own comment in session.ts). Without this, every
+    // Owner/Admin's approval queue showed every tenant's expense requests.
+    where.employee = { ownerId: user.ownerId };
   }
 
   const requests = await prisma.expenseRequest.findMany({ where, orderBy: { createdAt: "desc" }, take: 200, include: REQUEST_INCLUDE });
@@ -41,7 +47,7 @@ export async function POST(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
 
-  const own = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true, role: true } });
+  const own = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true, role: true } });
   if (!own || !isPayrollRole(own.role)) {
     return NextResponse.json({ error: "Only staff with a payroll record can submit an expense request." }, { status: 403 });
   }

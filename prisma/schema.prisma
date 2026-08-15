@@ -37,6 +37,15 @@ model Owner {
   secondaryColor String?
   heroImageUrl   String?
   footerText     String?
+  // JSON array of NAV_ITEMS href strings (see src/lib/constants.ts) — a
+  // restrictive ceiling layered on top of role defaults + Access
+  // Management's additive grants (see effectivePageAccess() in
+  // src/lib/pageAccess.ts). null means unrestricted — every owner that
+  // existed before this field was added, including Evangelina's own,
+  // keeps full access untouched. New owners created via Platform Admin's
+  // Create Owner flow get an explicit default tier instead (see POST
+  // /api/platform/owners).
+  enabledModules String?
   // ACTIVE | SUSPENDED — a Platform Admin action (see section 24 of the
   // multi-owner brief); a suspended owner's staff can't sign in and its
   // booking page stops accepting new bookings, but existing data is never
@@ -45,10 +54,18 @@ model Owner {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  units     Unit[]
-  users     User[]
-  employees Employee[]
-  coupons   Coupon[]
+  units          Unit[]
+  users          User[]
+  employees      Employee[]
+  coupons        Coupon[]
+  settings       Settings?
+  weeklyExpenses WeeklyExpense[]
+  laundryOrders  LaundryOrder[]
+  laundryServices LaundryService[]
+  bills          Bill[]
+  recurringExpenseTemplates RecurringExpenseTemplate[]
+  auditFindings  AuditFinding[]
+  ownerAccess    OwnerAccess[]
 
   @@map("owners")
 }
@@ -84,6 +101,13 @@ model User {
   isPlatformAdmin    Boolean  @default(false)
   avatarColor        String   @default("#FF385C")
   avatarUrl          String?  // profile picture, data-URL — kept out of the NextAuth session/JWT (would blow the cookie size limit), fetched fresh from the DB wherever it's shown
+  // Personal UI color theme (see src/lib/colorThemes.ts) — a per-account
+  // preference, same pattern as avatarColor above, deliberately separate
+  // from the business-wide Seasonal Skin System (Settings.activeSeasonalSkinId,
+  // one setting every visitor sees identically). null = no preference set
+  // yet, resolved to the default theme in code (never a migration-time
+  // backfill) — see ColorThemeProvider's doc comment.
+  colorTheme         String?
   // Guest Experience module — opt-in only: a staff member appears on the
   // Digital Guidebook's "Meet our team" card ONLY once Admin explicitly
   // flips this on for them (privacy-conscious default — most staff records
@@ -93,10 +117,24 @@ model User {
   mustChangePassword Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  // Multi-staycation switcher — the last Owner this user actively switched
+  // into (see src/lib/auth.ts's jwt callback), so returning to a second
+  // property doesn't require re-picking it every login. Null = always
+  // resolves to their home ownerId. Pushed the same way colorTheme already
+  // round-trips through the session (a plain PATCH + non-impersonation
+  // trigger==="update" branch), not part of the live JWT itself.
+  lastActiveOwnerId  String?
 
   // co-owner scoping: which units this user is allowed to see
   ownedUnits   UnitOwner[]
-  employee     Employee?
+  // One row per Owner this identity has actually earned/worked under — see
+  // Employee.userId's own doc comment for why this is no longer Employee?.
+  employees    Employee[]
+  // Multi-staycation switcher — every Owner (property) this identity may
+  // switch into, each with its own role there. The user's own `ownerId`/
+  // `role` above remain their *home* property, backfilled here as one row
+  // like everyone else's — see OwnerAccess's own doc comment.
+  ownerAccess  OwnerAccess[]
   auditLogs    AuditLog[]
   deploymentEventsCreated DeploymentEvent[]
   shifts       Shift[]
@@ -109,8 +147,98 @@ model User {
   accessCredentialsCreated AccessCredential[] @relation("AccessCredentialCreatedBy")
   accessCredentialsRevoked AccessCredential[] @relation("AccessCredentialRevokedBy")
   staffNotifications StaffNotification[]
+  additionalPageAccess MemberPageAccess[] @relation("MemberPageAccessMember")
+  pageAccessGranted    MemberPageAccess[] @relation("MemberPageAccessGrantedBy")
+  additionalActionAccess MemberActionAccess[] @relation("MemberActionAccessMember")
+  actionAccessGranted    MemberActionAccess[] @relation("MemberActionAccessGrantedBy")
 
   @@map("users")
+}
+
+// Multi-staycation switcher — every Owner (property) a User may switch
+// their live session into, without re-authenticating (see the jwt()
+// callback in src/lib/auth.ts, which mirrors the admin-impersonation
+// swap already proven there). Every existing User is backfilled to
+// exactly one row here (their current ownerId + role, i.e. their "home"
+// property) as part of the migration — purely additive, no behavior
+// change for anyone with just the one row. A second row is what makes
+// the switcher dropdown appear at all (see GET /api/staycations).
+//
+// role is per-row, not read off User.role, because a person's role can
+// genuinely differ by property (confirmed real usage: e.g. an admin at
+// one property might only be a Booker helping out at another) — the
+// *active* session's role always comes from whichever row matches the
+// currently-selected ownerId, never a single global value.
+//
+// Deliberately NOT how a person gets access to a second property today
+// (see PlatformView.tsx's "Add employee to another staycation" flow,
+// which creates a genuinely separate User account instead) — that flow
+// still exists for someone who really should have an independent login.
+// This table is the new, additive path: the SAME identity, granted into
+// more than one tenant. Only ever written via a platform-admin-gated
+// route (see requirePlatformAdmin() in ownerScope.ts) — cross-tenant
+// visibility is never something one owner's own admin can hand out into
+// another owner's data.
+model OwnerAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ownerId   String
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  role      String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, ownerId])
+  @@map("owner_access")
+}
+
+// Owner-configurable additive page access, layered on top of the base
+// role's own nav/route permissions (see NAV_ITEMS in constants.ts and
+// ROUTE_ROLES in middleware.ts, both of which stay the source of truth for
+// each role's *default* pages) — this table only ever ADDS a page a
+// member's role wouldn't otherwise see, never removes one. There is no
+// explicit-deny concept anywhere in the existing RBAC (canEditBookings,
+// unitScope, isUnitInScope, etc. are all additive/binary per-role), so this
+// deliberately doesn't invent one either — see effectivePageAccess() in
+// src/lib/pageAccess.ts for the actual resolver every layer (nav,
+// middleware, this feature's own API) shares.
+model MemberPageAccess {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("MemberPageAccessMember", fields: [userId], references: [id], onDelete: Cascade)
+  // One of NAV_ITEMS' href values (e.g. "/analytics") — validated against
+  // GRANTABLE_PAGES server-side on every write, never trusted raw from a
+  // request body.
+  page        String
+  grantedById String
+  grantedBy   User     @relation("MemberPageAccessGrantedBy", fields: [grantedById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, page])
+  @@map("member_page_access")
+}
+
+// Page access says "can see this page at all" — this is the layer below
+// it: individual transactions (create/edit/delete/financial-write) that a
+// page's own role-based checks already gate one at a time (canEditBookings,
+// canDeleteBookings, isReadOnlyFinancials, canEditHousekeeping, all in
+// rbac.ts). Same additive-only shape as MemberPageAccess, same reasoning —
+// see GRANTABLE_ACTIONS in src/lib/actionAccess.ts for the actual key
+// registry and hasActionAccess() for the one resolver every route consults
+// instead of calling its role-check function directly.
+model MemberActionAccess {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("MemberActionAccessMember", fields: [userId], references: [id], onDelete: Cascade)
+  // One of GRANTABLE_ACTIONS' key values (e.g. "bookings.delete") —
+  // validated server-side on every write, same as MemberPageAccess.page.
+  action      String
+  grantedById String
+  grantedBy   User     @relation("MemberActionAccessGrantedBy", fields: [grantedById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, action])
+  @@map("member_action_access")
 }
 
 // Links a CO_OWNER user to the units that belong to them.
@@ -203,6 +331,7 @@ model Unit {
   reserveAccessCodes ReserveAccessCode[]
   accessCredentials AccessCredential[]
 
+  @@index([ownerId])
   @@map("units")
 }
 
@@ -242,7 +371,15 @@ model Employee {
   name         String
   role         String     @default("BOOKER")
   payRateNote  String?
-  userId       String?  @unique
+  // Was a plain @unique (one Employee per User, system-wide) until the
+  // multi-staycation switcher — a single identity can now be granted
+  // access to more than one Owner (see OwnerAccess), and each property's
+  // commission/payroll needs its own real Employee row there, so this is
+  // now "at most one Employee per (User, Owner) pair" instead. Every call
+  // site that looks up "my own Employee record" must filter by both
+  // userId AND the caller's *active* ownerId now, never userId alone —
+  // see the composite unique below.
+  userId       String?
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -290,6 +427,12 @@ model Employee {
   assignedAccessCredentials AccessCredential[]
 
   @@index([active])
+  @@index([ownerId, active])
+  // Replaces the old plain userId @unique — see the field's own doc
+  // comment above. SQLite/libSQL treats every NULL as distinct from every
+  // other NULL in a unique index, so this still allows unlimited
+  // payroll-only Employee rows with userId = null, exactly as before.
+  @@unique([userId, ownerId])
   @@map("employees")
 }
 
@@ -343,6 +486,12 @@ model WeeklyExpense {
   note             String
   targetEmployeeId String?
   targetEmployee   Employee?             @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+  // A TIKTOK_ADS entry is deliberately untargeted (no targetEmployeeId), so
+  // unlike ExpenseRequest (always scoped via its required employeeId ->
+  // Employee.ownerId), this needs its own ownerId — same nullable pattern
+  // as Employee.ownerId/Coupon.ownerId above.
+  ownerId          String?
+  owner            Owner?                @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   // GENERAL entries targeted at an employee are payroll adjustments (the
   // pre-existing "Salary"/deduction behavior). TIKTOK_ADS is always
   // untargeted — an operational expense that deducts from Net Profit but
@@ -802,6 +951,12 @@ model Stock {
 
 model Bill {
   id         String        @id @default(cuid())
+  // Nullable, standard pattern — the real tenant boundary, independent of
+  // unitId (which is itself nullable for a site-wide bill with no single
+  // unit to derive ownership from). Was previously the one write path in
+  // Housekeeping with no way at all to scope a null-unitId row by tenant.
+  ownerId    String?
+  owner      Owner?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   unitId     String?       // null = a shared/site-wide expense not tied to one unit (e.g. the shared Internet line)
   // Restrict — a unit with real bill/payment history must never be
   // deletable out from under that history. See Booking.unit above.
@@ -854,6 +1009,12 @@ model Bill {
 // already-generated bills (paid or not) are untouched, preserving history.
 model RecurringExpenseTemplate {
   id             String    @id @default(cuid())
+  // Nullable, standard pattern — needed independently of unitId since a
+  // site-wide template (unitId null) has no unit to derive a tenant from.
+  // Found unscoped during the Felian multi-owner audit: ensureRecurringBillsForMonth
+  // generated bills from every tenant's active templates on every page load.
+  ownerId        String?
+  owner          Owner?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   category       String
   unitId         String?   // null = shared/site-wide (e.g. Internet)
   unit           Unit?     @relation(fields: [unitId], references: [id], onDelete: Cascade)
@@ -877,6 +1038,12 @@ model RecurringExpenseTemplate {
 // review, follow up on, and resolve.
 model AuditFinding {
   id                String          @id @default(cuid())
+  // Nullable, standard pattern — needed independently since both unitId and
+  // employeeId below are nullable too (a "general" finding tied to
+  // neither), so neither relation is guaranteed to exist to derive a
+  // tenant from.
+  ownerId           String?
+  owner             Owner?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   auditorName       String
   reviewDate        DateTime
   unitId            String?
@@ -903,8 +1070,20 @@ model AuditFinding {
 }
 
 // Site-wide settings, managed from the Admin page.
+// One row per Owner (tenant) — was formerly a true global singleton
+// (id Int @id @default(1), exactly one row, shared by every tenant on the
+// platform). Migrated once multi-owner support made that a real collision
+// risk: a second owner editing rates/business-info/logo via the existing
+// Admin -> Settings UI would have silently overwritten Evangelina's real
+// live row. ownerId is @unique so `where: { ownerId }` works as an upsert
+// target the same way `where: { id: 1 }` used to — every call site now
+// resolves ownerId from the authenticated user (or, for the handful of
+// genuinely session-less guest/cron paths, from getDefaultOwnerId() in
+// src/lib/ownerScope.ts) instead of hardcoding id: 1.
 model Settings {
-  id            Int      @id @default(1)
+  id            Int      @id @default(autoincrement())
+  ownerId       String   @unique
+  owner         Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessName  String   @default("Evangelina's Staycation")
   address       String   @default("Cubao, Quezon City")
   nightlyRate   Int      @default(1799)
@@ -949,6 +1128,17 @@ model Settings {
   hostName    String?
   hostPhotoUrl String?
   hostBio      String?
+
+  // Guest payment — a real QR code (GCash/bank app scan-to-pay) shown
+  // during the guest booking flow's mandatory payment step, so "please
+  // pay ₱X" is finally something a guest can actually act on inside the
+  // app instead of just descriptive text with no account/QR to pay
+  // against. Null until Admin uploads one (same hide-until-configured
+  // convention as hostPhotoUrl above) — the payment step falls back to
+  // asking the guest to upload proof from whatever payment method they
+  // already know, same as before this field existed.
+  paymentQrUrl String?
+  paymentInstructions String? // e.g. "GCash: 0912 345 6789 (Juan Dela Cruz)" — shown under the QR
 
   // Payroll rates — the "Your team" formula on Dashboard/Admin reads these
   // instead of hardcoding them, so Admin can tune pay without a code change.
@@ -1029,6 +1219,16 @@ model Settings {
   // matches today) applies instead. See resolveActiveSkinId's Manual >
   // Scheduled > Default priority order.
   activeSeasonalSkinId String?
+
+  // Security Monitor (src/lib/access/) — TTLock usernames that should
+  // never generate an "unauthorized access" alert even with no matching
+  // booking/credential (e.g. "Admin" — confirmed live on this account's
+  // real access log as the owner's own recurring physical/master-code
+  // entry, dozens of times, with no booking behind any of them by design).
+  // JSON-encoded string[], same convention as celebrationPackageItems
+  // below. Null/unset falls back to a single sane default ("Admin") in
+  // code rather than needing a migration-time backfill.
+  trustedTtlockUsernames String?
 
   updatedAt     DateTime @updatedAt
 
@@ -1141,6 +1341,7 @@ model AuditLog {
 
   @@index([createdAt])
   @@index([action, createdAt])
+  @@index([entity, entityId])
   @@map("audit_log")
 }
 
@@ -1353,7 +1554,52 @@ model AccessCredential {
   @@index([unitId, status])
   @@index([createdAt])
   @@index([assignedEmployeeId, status])
+  @@index([code])
   @@map("access_credentials")
+}
+
+// One row per real TTLock unlock/access record (fetched via
+// listTtlockAccessRecords — TTLock has no webhook for this account tier,
+// so this is populated by polling, see src/lib/access/eventSync.ts) with
+// this app's own authorization decision already computed and stored
+// alongside it — the whole point being "TTLock accepted the code" and
+// "our application authorized this access" are two different questions,
+// and this table is where the second one's answer lives.
+//
+// Deliberately denormalized (unitId/credentialId/bookingId are plain
+// columns, no Prisma @relation/FK) — same convention already used for
+// ReserveAccessCode.guestId elsewhere in this schema: a security event
+// log must keep meaning what it meant even if the unit/credential/booking
+// it referenced is later deleted, not silently lose its trail via a
+// cascade. ttlockRecordId is unique so re-polling the same real TTLock
+// record twice (the normal case — a poll window overlaps the previous
+// one on purpose so nothing is ever missed at the boundary) is a no-op,
+// never a duplicate alert.
+model AccessEvent {
+  id                String    @id @default(cuid())
+  ttlockRecordId    String    @unique
+  lockId            String
+  unitId            String?
+  occurredAt        DateTime
+  success           Boolean
+  // Never the real code — masked to its last 2 characters only (see the
+  // module doc comment in eventClassifier.ts for why even that little is
+  // still useful for a human matching an event to "the code I just gave
+  // the guest" without this table ever holding a working credential).
+  passcodeMasked    String?
+  ttlockUsername    String?
+  credentialId      String?
+  bookingId         String?
+  classification    String
+  severity          String
+  reason            String
+  dismissedAt       DateTime?
+  dismissedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  @@index([unitId, occurredAt])
+  @@index([severity, dismissedAt])
+  @@map("access_events")
 }
 
 // Singleton (id always 1) — the Owner Dashboard's "TTLock API connection
@@ -1380,14 +1626,10 @@ model Coupon {
   // Coupon has no unit/user relation to derive ownership from (it's not
   // tied to a specific unit), so it needs this directly — same as Unit/
   // User/Employee. Nullable for the same backfill-safety reason as those.
-  // NOTE: this scopes the Admin list/create paths only. The guest-facing
-  // checkCoupon() (used at actual checkout, src/lib/bookingEngine/
-  // couponService.ts) still looks a code up globally by its unique code
-  // with no owner check — a real remaining gap, deliberately not closed
-  // here since fixing it means threading unitId through the guest coupon-
-  // check API and its frontend caller, not just a backend query. Zero
-  // present-day impact (only one owner exists), documented rather than
-  // silently left implicit.
+  // checkCoupon() (src/lib/bookingEngine/couponService.ts) now requires
+  // ownerId and scopes its lookup by it — both guest call sites resolve
+  // the real owner from the unit being booked before calling it, closing
+  // what was previously a global-by-code lookup with no tenant check.
   ownerId     String?
   owner       Owner?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   code        String    @unique
@@ -1546,6 +1788,14 @@ model AssistantEscalation {
 // totalQuantity.
 model LaundryService {
   id                    String   @id @default(cuid())
+  // Nullable, same pattern as Employee/Coupon/WeeklyExpense.ownerId — each
+  // tenant configures its own laundry rate card, same as every other
+  // owner-configurable rate in this app (Settings, Coupon). Found unscoped
+  // (platform-wide, shared by every tenant) during the Felian
+  // multi-owner audit; zero real rows existed at the time, so this is a
+  // pure additive fix with nothing to backfill.
+  ownerId               String?
+  owner                 Owner?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   name                  String
   description           String?
   pricePerKg            Int?     // whole pesos per kilogram
@@ -1571,6 +1821,14 @@ model LaundryService {
 model LaundryOrder {
   id            String    @id @default(cuid())
   orderNumber   String    @unique // "LDY-000123", sequential — see laundryOrderNumber.ts
+  // Stamped from the creating user's own ownerId — unlike unitId below,
+  // this is never null in practice (every order is created by a real
+  // logged-in staff member of exactly one tenant), but nullable to match
+  // this app's established ownerId pattern everywhere else. A walk-in
+  // order (unitId null) still needs this to know which tenant it belongs
+  // to — unitId alone can't carry that for a walk-in.
+  ownerId       String?
+  owner         Owner?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
   customerName  String
   roomNumber    String?

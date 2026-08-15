@@ -20,7 +20,7 @@ type Booking = {
   unit: { id: string; name: string; shortName: string; unitNumber: string; photoUrl: string | null; location: string };
 };
 
-export function BookingDetailClient({ booking }: { booking: Booking }) {
+export function BookingDetailClient({ booking, paymentQrUrl, paymentInstructions }: { booking: Booking; paymentQrUrl?: string | null; paymentInstructions?: string | null }) {
   const router = useRouter();
   const [cancelling, setCancelling] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -201,6 +201,16 @@ export function BookingDetailClient({ booking }: { booking: Booking }) {
           <p className="mt-1 text-[13px] font-semibold text-[var(--ink)]">
             {peso(amountDueNow)} down payment due now — {peso(booking.amount - amountDueNow)} balance due later.
           </p>
+        )}
+        {!booking.paid && !booking.cancelledAt && (paymentQrUrl || paymentInstructions) && !(dpPending ? booking.dpProofUrl : booking.proofUrl) && (
+          <div className="mt-3 rounded-xl border border-[var(--line)] p-3 text-center">
+            <p className="mb-2 text-[12.5px] font-semibold text-[var(--ink)]">Scan to pay {peso(amountDueNow)}</p>
+            {paymentQrUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={paymentQrUrl} alt="Payment QR code" className="mx-auto h-40 w-40 rounded-lg border border-[var(--line)] object-contain" />
+            )}
+            {paymentInstructions && <p className="mt-2 whitespace-pre-line text-left text-[12px] text-[var(--gray)]">{paymentInstructions}</p>}
+          </div>
         )}
         {!booking.paid && !booking.cancelledAt && (
           <div className="mt-3">

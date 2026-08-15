@@ -1,6 +1,6 @@
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { parseICS } from "@/lib/ical";
-import { occupiedRange, rangesOverlap, nightsFor, getOccupiedWindow, lastOccupiedDay } from "@/lib/calendarMirror";
+import { nightsFor, getOccupiedWindow, lastOccupiedDay, bookingsConflict } from "@/lib/calendarMirror";
 import { AIRBNB_NIGHTLY_RATE, AIRBNB_DEFAULT_TIMES } from "@/lib/constants";
 
 /** Same upsert syncCalendarMirror does, but against a transaction's own `tx`
@@ -22,6 +22,29 @@ async function mirrorCalendarBlockTx(tx: PrismaTransactionClient, booking: { id:
 /** Airbnb .ics events carry no price — revenue is nights x the fixed per-night rate. DTEND is exclusive, so this is exact. */
 function airbnbRevenue(start: Date, end: Date): number {
   return nightsFor("Full", start, end) * AIRBNB_NIGHTLY_RATE;
+}
+
+/**
+ * Re-runs the overlap check against the transaction's own live view, right
+ * before the write. The `others` snapshot the sync loop fetched at the top
+ * of doSync() can be seconds-to-minutes stale by the time a given event's
+ * transaction actually runs (the loop processes every event in the feed
+ * sequentially) — a manual booking created in that window is invisible to
+ * the stale snapshot, so without this re-check both rows could land and
+ * genuinely overlap. Manual/edit booking creation already re-checks inside
+ * its own transaction (see bookingService.ts) — this brings the sync path
+ * to the same standard.
+ */
+async function overlapsManualTx(
+  tx: PrismaTransactionClient,
+  unitId: string,
+  evAsBooking: { stayType: string; date: Date; checkOutDate: Date | null; checkInTime: string; checkOutTime: string }
+): Promise<boolean> {
+  const others = await tx.booking.findMany({
+    where: { unitId, source: { not: "AIRBNB" }, cancelledAt: null },
+    select: { date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true },
+  });
+  return others.some((o) => bookingsConflict(evAsBooking, o));
 }
 
 export type IcalSyncResult = {
@@ -55,8 +78,11 @@ async function recordSyncError(unitId: string, message: string) {
 /**
  * Reconciles a unit's Bookings with its configured Airbnb .ics feed:
  * creates newly-seen blocks, updates ones whose dates moved, removes ones
- * Airbnb no longer lists, and flags (never silently overwrites) anything
- * that overlaps an existing manual/website/admin booking.
+ * Airbnb no longer lists, and refuses to accept (never silently
+ * double-books) anything that really overlaps — by actual check-in/
+ * check-out timestamp, not just calendar day — an existing manual/website/
+ * admin booking. A rejected reservation is retried on every future sync
+ * until the conflict is resolved on one side.
  */
 export async function syncUnitFromAirbnb(unitId: string, syncType: "AUTOMATIC" | "MANUAL" = "MANUAL"): Promise<IcalSyncResult> {
   const startedAt = new Date();
@@ -136,8 +162,11 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
       select: { id: true, externalUid: true, date: true, checkOutDate: true, amount: true, paid: true, conflict: true },
     }),
     prisma.booking.findMany({
-      where: { unitId, source: { not: "AIRBNB" } },
-      select: { date: true, checkOutDate: true, stayType: true },
+      // cancelledAt: null was missing — a cancelled manual booking was
+      // still treated as occupying the unit, permanently blocking a real
+      // Airbnb reservation for those same dates from ever importing.
+      where: { unitId, source: { not: "AIRBNB" }, cancelledAt: null },
+      select: { date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true },
     }),
   ]);
 
@@ -154,12 +183,33 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
   }
 
   for (const ev of activeEvents) {
-    const overlapsManual = others.some((o) =>
-      rangesOverlap(ev.start, ev.end, o.date, occupiedRange(o.stayType, o.date, o.checkOutDate).end)
-    );
+    // Real check-in/check-out timestamps, not just calendar days — a manual
+    // booking checking out 16:00 and an Airbnb import checking in 14:00 the
+    // same nominal day are calendar-day-adjacent (not "overlapping" under a
+    // whole-day range comparison) but genuinely double-book the unit for 2
+    // real hours. bookingsConflict is this app's one real source of truth
+    // for "do these two bookings actually overlap" (see its doc comment in
+    // stayRange.ts) — this used to reimplement its own, older, day-only
+    // version of that check, which is exactly the class of bug already fixed
+    // there for manually-created bookings but never carried over here.
+    const evAsBooking = { stayType: "Full", date: ev.start, checkOutDate: ev.end, checkInTime: AIRBNB_DEFAULT_TIMES.checkInTime, checkOutTime: AIRBNB_DEFAULT_TIMES.checkOutTime };
+    const overlapsManual = others.some((o) => bookingsConflict(evAsBooking, o));
     const existing = existingImported.find((b) => b.externalUid === ev.uid);
 
     if (existing) {
+      if (overlapsManual) {
+        // Never move an already-imported booking onto dates that would
+        // create a real double-booking — leave it exactly where it last
+        // synced instead of following Airbnb onto the conflicting dates.
+        // Every sync re-checks this, so once the conflicting manual booking
+        // is edited/cancelled (or the Airbnb reservation itself is
+        // cancelled upstream, which the staleIds cleanup above handles),
+        // the very next sync accepts the real dates automatically — no
+        // manual re-import needed once it's actually resolved.
+        if (!existing.conflict) await prisma.booking.update({ where: { id: existing.id }, data: { conflict: true } });
+        conflicts++;
+        continue;
+      }
       const dateChanged = existing.date.getTime() !== ev.start.getTime() || (existing.checkOutDate?.getTime() ?? null) !== ev.end.getTime();
       const revenue = airbnbRevenue(ev.start, ev.end);
       // Also backfills bookings imported before automatic revenue detection
@@ -167,32 +217,64 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
       // otherwise they'd never pick up a price until Airbnb happened to
       // change something.
       const revenueStale = existing.amount !== revenue || !existing.paid;
-      if (dateChanged || existing.conflict !== overlapsManual || revenueStale) {
+      if (dateChanged || existing.conflict || revenueStale) {
         // Booking write + its calendar-mirror upsert, atomically — a timeout
         // between the two used to be able to leave a booking's dates moved
         // with the calendar still showing the old ones (or vice versa) until
         // the next sync happened to touch it again.
-        await prisma.$transaction(async (tx) => {
+        const raceConflict = await prisma.$transaction(async (tx) => {
+          // Re-check against the transaction's own live view — a manual
+          // booking created after this sync's outer snapshot but before
+          // this transaction runs would otherwise be invisible here.
+          if (await overlapsManualTx(tx, unitId, evAsBooking)) {
+            await tx.booking.update({ where: { id: existing.id }, data: { conflict: true } });
+            return true;
+          }
           const booking = await tx.booking.update({
             where: { id: existing.id },
             // Dates moved (a guest's stay got modified upstream) — recompute
             // revenue from the new night count so it never drifts from what's
-            // actually on the calendar.
-            data: { date: ev.start, checkOutDate: ev.end, conflict: overlapsManual, amount: revenue, paid: true },
+            // actually on the calendar. conflict is always false here —
+            // the overlapsManual branch above already handled (and
+            // continue'd past) the true case.
+            data: { date: ev.start, checkOutDate: ev.end, conflict: false, amount: revenue, paid: true },
           });
           await mirrorCalendarBlockTx(tx, booking);
+          return false;
         });
-        if (dateChanged) updated++;
+        if (raceConflict) conflicts++;
+        else if (dateChanged) updated++;
       }
       continue;
     }
 
-    // Never overwrite an existing manual/website/admin booking — record the
-    // import alongside it, flagged, so an admin can review and resolve it.
+    // A brand-new Airbnb reservation that overlaps an existing manual/
+    // website booking's *real* check-in/check-out times (not just calendar
+    // days — see bookingsConflict above) is a genuine double-booking, e.g.
+    // a guest paying for a 4pm late checkout while Airbnb's own default
+    // check-in is 2pm the same day. Don't accept it into the system at all
+    // — no Booking row, no calendar block, no revenue counted — so the unit
+    // never shows as available to two guests at once. It stays unimported
+    // (re-counted as a conflict on every sync, surfaced via the sync
+    // toast/history) until the conflict is actually resolved on one side,
+    // at which point the next sync imports it normally.
+    if (overlapsManual) {
+      conflicts++;
+      continue;
+    }
+
     // Airbnb collects payment off-platform and remits it directly, so an
     // imported booking counts as paid revenue as soon as it's synced — there's
     // no local payment step for staff to log.
-    await prisma.$transaction(async (tx) => {
+    const raceConflict = await prisma.$transaction(async (tx) => {
+      // Re-check against the transaction's own live view — the outer
+      // overlapsManual above was computed from a snapshot fetched once at
+      // the top of this sync run, which can be stale by the time this
+      // specific event's transaction actually executes (events are
+      // processed one at a time). Without this, a manual booking created
+      // in that window could still slip past and genuinely double-book the
+      // unit alongside this Airbnb import.
+      if (await overlapsManualTx(tx, unitId, evAsBooking)) return true;
       const booking = await tx.booking.create({
         data: {
           unitId,
@@ -208,13 +290,13 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
           paid: true,
           source: "AIRBNB",
           externalUid: ev.uid,
-          conflict: overlapsManual,
         },
       });
       await mirrorCalendarBlockTx(tx, booking);
+      return false;
     });
-    imported++;
-    if (overlapsManual) conflicts++;
+    if (raceConflict) conflicts++;
+    else imported++;
   }
 
   await prisma.unit.update({ where: { id: unitId }, data: { icalLastSyncAt: new Date(), icalLastSyncError: null } });

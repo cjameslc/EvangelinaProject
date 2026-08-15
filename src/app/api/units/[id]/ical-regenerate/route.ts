@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 
 // Replaces a unit's export token — the previous URL stops working the
 // instant this commits (the old token no longer matches any unit), so this
@@ -13,6 +13,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   const existing = await prisma.unit.findUnique({ where: { id: params.id }, select: { id: true, icalToken: true } });
   if (!existing) return NextResponse.json({ error: "Unit not found." }, { status: 404 });
+  if (!await isUnitInScope(user, params.id)) return forbiddenUnitScopeResponse(user);
 
   const unit = await prisma.unit.update({
     where: { id: params.id },

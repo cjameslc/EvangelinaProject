@@ -1,6 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
+import { effectivePageAccess } from "@/lib/pageAccess";
 
 const ROUTE_ROLES: Record<string, string[]> = {
   "/dashboard": ["OWNER_ADMIN", "CO_OWNER"],
@@ -22,6 +23,41 @@ const ROUTE_ROLES: Record<string, string[]> = {
 const IMPERSONATION_TIMEOUT_MS = 30 * 60 * 1000;
 const SESSION_COOKIE_NAMES = ["__Secure-next-auth.session-token", "next-auth.session-token"];
 
+/**
+ * Edge middleware can't hold a live Prisma connection, so this hits the app's
+ * own tiny cached flag endpoint instead (see getCachedMaintenanceFlag /
+ * /api/deployment/maintenance-flag), which does the real (unstable_cache'd)
+ * DB read. `next: { revalidate }` on this fetch is a Route
+ * Handler/Server Component data-cache feature — it isn't documented as
+ * guaranteed to apply inside Edge Middleware specifically, so this also
+ * keeps its own best-effort module-scope cache (persists across requests
+ * on a warm edge instance, not a hard guarantee across every instance/
+ * region) as a second layer: on the very common case of a cache hit, this
+ * skips the network hop entirely instead of paying it on every single
+ * staff page load. Fails open on any error — never let a flag-check hiccup
+ * lock staff out of the app.
+ */
+let maintenanceFlagCache: { value: boolean; fetchedAt: number } | null = null;
+const MAINTENANCE_FLAG_TTL_MS = 15_000;
+
+async function isMaintenanceActive(req: { url: string }): Promise<boolean> {
+  if (maintenanceFlagCache && Date.now() - maintenanceFlagCache.fetchedAt < MAINTENANCE_FLAG_TTL_MS) {
+    return maintenanceFlagCache.value;
+  }
+  try {
+    const res = await fetch(new URL("/api/deployment/maintenance-flag", req.url), { next: { revalidate: 15 } });
+    if (!res.ok) return maintenanceFlagCache?.value ?? false;
+    const data = (await res.json()) as { active?: boolean };
+    const value = !!data.active;
+    maintenanceFlagCache = { value, fetchedAt: Date.now() };
+    return value;
+  } catch {
+    // Serve the last known value rather than a hard "false" on a transient
+    // blip — closer to the real state than always assuming "not active".
+    return maintenanceFlagCache?.value ?? false;
+  }
+}
+
 export default withAuth(
   async function middleware(req) {
     const { pathname } = req.nextUrl;
@@ -40,9 +76,30 @@ export default withAuth(
       response = NextResponse.next();
     } else {
       const matched = Object.keys(ROUTE_ROLES).find((base) => pathname.startsWith(base));
-      response = matched && role && !ROUTE_ROLES[matched].includes(role)
-        ? NextResponse.redirect(new URL("/", req.url))
-        : NextResponse.next();
+      // effectivePageAccess folds in Access Management's per-member
+      // additive grants (token.additionalPageAccess, kept fresh by the
+      // same throttled DB revalidation the jwt() callback already does for
+      // role/ownerId — no extra DB call needed here at the edge) on top of
+      // ROUTE_ROLES' own role defaults, so a grant takes effect here, not
+      // just in the nav. Hiding a tab is not enforcement on its own — this
+      // is the actual gate a direct URL visit still has to pass.
+      const allowed = matched
+        ? effectivePageAccess(role, (token?.additionalPageAccess as string[] | undefined) ?? [], (token?.ownerEnabledModules as string[] | null | undefined) ?? null).includes(matched)
+        : true;
+      if (matched && role && !allowed) {
+        response = NextResponse.redirect(new URL("/", req.url));
+      } else if (matched && role && role !== "OWNER_ADMIN" && (await isMaintenanceActive(req))) {
+        // Full maintenance mode: every staff route this app already
+        // role-gates (dashboard/analytics/bookings/calendar/housekeeping/
+        // auditor/admin) bounces to the maintenance page for everyone
+        // except OWNER_ADMIN, who can still get in to check on things or
+        // turn maintenance mode back off. The guest-facing site ("/",
+        // "/book", "/my-bookings/[id]") isn't in ROUTE_ROLES at all, so
+        // `matched` is never true there — untouched by design.
+        response = NextResponse.redirect(new URL("/maintenance", req.url));
+      } else {
+        response = NextResponse.next();
+      }
     }
 
     if (token?.impersonating) {

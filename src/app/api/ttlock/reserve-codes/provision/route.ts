@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser, logAudit } from "@/lib/session";
-import { provisionReserveCodesForUnit } from "@/lib/ttlock/reliability";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
+import { provisionReserveCodesForUnit } from "@/lib/access/service";
 
 const bodySchema = z.object({ unitId: z.string().min(1) });
 
@@ -14,6 +14,10 @@ export async function POST(req: NextRequest) {
   if (error) return error;
 
   const { unitId } = bodySchema.parse(await req.json());
+  // Without this, any Owner/Admin could pass another tenant's unitId and
+  // provision 10 real permanent unlock codes onto that tenant's physical
+  // lock — a physical-security compromise, not just a data leak.
+  if (!await isUnitInScope(user, unitId)) return forbiddenUnitScopeResponse(user);
 
   let result;
   try {

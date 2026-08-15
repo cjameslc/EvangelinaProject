@@ -197,6 +197,11 @@ export const profileSchema = z.object({
   avatarUrl: z.string().nullable().optional(),
   currentPassword: z.string().optional(),
   newPassword: z.string().min(6).optional(),
+  // Personal color theme (see src/lib/colorThemes.ts) — validated against
+  // the real theme id set in the route itself (isColorThemeId), not here,
+  // since this schema has no import of that app-level constant; null clears
+  // back to no preference (resolves to the default theme in code).
+  colorTheme: z.string().nullable().optional(),
 });
 
 export const userSchema = z.object({
@@ -219,6 +224,36 @@ export const createOwnerSchema = z.object({
   phone: z.string().max(32).optional(),
   primaryColor: z.string().max(20).optional(),
   logoUrl: z.string().max(2000).nullable().optional(),
+  // Omitted entirely -> the route's own default 5-module starter tier.
+  // Explicit null -> unrestricted from day one. An array -> that exact
+  // custom tier. See effectivePageAccess() in src/lib/pageAccess.ts.
+  enabledModules: z.array(z.string()).nullable().optional(),
+});
+
+// An OWNER_ADMIN editing their own tenant's display name/icon after
+// creation — see PATCH /api/owner-profile. Deliberately just these two
+// fields (not primaryColor/slug/etc — those aren't rendered anywhere yet
+// and changing slug would break anything keyed off it).
+export const ownerProfileSchema = z.object({
+  businessName: z.string().min(1).max(120),
+  logoUrl: z.string().max(2000).nullable().optional(),
+});
+
+// Platform Admin editing an EXISTING owner's tenant details (as opposed to
+// the Create Owner flow, or an owner's own self-service /api/owner-profile
+// above) — see PATCH /api/platform/owners/[id]. Every field optional so
+// the same route serves both this broader "Edit tenant" modal and the
+// narrower "Edit page access" one (which sends only enabledModules).
+// slug is deliberately not editable here — Owner.slug is what
+// getDefaultOwnerId() and every guest-facing default-owner resolution key
+// off of; changing it for the wrong owner is exactly the kind of mistake
+// this form should make structurally impossible, not just discouraged.
+export const updateOwnerSchema = z.object({
+  businessName: z.string().min(1).max(120).optional(),
+  primaryColor: z.string().max(20).nullable().optional(),
+  logoUrl: z.string().max(2000).nullable().optional(),
+  status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+  enabledModules: z.array(z.string()).nullable().optional(),
 });
 
 export const billUpdateSchema = z.object({
@@ -315,6 +350,8 @@ export const settingsSchema = z.object({
   hostName: z.string().nullable().optional(),
   hostPhotoUrl: z.string().nullable().optional(),
   hostBio: z.string().nullable().optional(),
+  paymentQrUrl: z.string().nullable().optional(),
+  paymentInstructions: z.string().max(500).nullable().optional(),
   // .nullable() as well as .optional() — GET /api/settings genuinely
   // returns null for any of these until an admin saves once (see
   // src/lib/prisma.ts's parse extension), and the natural client pattern is

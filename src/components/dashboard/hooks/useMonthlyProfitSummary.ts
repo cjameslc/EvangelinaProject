@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { totalSalaryPayroll, type SalaryHistoryEntry } from "@/lib/payroll";
-import { netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos, collectedAmountPesos } from "@/lib/finance";
+import { netProfitCentavos as computeNetProfitCentavos, marginPct, cashFlowCentavos, collectedAmountPesos, grossAmountPesos } from "@/lib/finance";
 import { isCompletedStay } from "./completedStay";
 import type { Booking, Employee, WeeklyExpenseRow } from "../types";
 
@@ -46,9 +46,16 @@ export function useMonthlyProfitSummary({
   );
   // Full booked value of every reservation this month, completed or not —
   // "if everything gets collected as booked," the ceiling Forecast profit
-  // measures against.
+  // measures against. grossAmountPesos, not bare b.amount — amount alone
+  // is only the remaining balance once a downpayment's been verified (see
+  // its doc comment in finance.ts), which was silently understating this
+  // ceiling for every downpayment booking. Cancelled bookings are excluded
+  // entirely (same rule Analytics' Gross Revenue uses) — a cancelled stay
+  // isn't a real reservation to forecast toward; any deposit it kept is
+  // already real, already-collected money, counted separately in
+  // displayedPeriodIncome above via collectedAmountPesos, not owed twice.
   const expectedMonthIncome = useMemo(
-    () => bookingsMonth.reduce((sum, b) => sum + b.amount, 0),
+    () => bookingsMonth.reduce((sum, b) => sum + (b.cancelledAt ? 0 : grossAmountPesos(b)), 0),
     [bookingsMonth]
   );
   // This calendar month's start, as the reference point for looking up

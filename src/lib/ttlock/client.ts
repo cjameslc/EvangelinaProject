@@ -16,7 +16,7 @@ const DOMAIN = "https://api.ttlock.com";
 
 // None of these calls had a timeout before — a hung TTLock API (as opposed
 // to a fast error) would hang the whole attempt indefinitely, which starves
-// reliability.ts's withRetry() of the ability to actually retry (it can't
+// src/lib/access/service.ts's withRetry() of the ability to actually retry (it can't
 // move to attempt 2 if attempt 1 never settles) and, for the one call site
 // that's awaited into a response (booking cancel/edit), risks the request
 // hanging until the platform's own hard timeout. 8s comfortably covers a
@@ -105,10 +105,9 @@ export async function listTtlockLocks(): Promise<TtlockKey[]> {
 }
 
 /** Adds a temporary or permanent custom passcode to a WiFi/gateway-connected
- * lock (addType=2 — cloud-pushed, not a phone-bluetooth write). Not used by
- * the current battery-monitoring feature, but proven working this session
- * (add + delete round-trip against a live lock) — kept here as the base
- * primitive for the deferred per-booking e-key feature. */
+ * lock (addType=2 — cloud-pushed, not a phone-bluetooth write). The base
+ * primitive src/lib/access/service.ts builds the real per-booking and
+ * emergency-admin credential flows on top of. */
 export async function addTtlockPasscode(params: {
   lockId: number;
   passcode: string;
@@ -170,6 +169,74 @@ export async function addTtlockPermanentPasscode(params: {
   const json = await res.json();
   if (!json.keyboardPwdId) throw new Error(`TTLock permanent passcode add failed: ${json.errmsg || JSON.stringify(json)}`);
   return json;
+}
+
+export type TtlockAccessRecord = {
+  recordId: number;
+  lockId: number;
+  /** When the lock itself reports the event happened — the one this app's
+   * classifier compares against credential validFrom/validUntil, since a
+   * guest's actual entry time is what matters, not when TTLock's servers
+   * heard about it. */
+  lockDate: number;
+  /** When TTLock's own servers received/logged the event — can lag
+   * lockDate by seconds to minutes on a gateway-relayed lock; kept only
+   * for diagnostics, never used for the authorization time-window check. */
+  serverDate: number;
+  /** 1 = the lock actually opened; 0 = a rejected attempt (wrong/expired
+   * code) — TTLock still logs these, and they're real signal (see
+   * eventClassifier.ts). */
+  success: number;
+  /** The passcode/credential identifier as TTLock reports it. For a
+   * successful passcode unlock this is the real plaintext code — masked
+   * to its last 2 characters before this app ever stores or displays it
+   * (see AccessEvent's own doc comment). */
+  keyboardPwd: string;
+  /** TTLock's own label for whoever/whatever unlocked it — e.g. the
+   * passcode's registered name, or "Admin" for the account holder's own
+   * key. Confirmed live on this account: the owner's routine physical
+   * access shows up as username "Admin" with a static code, used many
+   * times a week with no booking behind any of them — a real signal this
+   * app's classifier treats as trusted-by-name (Settings.
+   * trustedTtlockUsernames), not as "no association found." */
+  username: string;
+};
+
+/** Real unlock/access history for one lock — this app's only source of
+ * "did someone actually open this door," since nothing else here tracks
+ * physical access. No webhook exists for this account's TTLock tier (per
+ * this module's own opening comment on what this account can and can't
+ * do), so src/lib/access/eventSync.ts polls this on the shared daily cron
+ * plus an on-demand manual trigger — see that module's doc comment for
+ * why "real-time" here means "at most one poll cycle behind," not a live
+ * push. */
+export async function listTtlockAccessRecords(params: {
+  lockId: number;
+  startDate: number;
+  endDate: number;
+  pageNo?: number;
+  pageSize?: number;
+}): Promise<{ list: TtlockAccessRecord[]; total: number; pages: number }> {
+  const accessToken = await getAccessToken();
+  const clientId = requireEnv("TTLOCK_CLIENT_ID");
+  const body = new URLSearchParams({
+    clientId,
+    accessToken,
+    lockId: String(params.lockId),
+    startDate: String(params.startDate),
+    endDate: String(params.endDate),
+    pageNo: String(params.pageNo ?? 1),
+    pageSize: String(params.pageSize ?? 100),
+    date: String(Date.now()),
+  });
+  const res = await fetchWithTimeout(`${DOMAIN}/v3/lockRecord/list`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const json = await res.json();
+  if (json.errcode) throw new Error(`TTLock lockRecord/list failed: ${json.errmsg}`);
+  return { list: (json.list ?? []) as TtlockAccessRecord[], total: json.total ?? 0, pages: json.pages ?? 0 };
 }
 
 export async function deleteTtlockPasscode(lockId: number, keyboardPwdId: number): Promise<void> {

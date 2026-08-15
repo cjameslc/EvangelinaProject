@@ -1,13 +1,23 @@
 import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/bookingEngine/notificationService";
 import { analyzePaymentScreenshot } from "@/lib/ai/paymentVerification";
-import { releaseAccessCodeForBooking } from "@/lib/ttlock/reliability";
+import { releaseAccessCodeForBooking } from "@/lib/access/service";
 import { manilaTodayISO } from "@/lib/manilaTime";
 
+// proofUrl/dpProofUrl deliberately excluded — they're base64 data-URLs (a
+// real payment screenshot, not a Blob URL), and this select backs
+// getGuestBookings(), a guest's ENTIRE booking history, unbounded. Neither
+// the /my-bookings list page nor the AI assistant context (both consumers
+// of getGuestBookings) ever render or reference these fields — only
+// guideBookingSelect below, which backs the single-booking detail page,
+// actually needs them (BookingDetailClient checks them for truthiness to
+// decide whether to show the "upload proof" prompt). Pulling a real
+// receipt image out of Turso for every past booking just to discard it
+// unread was pure waste that grows with a guest's booking count.
 const publicBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, stayType: true,
   guests: true, pax: true, amount: true, dpAmount: true, paid: true, platform: true, specialRequest: true,
-  checkedInAt: true, checkedOutAt: true, cancelledAt: true, proofUrl: true, dpProofUrl: true, createdAt: true,
+  checkedInAt: true, checkedOutAt: true, cancelledAt: true, createdAt: true,
   confirmationNumber: true, confirmationOverrideUntil: true, originalAmount: true, discountPct: true, paymentType: true, intendedDpAmount: true,
   paymentVerificationStatus: true, paymentVerificationNote: true, couponCode: true, couponDiscountAmount: true,
   unit: { select: { id: true, name: true, shortName: true, unitNumber: true, photoUrl: true, location: true } },
@@ -43,9 +53,14 @@ export async function getGuestBookings(guestId: string) {
 // identically to the real guest experience.
 export const guideBookingSelect = {
   ...publicBookingSelect,
+  // Re-added here specifically — publicBookingSelect deliberately excludes
+  // these (see its own comment); this select is always for exactly one
+  // booking (the guide/detail view), not a whole history, so the cost
+  // publicBookingSelect is avoiding doesn't apply here.
+  proofUrl: true, dpProofUrl: true,
   unit: {
     select: {
-      id: true, name: true, shortName: true, unitNumber: true, photoUrl: true, location: true,
+      id: true, name: true, shortName: true, unitNumber: true, photoUrl: true, location: true, ownerId: true,
       wifiSsid: true, wifiPassword: true, doorCode: true, checkInInstructions: true, checkOutInstructions: true, videoTutorialUrl: true,
     },
   },
@@ -83,6 +98,28 @@ export async function getActiveGuideBooking(guestId: string) {
     orderBy: { date: "asc" },
     select: guideBookingSelect,
   });
+}
+
+/**
+ * Which owner's business this guest actually belongs to — their most
+ * recent booking's unit, regardless of whether that stay is still active.
+ * Used to scope the general "about this business" content (guidebook
+ * categories/amenities/house rules, AI Concierge context) to the guest's
+ * own host, since getGuidebookSettings/buildAssistantContext otherwise
+ * silently default to Evangelina's (see getDefaultOwnerId's doc comment)
+ * — a real cross-tenant leak the moment a guest belongs to a different
+ * owner. A guest with no bookings yet (shouldn't normally happen — the
+ * guest record itself is only ever created alongside a first booking, or
+ * via guest-login against an existing one) returns null and callers fall
+ * back to the default owner.
+ */
+export async function getGuestOwnerId(guestId: string): Promise<string | null> {
+  const booking = await prisma.booking.findFirst({
+    where: { guestId },
+    orderBy: { createdAt: "desc" },
+    select: { unit: { select: { ownerId: true } } },
+  });
+  return booking?.unit.ownerId ?? null;
 }
 
 /**

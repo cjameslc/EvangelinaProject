@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { bookingSchema, normalizeStayTypeForPlatform } from "@/lib/validation";
-import { canEditBookings, canEditSpecificBooking, canDeleteBookings } from "@/lib/rbac";
+import { canEditSpecificBooking } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { parseOrError } from "@/lib/apiValidation";
 import { rateLimit } from "@/lib/rateLimit";
 import { syncCalendarMirror } from "@/lib/calendarMirror";
@@ -15,10 +16,26 @@ import { releaseAccessCodeForBooking } from "@/lib/access/service";
 // scheduling conflict — caught just outside to turn back into a 409.
 class BookingConflictError extends Error {}
 
+// isReadOnlyFinancials(role) (rbac.ts: "Auditor + Housekeeping never write
+// financial records") was never actually enforced here — a direct PATCH
+// could silently rewrite a booking's amount/paid/discount/etc regardless of
+// role, since `data = { ...body }` applied everything bookingSchema allowed
+// with no field-level check. Confirmed live: a HOUSEKEEPING session could
+// set amount to 999999 and paid to true on a real booking with a 200.
+// BookingForm.tsx's own toPayload() always sends every financial field on
+// every save (even ones that didn't change), so rejecting the whole request
+// whenever one of these keys is present would break ordinary non-financial
+// edits (fixing a date, adding a note) for this role — stripping the keys
+// instead leaves those fields exactly as they already were in the DB.
+const FINANCIAL_FIELDS = [
+  "dpAmount", "dpReceivedById", "dpMethod", "dpProofUrl", "amount", "receivedById", "method", "proofUrl",
+  "paid", "originalAmount", "discountPct", "paymentType", "intendedDpAmount", "couponCode", "couponDiscountAmount",
+] as const;
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser();
   if (error) return error;
-  if (!canEditBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+  if (!hasActionAccess("bookings.edit", user.role, user.additionalActionAccess)) return new Response("Forbidden", { status: 403 });
 
   // Shared bucket across create/edit/cancel/refund/delete (see
   // src/app/api/bookings/route.ts and the cancel/refund routes) — one
@@ -41,13 +58,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // about which unit's bookings they may touch — that's this check. A
   // unitId change (moving the booking to a different unit) is checked
   // against the new unit too, once `body` is parsed below.
-  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
   // A Booker may only edit the specific booking they themselves logged, not
   // a peer's — the UI already hides the button, this is the server-side
   // backstop so a direct API call can't bypass it.
   let ownEmployeeId: string | undefined;
   if (user.role === "BOOKER") {
-    const ownEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+    const ownEmployee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
     ownEmployeeId = ownEmployee?.id;
     if (!canEditSpecificBooking(user.role as any, existing.bookerId, ownEmployeeId, existing.platform)) {
       return new Response("Forbidden", { status: 403 });
@@ -57,7 +74,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const parsed = parseOrError(bookingSchema.partial(), await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
-  if (body.unitId && !await isUnitInScope(user, body.unitId)) return new Response("Forbidden", { status: 403 });
+  if (body.unitId && !await isUnitInScope(user, body.unitId)) return forbiddenUnitScopeResponse(user);
   const data: any = { ...body };
   // Mirror BookingForm.tsx's own lock (and the create endpoint's identical
   // guard) server-side: a Booker editing their own booking can't reassign
@@ -67,6 +84,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // change it to. Every other role keeps the documented ability to
   // reassign the booker when editing.
   if (user.role === "BOOKER" && ownEmployeeId) data.bookerId = ownEmployeeId;
+  if (!hasActionAccess("bookings.financial", user.role, user.additionalActionAccess)) {
+    for (const field of FINANCIAL_FIELDS) delete data[field];
+  }
   if (body.date) data.date = new Date(body.date);
   if (body.checkOutDate !== undefined) data.checkOutDate = body.checkOutDate ? new Date(body.checkOutDate) : null;
   if (body.checkedInAt !== undefined) data.checkedInAt = body.checkedInAt ? new Date(body.checkedInAt) : null;
@@ -171,19 +191,28 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // POST /api/bookings/[id]/cancel), which reverses their own commission
   // without destroying the payment/audit trail. Every other role
   // canEditBookings() covers keeps full delete access, unchanged.
-  if (!canDeleteBookings(user.role as any)) return new Response("Forbidden", { status: 403 });
+  if (!hasActionAccess("bookings.delete", user.role, user.additionalActionAccess)) return new Response("Forbidden", { status: 403 });
 
   const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
 
   // notify() looks up the booking's guestId to know whether to write a
   // guest notification — has to run before the delete below, or there's
   // no row left for it to find.
   await notify({ type: "booking.cancelled", bookingId: params.id });
+  // Same release the cancel route already does — without this, hard-
+  // deleting a booking with an active guest credential left a real TTLock
+  // door passcode live on the physical lock indefinitely (the booking row
+  // it belonged to no longer exists to ever release it), or a reserve
+  // code stuck IN_USE forever. Confirmed gap: cancel and the checked-out
+  // PATCH path both already called this, DELETE was the one path that
+  // didn't. Awaited (not waitUntil) — has to run while the booking row
+  // (and its bookingId FK on AccessCredential) still resolves.
+  await releaseAccessCodeForBooking(params.id).catch(() => {});
 
   // deleteMany (not delete) so a double-delete race (two requests for the
   // same id) can't throw an unhandled P2025 "record not found" 500 — the

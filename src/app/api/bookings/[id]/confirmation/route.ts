@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit, isUnitInScope } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { rateLimit } from "@/lib/rateLimit";
 import { generateConfirmationNumber } from "@/lib/bookingEngine/confirmationNumber";
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { id: true, unitId: true, confirmationNumber: true } });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  if (!await isUnitInScope(user, existing.unitId)) return new Response("Forbidden", { status: 403 });
+  if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
 
   const body = await req.json().catch(() => ({}));
   const action = body.action === "regenerate" ? "regenerate" : body.action === "reactivate" ? "reactivate" : null;
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ ok: true, confirmationNumber: booking.confirmationNumber, confirmationOverrideUntil: booking.confirmationOverrideUntil });
   }
 
-  const confirmationNumber = await generateConfirmationNumber();
+  const confirmationNumber = await generateConfirmationNumber(existing.unitId);
   const booking = await prisma.booking.update({ where: { id: params.id }, data: { confirmationNumber, confirmationOverrideUntil: null } });
   await logAudit(user.id, "booking.confirmation.regenerate", "Booking", booking.id, { from: existing.confirmationNumber, to: confirmationNumber });
   return NextResponse.json({ ok: true, confirmationNumber: booking.confirmationNumber, confirmationOverrideUntil: booking.confirmationOverrideUntil });

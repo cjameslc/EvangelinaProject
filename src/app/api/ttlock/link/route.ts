@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireUser, logAudit } from "@/lib/session";
+import { requireUser, logAudit, isUnitInScope, forbiddenUnitScopeResponse } from "@/lib/session";
 import { listTtlockLocks } from "@/lib/ttlock/client";
 
 const bodySchema = z.object({
@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
   if (error) return error;
 
   const { unitId, lockId } = bodySchema.parse(await req.json());
+  // Without this, any Owner/Admin could pass another tenant's unitId and
+  // hijack that tenant's lock mapping (unlink a working lock, or claim a
+  // lock onto the wrong unit).
+  if (!await isUnitInScope(user, unitId)) return forbiddenUnitScopeResponse(user);
 
   if (lockId === null) {
     const unit = await prisma.unit.update({

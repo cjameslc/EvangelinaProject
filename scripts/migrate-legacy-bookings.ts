@@ -446,7 +446,7 @@ async function main() {
     if (shouldInsert) {
       try {
         const { generateConfirmationNumber } = await import("../src/lib/bookingEngine/confirmationNumber");
-        const confirmationNumber = await generateConfirmationNumber();
+        const confirmationNumber = await generateConfirmationNumber(m.unitId);
         const created = await prisma.$transaction(async (tx) => {
           return tx.booking.create({
             data: {

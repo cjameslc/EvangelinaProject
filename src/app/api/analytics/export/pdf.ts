@@ -10,7 +10,7 @@ import type { ExportData } from "@/app/api/analytics/export/data";
  * large custom-range export never has the client hold the assembled data
  * just to build the file.
  */
-export async function buildExportPdf(data: ExportData): Promise<Buffer> {
+export async function buildExportPdf(data: ExportData, businessName: string): Promise<Buffer> {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const doc = new jsPDF();
   const rausch: [number, number, number] = [255, 56, 92];
@@ -24,7 +24,7 @@ export async function buildExportPdf(data: ExportData): Promise<Buffer> {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(17);
-  doc.text("Evangelina's Staycation", 14, 18);
+  doc.text(businessName, 14, 18);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(110);

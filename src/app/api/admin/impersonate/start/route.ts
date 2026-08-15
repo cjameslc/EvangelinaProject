@@ -27,7 +27,11 @@ export async function POST(req: NextRequest) {
   if (targetUserId === user.id) return NextResponse.json({ error: "You can't impersonate yourself." }, { status: 400 });
 
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
-  if (!target || !target.active) return NextResponse.json({ error: "That user wasn't found or is deactivated." }, { status: 404 });
+  // Tenant boundary — without this, any Owner/Admin could pass another
+  // tenant's userId and obtain a live session inside that tenant's account.
+  // Same 404 as "not found" rather than 403, so this endpoint doesn't
+  // confirm/deny whether a given userId exists in another tenant at all.
+  if (!target || !target.active || target.ownerId !== user.ownerId) return NextResponse.json({ error: "That user wasn't found or is deactivated." }, { status: 404 });
   if (target.role === "OWNER_ADMIN") return NextResponse.json({ error: "Impersonating another Super Admin isn't allowed." }, { status: 403 });
 
   const reason = typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 500) : null;

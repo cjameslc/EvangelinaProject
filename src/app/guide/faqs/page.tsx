@@ -1,10 +1,10 @@
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { CATEGORY_COVER_PHOTOS } from "@/lib/guideNav";
 import { FaqAccordion } from "@/components/guest/FaqAccordion";
 
 export default async function FaqsPage() {
-  const g = await getGuidebookSettings();
+  const g = await getGuidebookSettingsForCurrentGuest();
 
   return (
     <div className="mx-auto max-w-[640px] px-4 py-5 sm:px-6">

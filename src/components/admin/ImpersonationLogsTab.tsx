@@ -114,7 +114,7 @@ export function ImpersonationLogsTab({ logs }: { logs: ImpersonationLog[] }) {
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="field-input w-auto" title="From date" />
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="field-input w-auto" title="To date" />
         <label className="flex items-center gap-2 rounded-xl border border-[var(--line)] px-3 text-[13px] font-semibold">
-          <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="h-4 w-4 accent-rausch" />
+          <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
           Active sessions only
         </label>
       </div>

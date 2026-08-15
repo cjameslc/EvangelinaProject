@@ -16,8 +16,24 @@ export function AutoRefresh() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    const id = setInterval(() => router.refresh(), 60_000);
-    return () => clearInterval(id);
+    // Skip while backgrounded — router.refresh() re-runs Analytics' full
+    // Server Component tree (the heaviest per-request computation in this
+    // app, see queries.ts), so a tab left open in the background all day
+    // was paying that cost every 60s for nobody to see. Same reasoning and
+    // pattern as src/lib/deployment-client.ts's poll, which real production
+    // traffic sampling showed was the single largest source of request
+    // volume app-wide.
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 60_000);
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") router.refresh();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [router]);
 
   function manualRefresh() {

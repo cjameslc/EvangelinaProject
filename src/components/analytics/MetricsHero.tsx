@@ -7,14 +7,24 @@ import { pesoCentavos } from "@/lib/format";
 import type { ExecutiveKPIs } from "@/app/analytics/queries";
 
 /**
- * Premium analytics hero — dark violet glass card, real MTD revenue (see
- * mtdRevenueCentavos's doc comment in queries.ts for why this isn't the
- * same number as the KPI row's Total Revenue), a correctly like-for-like
- * growth %, and one honest, deterministic sentence built from the real
- * delta — never a fabricated or generic line. Evangelina's violet stays
- * the base identity always; an active seasonal skin only ever adds a
- * secondary accent glow on top (brief section 3/25 — skins must never
- * change what a metric means, only its atmosphere).
+ * Premium analytics hero — dark glass card tinted by whichever seasonal
+ * skin is active, real MTD revenue (see mtdRevenueCentavos's doc comment
+ * in queries.ts for why this isn't the same number as the KPI row's Total
+ * Revenue), a correctly like-for-like growth %, and one honest,
+ * deterministic sentence built from the real delta — never a fabricated or
+ * generic line.
+ *
+ * The base gradient itself is derived from skin.colors.primary (via
+ * color-mix, not a second hardcoded palette) — it used to stay a fixed
+ * dark violet always, with a skin's own color only ever layered on top as
+ * a glow accent, which meant selecting e.g. the "Airbnb Style" skin still
+ * left this one card visibly violet underneath a red glow instead of
+ * actually reading as "back to the original all-red design" like every
+ * other primary-action surface in the app already does. Only
+ * `colors.primary` is used for the base — `colors.secondary` is
+ * deliberately not (see airbnb's own config comment: it's white, tuned for
+ * CTA/on-photo text contexts elsewhere, not a second gradient stop for a
+ * dark hero).
  */
 export function MetricsHero({ kpis, periodLabel }: { kpis: ExecutiveKPIs; periodLabel: string }) {
   const skin = useSeasonalSkin();
@@ -24,6 +34,7 @@ export function MetricsHero({ kpis, periodLabel }: { kpis: ExecutiveKPIs; period
 
   const line = growthSentence(growth);
   const seasonal = skin.id !== "evangelina";
+  const primary = skin.colors.primary;
 
   return (
     <motion.div
@@ -32,9 +43,7 @@ export function MetricsHero({ kpis, periodLabel }: { kpis: ExecutiveKPIs; period
       transition={{ duration: 0.5, ease: "easeOut" }}
       className="relative isolate overflow-hidden rounded-[28px] p-7 text-white shadow-[0_20px_60px_-20px_rgba(76,29,149,.55)] sm:p-9"
       style={{
-        background: seasonal
-          ? `radial-gradient(120% 140% at 15% 0%, ${skin.colors.primary}55 0%, transparent 55%), radial-gradient(100% 120% at 100% 100%, ${skin.colors.secondary}40 0%, transparent 55%), linear-gradient(160deg, #150f2e 0%, #1c1140 55%, #241454 100%)`
-          : "radial-gradient(120% 140% at 15% 0%, rgba(108,92,231,.35) 0%, transparent 55%), linear-gradient(160deg, #150f2e 0%, #1c1140 55%, #241454 100%)",
+        background: `radial-gradient(120% 140% at 15% 0%, ${primary}55 0%, transparent 55%), linear-gradient(160deg, color-mix(in srgb, ${primary} 22%, #0a0912) 0%, color-mix(in srgb, ${primary} 34%, #0a0912) 55%, color-mix(in srgb, ${primary} 46%, #0a0912) 100%)`,
       }}
     >
       <Grain />
@@ -42,7 +51,7 @@ export function MetricsHero({ kpis, periodLabel }: { kpis: ExecutiveKPIs; period
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full blur-3xl"
-        style={{ background: seasonal ? skin.colors.secondary : "#8B7CF0", opacity: 0.35 }}
+        style={{ background: primary, opacity: 0.35 }}
       />
 
       <div className="relative">

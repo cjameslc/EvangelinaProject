@@ -15,6 +15,7 @@ const collectedAmount = (b: Booking): number => collectedAmountPesos(b);
  * view.
  */
 export function useMonthlyReportExport({
+  businessName,
   units,
   bookingsMonth,
   employees,
@@ -37,6 +38,7 @@ export function useMonthlyReportExport({
   dueBills,
   billMeta,
 }: {
+  businessName: string;
   units: Unit[];
   bookingsMonth: Booking[];
   employees: Employee[];
@@ -156,7 +158,7 @@ export function useMonthlyReportExport({
   function exportExcel() {
     const r = buildMonthlyReport();
     const lines: string[] = [];
-    lines.push("Evangelina's Staycation");
+    lines.push(businessName);
     lines.push(`Monthly report - ${r.monthLabel}`);
     lines.push("");
     lines.push("Summary");
@@ -198,7 +200,7 @@ export function useMonthlyReportExport({
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(17);
-    doc.text("Evangelina's Staycation", 14, 18);
+    doc.text(businessName, 14, 18);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(110);

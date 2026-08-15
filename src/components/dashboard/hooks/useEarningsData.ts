@@ -5,6 +5,7 @@ import { nightsFor, occupiedRange } from "@/lib/stayRange";
 import { totalSalaryPayroll, type SalaryHistoryEntry } from "@/lib/payroll";
 import { collectedAmountPesos } from "@/lib/finance";
 import { periodRangeFor, manilaDayKey as dayOf } from "@/lib/analytics/period";
+import { elapsedBookings } from "@/lib/analytics/revenue";
 import { computeOccupancy, computeADR, computeRevPAR, type OccupancyBlock } from "@/lib/analytics/occupancy";
 import type { Unit, Booking, Employee, RangeType, StatusFilter } from "../types";
 
@@ -99,12 +100,24 @@ export function useEarningsData({
 
   const periodIncome = periodBookings.reduce((s, b) => s + collectedAmount(b), 0);
 
+  // The headline "You've earned ___" figure specifically — elapsed-only
+  // (bookings dated before now), the same shared elapsedBookings() filter
+  // Analytics' "This month's revenue" Hero/KPI card uses, so the two most
+  // directly-comparable numbers in the app can't independently drift again
+  // (confirmed live: this and Analytics' figure disagreed by ~₱14,000 for
+  // the same real bookings before this fix — Dashboard was summing the
+  // whole month including confirmed future-dated stays). periodIncome
+  // itself is deliberately left as the full-period total below — RevPAR
+  // and the vs-previous-period comparison still intentionally compare
+  // full period to full period, unaffected by this.
+  const elapsedPeriodIncome = elapsedBookings(periodBookings, periodRange.end).reduce((s, b) => s + collectedAmount(b), 0);
+
   // Historical-record fallback: only kicks in for a Monthly-view month the
   // app has zero tracked income for (i.e. before this app existed) — real
   // tracked income for a month always wins, never blended/overridden.
   const historicalMonthKey = `${periodRange.start.getUTCFullYear()}-${String(periodRange.start.getUTCMonth() + 1).padStart(2, "0")}`;
   const historicalIncome = rangeType === "monthly" && periodIncome <= 0 ? airbnbHistoricalMonthly?.[historicalMonthKey] : undefined;
-  const displayedPeriodIncome = historicalIncome ?? periodIncome;
+  const displayedPeriodIncome = historicalIncome ?? elapsedPeriodIncome;
 
   // Occupancy scoping is deliberately NOT periodBookings above: periodBookings
   // only keeps bookings whose check-in date falls inside the selected range,

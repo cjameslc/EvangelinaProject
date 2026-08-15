@@ -18,10 +18,16 @@ export default async function PlatformPage() {
   if (!user) redirect("/login");
   if (!user.isPlatformAdmin) redirect("/");
 
-  const owners = await prisma.owner.findMany({
+  const rawOwners = await prisma.owner.findMany({
     orderBy: { createdAt: "asc" },
-    include: { _count: { select: { units: true, users: true } } },
+    include: {
+      _count: { select: { units: true, users: true } },
+      users: { where: { role: "OWNER_ADMIN", active: true }, select: { username: true }, orderBy: { createdAt: "asc" } },
+    },
   });
+  // Same shaping as GET /api/platform/owners — PlatformView's Owner type
+  // expects a flat adminUsernames: string[], not a nested users relation.
+  const owners = rawOwners.map(({ users, ...o }) => ({ ...o, adminUsernames: users.map((u) => u.username) }));
 
   return <PlatformView owners={owners} />;
 }

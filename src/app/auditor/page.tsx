@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, unitIdWhere } from "@/lib/session";
-import { canSeeAuditor } from "@/lib/rbac";
+import { effectivePageAccess } from "@/lib/pageAccess";
 import { prismaPool } from "@/lib/prisma";
 import { AuditorView } from "@/components/auditor/AuditorView";
 
 export default async function AuditorPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canSeeAuditor(user.role)) redirect("/");
+  if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/auditor")) redirect("/");
 
   // Co-owners only see their own units here, same as everywhere else in the
   // app; Owner/Admin and Auditor keep the unrestricted view.

@@ -28,7 +28,7 @@ const dayOf = (d: Date) =>
 // fresh from the DB wherever it's shown" pattern already used for
 // avatarUrl everywhere else in the app, so nothing actually goes stale.
 const getRankedLeaderboard = unstable_cache(
-  async () => {
+  async (ownerId: string | null) => {
     const now = new Date();
     const [y, m] = dayOf(now).split("-").map(Number);
     const monthStart = new Date(Date.UTC(y, m - 1, 1));
@@ -38,10 +38,18 @@ const getRankedLeaderboard = unstable_cache(
     // to the pool — libSQL serializes queries on a single client behind a
     // mutex, so Promise.all-ing reads on `prisma` alone gets no real
     // concurrency (see src/lib/prisma.ts).
+    //
+    // ownerId-scoped — this was a company-wide leaderboard across every
+    // owner on the platform until this fix, the same class of bug already
+    // found and fixed once this session for the Elite Challenge ranking
+    // data in my-earnings/route.ts. Threading ownerId through as a real
+    // argument (not just a keyParts entry) means unstable_cache's own
+    // argument-based key hashing keeps each owner's leaderboard in a
+    // separate cache entry automatically.
     const [settings, bookers] = await Promise.all([
-      prisma.settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+      prisma.settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! } }),
       prismaPool[0].employee.findMany({
-        where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true },
+        where: { role: { in: [...ELITE_CHALLENGE_ROLES] }, active: true, ownerId },
         select: { id: true, name: true, userId: true, user: { select: { avatarColor: true } } },
       }),
     ]);
@@ -96,9 +104,9 @@ export async function GET() {
 
   // Award-slot writes must never be skipped by the cache above — always run
   // live so a newly-crossed tier is persisted the moment it happens.
-  await syncEliteBookerAwards();
+  await syncEliteBookerAwards(user.ownerId);
 
-  const cached = await getRankedLeaderboard();
+  const cached = await getRankedLeaderboard(user.ownerId);
 
   // Fresh, uncached, and cheap (just one TEXT column per employee) — kept
   // out of the cached ranking above specifically so a real photo never
@@ -116,7 +124,7 @@ export async function GET() {
     return NextResponse.json({ scope: "all", leaderboard: ranked });
   }
 
-  const own = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+  const own = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
   const ownIndex = own ? ranked.findIndex((r) => r.employeeId === own.id) : -1;
   if (ownIndex === -1) {
     return NextResponse.json({ scope: "own", rank: null, total: ranked.length, own: null });

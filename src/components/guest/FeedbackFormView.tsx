@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fmtDate } from "@/lib/format";
 import { LIKED_TAGS, REWARD_OPTIONS, RECOMMEND_OPTIONS, type RecommendKey, type RewardKey } from "@/lib/feedbackContent";
-import { Confetti } from "@/components/guest/Confetti";
 import { useCopy } from "@/components/guest/SecureGuideCards";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
+import { SeasonalCelebration, useCelebrate } from "@/components/skins/SeasonalCelebration";
 
 const RATING_OPTIONS: { value: number; icon: string; label: string }[] = [
   { value: 5, icon: "🤩", label: "Excellent" },
@@ -28,6 +29,8 @@ export function FeedbackFormView({ bookingId, unitName, existingVoucher }: { boo
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [publicReviewText, setPublicReviewText] = useState("");
+  const [publicDisplayConsent, setPublicDisplayConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [voucher, setVoucher] = useState<Voucher | null>(null);
@@ -67,6 +70,8 @@ export function FeedbackFormView({ bookingId, unitName, existingVoucher }: { boo
           contactName: name,
           contactPhone: phone,
           contactEmail: email || null,
+          publicReviewText: publicDisplayConsent ? (publicReviewText.trim() || null) : null,
+          publicDisplayConsent,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -81,7 +86,7 @@ export function FeedbackFormView({ bookingId, unitName, existingVoucher }: { boo
   }
 
   const shownVoucher = voucher ?? existingVoucher;
-  if (shownVoucher) return <VoucherSuccessScreen voucher={shownVoucher} celebrate={justSubmitted} alreadySubmitted={!justSubmitted} />;
+  if (shownVoucher) return <VoucherSuccessScreen voucher={shownVoucher} justSubmitted={justSubmitted} alreadySubmitted={!justSubmitted} />;
 
   return (
     <div className="mx-auto max-w-[480px] px-4 py-6 sm:px-6">
@@ -202,6 +207,27 @@ export function FeedbackFormView({ bookingId, unitName, existingVoucher }: { boo
               </div>
             </div>
 
+            <div className="mt-5 rounded-2xl border border-[var(--line)] p-4">
+              <label className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={publicDisplayConsent}
+                  onChange={(e) => setPublicDisplayConsent(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-[13px] font-bold">Display my review publicly on our site</span>
+              </label>
+              {publicDisplayConsent && (
+                <textarea
+                  value={publicReviewText}
+                  onChange={(e) => setPublicReviewText(e.target.value)}
+                  placeholder="Anything you'd like to share for other guests? (optional)"
+                  className="field-input mt-3 min-h-[80px]"
+                  maxLength={500}
+                />
+              )}
+            </div>
+
             {error && <p className="mt-3 text-[12.5px] font-semibold text-rausch">{error}</p>}
 
             <div className="mt-4 flex gap-2.5">
@@ -236,17 +262,33 @@ function NavButtons({ onBack, onNext }: { onBack: () => void; onNext?: () => voi
   );
 }
 
-function VoucherSuccessScreen({ voucher, celebrate = true, alreadySubmitted = false }: { voucher: Voucher; celebrate?: boolean; alreadySubmitted?: boolean }) {
+function VoucherSuccessScreen({ voucher, justSubmitted = true, alreadySubmitted = false }: { voucher: Voucher; justSubmitted?: boolean; alreadySubmitted?: boolean }) {
   const { copiedKey, copy } = useCopy();
+  const skin = useSeasonalSkin();
+  const { celebrationRef, celebrate } = useCelebrate();
   const rewardMeta = REWARD_OPTIONS.find((r) => r.key === voucher.rewardType);
+
+  // Same "only ever true right after a real successful submission" guarantee
+  // as BookFlowView's booking-success celebration — justSubmitted only
+  // flips true inside submit()'s res.ok branch above, never on a revisit
+  // of an already-submitted voucher (alreadySubmitted case shows a plain
+  // checkmark, no confetti, matching the original behavior exactly).
+  useEffect(() => {
+    if (justSubmitted) celebrate({ type: "feedback-success" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [justSubmitted]);
 
   return (
     <div className="mx-auto max-w-[480px] px-4 py-14 text-center">
-      {celebrate && <Confetti />}
-      <div className="text-5xl">{celebrate ? "🎉" : "✅"}</div>
+      {justSubmitted && <SeasonalCelebration ref={celebrationRef} />}
+      <div className="text-5xl">{justSubmitted ? (skin.id === "evangelina" ? "🎉" : skin.emoji) : "✅"}</div>
       <h1 className="mt-3 text-[22px] font-extrabold">{alreadySubmitted ? "You've already submitted feedback" : "Thank You!"}</h1>
       <p className="mt-2 text-[14px] text-[var(--gray)]">
-        {alreadySubmitted ? "Here's the reward you unlocked for this stay." : "Your feedback has been received successfully. Your reward has been unlocked!"}
+        {alreadySubmitted
+          ? "Here's the reward you unlocked for this stay."
+          : skin.id === "evangelina"
+          ? "Your feedback has been received successfully. Your reward has been unlocked!"
+          : skin.messaging.feedbackSuccessMessage}
       </p>
 
       <div className="card mt-6 border-2 border-dashed border-rausch/40 p-5">

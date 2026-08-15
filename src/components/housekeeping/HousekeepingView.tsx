@@ -6,12 +6,17 @@ import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { ChevronDownIcon } from "@/components/ui/Icons";
 import { fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
+import { manilaTimeGreeting } from "@/lib/manilaTime";
 import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
-import { canEditHousekeeping, canAddHousekeepingStock } from "@/lib/rbac";
+import { canAddHousekeepingStock, canGrantHousekeepingAccess } from "@/lib/rbac";
+import { hasActionAccess } from "@/lib/actionAccess";
 import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { RoomCard } from "./RoomCard";
+import { AutoLogoutGuard } from "./AutoLogoutGuard";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
+import { SeasonalChallengeCard } from "@/components/skins/SeasonalChallengeCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
 import { LaundryPanel } from "./laundry/LaundryPanel";
@@ -55,6 +60,7 @@ export function HousekeepingView({
 }) {
   const { data: session } = useSession();
   const toast = useToast();
+  const skin = useSeasonalSkin();
   const [states, setStates] = useState(initialStates);
   const [logs, setLogs] = useState(initialLogs);
   const [stocks, setStocks] = useState(initialStocks);
@@ -62,7 +68,7 @@ export function HousekeepingView({
   const [shift, setShift] = useState(initialShift);
   const [showLogs, setShowLogs] = useState(true);
   const [scheduleTab, setScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
-  const canEdit = canEditHousekeeping(role as any);
+  const canEdit = hasActionAccess("housekeeping.edit", role, session?.user?.additionalActionAccess ?? []);
   const canAddStock = canAddHousekeepingStock(role as any);
   const userName = session?.user?.name ?? "";
   // Clocking in/out is a Housekeeping-only action — Owner/Admin can still
@@ -79,6 +85,15 @@ export function HousekeepingView({
       .map((e) => ({ employee: e, openShift: e.userId ? openByUserId.get(e.userId) ?? null : null }))
       .sort((a, b) => (b.openShift ? 1 : 0) - (a.openShift ? 1 : 0) || a.employee.name.localeCompare(b.employee.name));
   }, [employees, housekeepingOpenShifts]);
+
+  // Same population as housekeepingRoster above, reshaped for
+  // GenerateHousekeepingCode's picker — every Housekeeping employee, not
+  // just currently-clocked-in ones (an Owner/Booker may reasonably
+  // pre-generate a code before that housekeeper's shift starts).
+  const activeHousekeepers = useMemo(
+    () => employees.filter((e) => e.role === "HOUSEKEEPING").map((e) => ({ id: e.id, name: e.name })),
+    [employees]
+  );
 
   async function refreshHk() {
     const res = await fetch("/api/housekeeping");
@@ -151,9 +166,13 @@ export function HousekeepingView({
     const res = await fetch("/api/housekeeping/shift", { method: "POST" });
     if (res.ok) { setShift(await res.json()); toast("Clocked in ✅"); }
   }
-  async function clockOut() {
-    const res = await fetch("/api/housekeeping/shift", { method: "PATCH" });
-    if (res.ok) { setShift(null); toast("Clocked out"); }
+  async function clockOut(reason: string = "Manual Logout") {
+    const res = await fetch("/api/housekeeping/shift", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    if (res.ok) { setShift(null); toast(reason === "Manual Logout" ? "Clocked out" : "Signed out — end of shift"); }
   }
 
   const weekAgo = new Date(Date.now() - 7 * 86400000);
@@ -232,15 +251,17 @@ export function HousekeepingView({
     const pending = list.find((b) => !cleanedIds.includes(b.id));
     return pending?.id ?? null;
   }
-  // A room defaults to Clean/ready — it only becomes "to clean" once a guest
-  // has actually checked out of it today. Without that, a raw "todo" status
-  // (e.g. a freshly-added unit that's never had a stored state) would
-  // otherwise misrepresent an untouched room as needing work.
+  // A room resting between checkouts (raw "todo", nothing due today) only
+  // counts as Clean if it's actually been cleaned at least once before
+  // (a real endedAt on record) — mirrors RoomCard's isDefaultClean. A
+  // freshly-added unit that's never had a real clean logged against it
+  // stays "todo" instead of silently reading as ready.
   function roomEffectiveStatus(unitId: string) {
-    const raw = states.find((s) => s.unitId === unitId)?.status ?? "todo";
+    const state = states.find((s) => s.unitId === unitId);
+    const raw = state?.status ?? "todo";
     const pending = pendingBookingIdForUnit(unitId);
     if (pending) return raw === "cleaning" ? "cleaning" : "todo";
-    return raw === "todo" && !hasAnyCheckoutToday(unitId) ? "clean" : raw;
+    return raw === "todo" && !hasAnyCheckoutToday(unitId) && !!state?.endedAt ? "clean" : raw;
   }
   // Per-BOOKING status for the "Cleaning schedule" list below — two rows for
   // the same unit (e.g. its Night and Daycation checkouts today) can now
@@ -258,9 +279,18 @@ export function HousekeepingView({
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
       <div className="mb-6">
+        {isHousekeepingStaff && userName && (
+          <p className="mb-1 text-[13px] font-bold" style={{ color: skin.id === "evangelina" ? "var(--gray)" : skin.colors.primary }}>
+            {manilaTimeGreeting()}, {userName.split(" ")[0]} {skin.id !== "evangelina" && <span aria-hidden="true">{skin.emoji}</span>}
+          </p>
+        )}
         <h1 className="text-[26px] font-extrabold tracking-tight sm:text-[30px]">Housekeeping</h1>
         <p className="mt-1 text-[14.5px] text-[var(--gray)]">Clock in, work through each room&rsquo;s checklist, keep supplies stocked, and track monthly bills.</p>
       </div>
+
+      {isHousekeepingStaff && (
+        <AutoLogoutGuard isCleaning={states.some((s) => s.status === "cleaning" && s.byName === userName)} hasOpenShift={!!shift} />
+      )}
 
       {isHousekeepingStaff ? (
         <div className="card mb-5 flex flex-wrap items-center gap-3.5 p-4">
@@ -270,7 +300,7 @@ export function HousekeepingView({
             <div className="text-[13px] text-[var(--gray)]">{shift ? `Clocked in at ${fmtTime(shift.clockIn)}` : "Clock in to start logging your cleaning."}</div>
           </div>
           <div className="ml-auto">
-            {shift ? <button onClick={clockOut} className="btn">Clock out</button> : <button onClick={clockIn} className="btn" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Clock in</button>}
+            {shift ? <button onClick={() => clockOut()} className="btn">Clock out</button> : <button onClick={clockIn} className="btn" style={{ background: "#0B7C74", borderColor: "#0B7C74", color: "#fff" }}>Clock in</button>}
           </div>
         </div>
       ) : (
@@ -291,6 +321,22 @@ export function HousekeepingView({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Medium intensity (brief's "Staff Experience" table) — only appears
+          at all when a real seasonal skin is active, and stays a single
+          compact card rather than restyling the whole page. Real data
+          (rooms already ready today vs total managed), same numbers the
+          stat cards below already show, just reframed. */}
+      {skin.id !== "evangelina" && (
+        <div className="mb-5">
+          <SeasonalChallengeCard
+            current={units.length - todoCount}
+            target={units.length}
+            title={skin.messaging.housekeepingTitle}
+            subtitle="Today's room turnover"
+          />
         </div>
       )}
 
@@ -411,6 +457,9 @@ export function HousekeepingView({
               state={states.find((s) => s.unitId === u.id)}
               canEdit={canEdit}
               currentUserName={userName}
+              role={role}
+              canGrantAccess={canGrantHousekeepingAccess(role as any)}
+              housekeepers={activeHousekeepers}
               onChange={updateUnit}
               checklistGroups={checklistGroups.filter((g) => !g.unitIds || g.unitIds.length === 0 || g.unitIds.includes(u.id))}
               pendingBookingId={pendingBookingIdForUnit(u.id)}
@@ -429,7 +478,7 @@ export function HousekeepingView({
       </Accordion>
 
       <Accordion title="🧺 Laundry Management" sub="orders, services, payments & reports" defaultOpen={false}>
-        <LaundryPanel role={role} units={units} />
+        <LaundryPanel role={role} units={units} additionalActionAccess={session?.user?.additionalActionAccess ?? []} />
       </Accordion>
     </div>
   );

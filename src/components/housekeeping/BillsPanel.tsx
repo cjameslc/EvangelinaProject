@@ -242,7 +242,7 @@ function EditBillModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => 
         </div>
         {isCustom && (
           <label className="flex items-center gap-2.5 rounded-xl border border-[var(--line)] px-3 py-2.5 text-[13.5px] font-semibold">
-            <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-rausch" />
+            <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
             Recurring — automatically add this bill again next month
           </label>
         )}
@@ -335,7 +335,7 @@ function AddBillModal({ units, defaultUnitId, onClose, onSaved }: { units: Unit[
           )}
         </div>
         <label className="flex items-center gap-2.5 rounded-xl border border-[var(--line)] px-3 py-2.5 text-[13.5px] font-semibold">
-          <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-rausch" />
+          <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
           Recurring — automatically add this bill again next month
         </label>
       </div>
@@ -406,7 +406,7 @@ function ReceiptModal({ bill, onClose, onSaved }: { bill: Bill; onClose: () => v
         <div>
           <label className="field-label">Receipt</label>
           <div
-            className="mt-1.5 rounded-2xl border border-dashed border-[var(--line-2)] outline-none focus:border-rausch focus:ring-4 focus:ring-rausch/15"
+            className="brand-focus-target mt-1.5 rounded-2xl border border-dashed border-[var(--line-2)] outline-none transition"
             tabIndex={0}
             onPaste={handlePaste}
           >

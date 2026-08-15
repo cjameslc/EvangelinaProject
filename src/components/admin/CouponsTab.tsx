@@ -191,7 +191,7 @@ function CouponModal({ coupon, onClose, onSave }: { coupon?: CouponRow; onClose:
           <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="field-input mt-1.5" placeholder="e.g. Launch promo for repeat guests" />
         </div>
         <label className="flex items-center gap-2.5 text-[13.5px] font-semibold">
-          <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="h-4 w-4 accent-rausch" />
+          <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="h-4 w-4 accent-[var(--skin-primary,#6c5ce7)]" />
           Active — guests can use this code right away
         </label>
       </div>

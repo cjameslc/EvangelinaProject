@@ -1,7 +1,8 @@
 import { askGeminiChat, type ChatTurn } from "@/lib/ai/geminiClient";
 import { getCachedAssistantContext } from "@/lib/ai/assistantContext";
+import { getOwnerIdBySlug } from "@/lib/ownerScope";
 
-const SYSTEM_PROMPT_TEMPLATE = (contextJson: string, signedIn: boolean) => `You are the AI Concierge for Evangelina's Staycation, a 5-unit short-term rental business in Cubao (Urban Deca Towers), Quezon City, Philippines. You're warm, concise, and genuinely helpful — like a great hotel concierge, not a generic chatbot.
+const SYSTEM_PROMPT_TEMPLATE = (contextJson: string, signedIn: boolean, businessName: string, unitCount: number) => `You are the AI Concierge for ${businessName}, a ${unitCount}-unit short-term rental business. You're warm, concise, and genuinely helpful — like a great hotel concierge, not a generic chatbot.
 
 You can answer questions about: booking status, availability, rates, the neighborhood guide (nearby shopping/food/transport/attractions/etc.), building amenities, house rules, and — only if signed in with an active booking for that specific unit — that unit's WiFi and door code. Use ONLY the JSON data below, which was fetched live from the real system just now.
 
@@ -17,9 +18,10 @@ Hard rules:
 - Keep answers short (2-4 sentences), warm, and direct.
 - If you cannot actually resolve the question from the data given, end your reply with exactly this line on its own: [ESCALATE]`;
 
-export async function askAssistant(guestId: string | null, message: string, history: ChatTurn[] = []): Promise<{ reply: string; escalate: boolean }> {
-  const context = await getCachedAssistantContext(guestId);
-  const systemPrompt = SYSTEM_PROMPT_TEMPLATE(JSON.stringify(context), !!guestId);
+export async function askAssistant(guestId: string | null, message: string, history: ChatTurn[] = [], ownerSlug?: string | null): Promise<{ reply: string; escalate: boolean }> {
+  const ownerId = ownerSlug ? await getOwnerIdBySlug(ownerSlug) : undefined;
+  const context = await getCachedAssistantContext(guestId, ownerId);
+  const systemPrompt = SYSTEM_PROMPT_TEMPLATE(JSON.stringify(context), !!guestId, context.businessName, context.units.length);
   const raw = await askGeminiChat(systemPrompt, history, message);
   const escalate = raw.includes("[ESCALATE]");
   const reply = raw.replace("[ESCALATE]", "").trim();

@@ -14,6 +14,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Please check the values you entered." }, { status: 400 });
   }
 
+  // Was missing — same audit sweep as Units/Users/Employees.
+  const existing = await prisma.employeeAchievement.findUnique({ where: { id: params.id }, select: { employee: { select: { ownerId: true } } } });
+  if (!existing || existing.employee.ownerId !== user.ownerId) return NextResponse.json({ error: "Achievement not found." }, { status: 404 });
+
   const data: Record<string, unknown> = {};
   if (body.label !== undefined) data.label = body.label;
   if (body.threshold !== undefined) data.threshold = body.threshold;
@@ -28,6 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, error } = await requireUser(["OWNER_ADMIN", "CO_OWNER"]);
   if (error) return error;
+  const existing = await prisma.employeeAchievement.findUnique({ where: { id: params.id }, select: { employee: { select: { ownerId: true } } } });
+  if (!existing || existing.employee.ownerId !== user.ownerId) return NextResponse.json({ error: "Achievement not found." }, { status: 404 });
 
   await prisma.employeeAchievement.delete({ where: { id: params.id } });
   await logAudit(user.id, "employeeAchievement.delete", "EmployeeAchievement", params.id);

@@ -15,31 +15,43 @@ const RECURRING_SALARIES = [
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
-async function ensureRecurringSalaries() {
+// These recurring salaries are real, named Evangelina's-only staff — scoped
+// to whichever ownerId is asking, so another tenant's admin loading this
+// page never matches (by name/active alone) an employee that happens to
+// belong to a different owner, and never gets a bogus entry created against
+// them either.
+async function ensureRecurringSalaries(ownerId: string | null) {
   const weekStart = new Date(dayOf(new Date()));
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
 
   for (const rule of RECURRING_SALARIES) {
-    const employee = await prisma.employee.findFirst({ where: { name: rule.employeeName, active: true } });
+    const employee = await prisma.employee.findFirst({ where: { name: rule.employeeName, active: true, ownerId } });
     if (!employee) continue;
     const existing = await prisma.weeklyExpense.findFirst({
       where: { targetEmployeeId: employee.id, note: "Salary", date: { gte: weekStart, lt: weekEnd } },
     });
     if (!existing) {
-      await prisma.weeklyExpense.create({ data: { date: weekStart, amount: rule.amount, note: "Salary", targetEmployeeId: employee.id } });
+      await prisma.weeklyExpense.create({ data: { date: weekStart, amount: rule.amount, note: "Salary", targetEmployeeId: employee.id, ownerId } });
     }
   }
 }
 
+// Owner/Admin (or a scoped Co-owner) only — this is raw financial data
+// (salary deductions, ad spend), same boundary as its own POST and as
+// /api/expense-requests' admin-viewer branch. Previously any authenticated
+// role (Housekeeping, Booker, Auditor) could read this directly — no real
+// caller in the app relied on that (grep found zero frontend fetches of
+// this route), so tightening it breaks nothing.
 export async function GET() {
-  const { error } = await requireUser();
+  const { user, error } = await requireUser(["OWNER_ADMIN", "CO_OWNER"]);
   if (error) return error;
 
-  await ensureRecurringSalaries();
+  await ensureRecurringSalaries(user.ownerId);
 
   const expenses = await prisma.weeklyExpense.findMany({
+    where: { ownerId: user.ownerId },
     orderBy: { date: "desc" },
     take: 300,
     include: {
@@ -74,6 +86,7 @@ export async function POST(req: NextRequest) {
       targetEmployeeId,
       category,
       addedById: user.id,
+      ownerId: user.ownerId,
     },
     include: {
       targetEmployee: { select: { id: true, name: true, role: true } },

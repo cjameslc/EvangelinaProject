@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canSeeAnalytics } from "@/lib/rbac";
 import { assembleExportData } from "@/app/api/analytics/export/data";
@@ -45,7 +46,8 @@ export async function GET(req: NextRequest, { params }: { params: { format: stri
       headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="${filename}"` },
     });
   }
-  const buf = await buildExportPdf(data);
+  const owner = await prisma.owner.findUnique({ where: { id: user.ownerId! }, select: { businessName: true } });
+  const buf = await buildExportPdf(data, owner?.businessName ?? "Evangelina's Staycation");
   return new Response(new Uint8Array(buf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${filename}"` },
   });

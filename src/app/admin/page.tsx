@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, unitWhere, unitIdWhere } from "@/lib/session";
 import { canSeeAdmin } from "@/lib/rbac";
+import { effectivePageAccess } from "@/lib/pageAccess";
 import { prisma, prismaPool } from "@/lib/prisma";
 import { CHECKLIST_GROUPS } from "@/lib/constants";
 import { manilaMonthStart } from "@/lib/format";
@@ -13,9 +14,15 @@ export default async function AdminPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (!canSeeAdmin(user.role)) redirect("/");
+  // Defense in depth alongside middleware's own gate — a restricted-tier
+  // owner (see Owner.enabledModules) whose default 5-module tier excludes
+  // /admin would already be bounced by middleware before this page even
+  // renders, but every other role-gated page in this app double-checks at
+  // the page level too, not just the edge, so this matches that pattern.
+  if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/admin")) redirect("/");
 
   const month = manilaMonthStart();
-  await ensureRecurringBillsForMonth(month).catch(() => {});
+  await ensureRecurringBillsForMonth(month, user.ownerId).catch(() => {});
 
   // Multi-owner tenant boundary (see src/lib/ownerScope.ts) — Unit/User/
   // Bill/Stock/Coupon/FeedbackResponse/AuditLog(login+housekeeping) are all
@@ -24,7 +31,7 @@ export default async function AdminPage() {
   // through. checkCoupon() at actual guest checkout is the one remaining
   // gap (see the Coupon model's doc comment in schema.prisma) — this only
   // covers the Admin list/create/edit/delete paths.
-  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows, impersonationLogs, housekeepingActivityLogs] = await Promise.all([
+  const [units, users, settings, loginLogs, bills, stocks, coupons, feedbackRows, placeSummaryRows, impersonationLogs, housekeepingActivityLogs, ownerProfile] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { id: true, name: true } } } } } }),
     // Explicit select — excludes passwordHash. avatarUrl (a base64-encoded
     // profile photo) IS fetched here now so Users & roles shows each
@@ -40,7 +47,7 @@ export default async function AdminPage() {
         ownedUnits: { include: { unit: { select: { id: true, name: true, shortName: true } } } },
       },
     }),
-    prismaPool[2].settings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }),
+    prismaPool[2].settings.upsert({ where: { ownerId: user.ownerId! }, update: {}, create: { ownerId: user.ownerId! } }),
     prismaPool[3].auditLog.findMany({
       where: { action: "user.login", actor: { ownerId: user.ownerId } },
       orderBy: { createdAt: "desc" },
@@ -82,6 +89,12 @@ export default async function AdminPage() {
       take: 300,
       include: { actor: { select: { id: true, name: true, username: true, role: true } } },
     }),
+    // Feeds the Settings tab's "Staycation Profile" section — this owner's
+    // own display name + icon (Owner.businessName/logoUrl), separate from
+    // the global Settings singleton fetched above.
+    user.ownerId
+      ? prisma.owner.findUnique({ where: { id: user.ownerId }, select: { businessName: true, logoUrl: true } })
+      : Promise.resolve(null),
   ]);
 
   // ImpersonationSession has no relation column to filter through — scope
@@ -114,6 +127,8 @@ export default async function AdminPage() {
       placeInsightSummary={JSON.parse(JSON.stringify(placeInsightSummary))}
       impersonationLogs={JSON.parse(JSON.stringify(scopedImpersonationLogs))}
       housekeepingActivityLogs={JSON.parse(JSON.stringify(housekeepingActivityLogs))}
+      ownerProfile={ownerProfile ?? { businessName: safeSettings.businessName, logoUrl: null }}
+      isPlatformAdmin={!!user.isPlatformAdmin}
     />
   );
 }

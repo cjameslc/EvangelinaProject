@@ -5,6 +5,24 @@ import { getActiveGuideBooking, getGuestBookingForGuide } from "@/lib/bookingEng
 import { prisma } from "@/lib/prisma";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
 import { isConfirmationValid } from "@/lib/bookingEngine/confirmationValidity";
+import { logAudit } from "@/lib/audit";
+
+/** Prefers the real per-booking dynamic AccessCredential (a live TTLock
+ * passcode, or a reserve-pool fallback code) over the unit's static
+ * doorCode — this is the Access Control Service's one guest-facing surface
+ * (src/lib/access/service.ts creates/releases these; nothing else ever
+ * hands the raw code back to a caller besides this lookup and the staff
+ * reveal endpoint). Falls back to the static code for units with no
+ * TTLock lock linked, so a unit without smart-lock coverage still works
+ * exactly as before. */
+async function resolveDoorCode(bookingId: string): Promise<{ code: string; credentialId: string | null } | null> {
+  const credential = await prisma.accessCredential.findFirst({
+    where: { bookingId, type: "GUEST", status: "ACTIVE" },
+    select: { id: true, code: true },
+  });
+  if (credential?.code) return { code: credential.code, credentialId: credential.id };
+  return null;
+}
 
 /**
  * Reveals the door code from the guest's own session alone — no re-typed
@@ -41,7 +59,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sign in to see your unit's door code." }, { status: 401 });
     }
     const booking = await prisma.booking.findUnique({ where: { id: bookingId! }, include: { unit: { select: { doorCode: true, name: true } } } });
-    if (!booking || !booking.unit.doorCode) return NextResponse.json({ error: "No door code set for that unit." }, { status: 404 });
+    if (!booking) return NextResponse.json({ error: "No door code set for that unit." }, { status: 404 });
+    const dynamic = await resolveDoorCode(booking.id);
+    if (dynamic) return NextResponse.json({ doorCode: dynamic.code, unitName: booking.unit.name });
+    if (!booking.unit.doorCode) return NextResponse.json({ error: "No door code set for that unit." }, { status: 404 });
     return NextResponse.json({ doorCode: booking.unit.doorCode, unitName: booking.unit.name });
   }
 
@@ -49,9 +70,16 @@ export async function POST(req: NextRequest) {
   if (!limited.ok) return NextResponse.json({ error: "Too many attempts — please wait a bit and try again." }, { status: 429 });
 
   const booking = bookingId ? await getGuestBookingForGuide(guest.id, bookingId) : await getActiveGuideBooking(guest.id);
-  if (!booking || !booking.unit.doorCode || !isConfirmationValid(booking)) {
+  if (!booking || !isConfirmationValid(booking)) {
     return NextResponse.json({ error: "No active stay found for that booking." }, { status: 403 });
   }
+
+  const dynamic = await resolveDoorCode(booking.id);
+  if (dynamic) {
+    await logAudit(null, "access.credential.viewed", "AccessCredential", dynamic.credentialId ?? undefined, { guestId: guest.id, bookingId: booking.id });
+    return NextResponse.json({ doorCode: dynamic.code, unitName: booking.unit.name });
+  }
+  if (!booking.unit.doorCode) return NextResponse.json({ error: "No active stay found for that booking." }, { status: 403 });
 
   return NextResponse.json({ doorCode: booking.unit.doorCode, unitName: booking.unit.name });
 }

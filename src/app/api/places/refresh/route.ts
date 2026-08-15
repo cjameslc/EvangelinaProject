@@ -25,12 +25,12 @@ export async function POST(req: NextRequest) {
   const category = typeof body?.category === "string" ? body.category : "";
   if (!category) return NextResponse.json({ error: "Missing category." }, { status: 400 });
 
-  const settings = await prisma.settings.findUnique({ where: { id: 1 }, select: { guidebookCategories: true } });
+  const settings = await prisma.settings.findUnique({ where: { ownerId: user.ownerId! }, select: { guidebookCategories: true } });
   const categories = (settings?.guidebookCategories as unknown as GuidebookCategory[] | null) ?? GUIDEBOOK_CATEGORIES;
   const match = categories.find((c) => c.key === category);
   if (!match) return NextResponse.json({ error: "Unknown category." }, { status: 404 });
 
-  const results = await refreshCategoryInsights(category, match.label, match.items);
+  const results = await refreshCategoryInsights(category, match.label, match.items, user.ownerId!);
   await logAudit(user.id, "places.refresh", "PlaceInsight", category, { count: results.length, failed: results.filter((r) => !r.ok).length });
   return NextResponse.json({ results });
 }

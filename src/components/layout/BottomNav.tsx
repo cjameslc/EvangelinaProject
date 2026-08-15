@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useViewMode } from "@/components/layout/ViewModeProvider";
 import type { ViewMode } from "@/lib/viewModeCookie";
 import { useTheme } from "@/components/ui/ThemeProvider";
+import { useColorTheme } from "@/components/ui/ColorThemeProvider";
 import { ICONS, PRIMARY_NAV_COUNT } from "@/components/layout/Navbar";
 import { MoonIcon, SunIcon, LogoutIcon, UserIcon, MoreIcon, CloseIcon, HomeIcon } from "@/components/ui/Icons";
 
@@ -21,8 +22,8 @@ export function BottomNav() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
+  const { colorTheme } = useColorTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
   const [auditorOpenCount, setAuditorOpenCount] = useState(0);
 
   useEffect(() => { setSheetOpen(false); }, [pathname]);
@@ -41,7 +42,7 @@ export function BottomNav() {
   // endpoint rather than reusing the full Auditor page query.
   useEffect(() => {
     if (!session || viewMode === "travel") return;
-    if (!visibleNavItems(session.user?.role).some((i) => i.href === "/auditor")) return;
+    if (!visibleNavItems(session.user?.role, session.user?.additionalPageAccess, session.user?.ownerEnabledModules).some((i) => i.href === "/auditor")) return;
     const controller = new AbortController();
     fetch("/api/auditor-findings/open-count", { signal: controller.signal })
       .then((r) => r.json())
@@ -50,28 +51,6 @@ export function BottomNav() {
     return () => controller.abort();
   }, [session, viewMode, pathname]);
 
-  // Same lightweight badge fetch as Navbar (a sibling component — BottomNav
-  // is staff-only, so it duplicates rather than shares that state, same as
-  // it already independently re-renders NAV_ITEMS instead of importing
-  // Navbar's rendering).
-  useEffect(() => {
-    if (!session || viewMode === "travel") return;
-    let cancelled = false;
-    let controller: AbortController | null = null;
-    async function tick() {
-      controller?.abort();
-      controller = new AbortController();
-      try {
-        const res = await fetch("/api/chat/unread-count", { signal: controller.signal });
-        if (res.ok && !cancelled) setChatUnread((await res.json()).count ?? 0);
-      } catch {
-        // aborted or transient — next tick retries
-      }
-    }
-    tick();
-    const id = setInterval(tick, 30000);
-    return () => { cancelled = true; clearInterval(id); controller?.abort(); };
-  }, [session, viewMode, pathname]);
 
   // Same as Navbar: an employee in Travel Mode sees no staff bottom nav,
   // matching what a real guest sees (no bottom nav at all today).
@@ -87,7 +66,7 @@ export function BottomNav() {
   }
 
   const role = session.user?.role;
-  const items = visibleNavItems(role);
+  const items = visibleNavItems(role, session.user?.additionalPageAccess, session.user?.ownerEnabledModules);
   const primaryItems = items.slice(0, PRIMARY_NAV_COUNT);
   const overflowItems = items.slice(PRIMARY_NAV_COUNT);
   const onOverflowItem = overflowItems.some((item) => pathname.startsWith(item.href));
@@ -108,16 +87,11 @@ export function BottomNav() {
                 href={item.href}
                 className={cn(
                   "flex flex-1 flex-col items-center justify-center gap-1 text-[10.5px] font-bold",
-                  on ? "text-rausch" : "text-[var(--gray)]"
+                  on ? "brand-text" : "text-[var(--gray)]"
                 )}
               >
                 <span className="relative">
                   <Icon className="h-[20px] w-[20px]" />
-                  {(item.icon === "chat" || item.icon === "file") && chatUnread > 0 && (
-                    <span className="absolute -right-2 -top-1 grid h-[15px] min-w-[15px] animate-pop-in place-items-center rounded-full bg-rausch px-[3px] text-[9px] font-extrabold text-white">
-                      {chatUnread > 99 ? "99+" : chatUnread}
-                    </span>
-                  )}
                 </span>
                 {item.label === "My Earnings" ? "Earnings" : item.label}
               </Link>
@@ -128,7 +102,7 @@ export function BottomNav() {
             aria-label="More"
             className={cn(
               "flex flex-1 flex-col items-center justify-center gap-1 text-[10.5px] font-bold",
-              onOverflowItem ? "text-rausch" : "text-[var(--gray)]"
+              onOverflowItem ? "brand-text" : "text-[var(--gray)]"
             )}
           >
             <MoreIcon className="h-[20px] w-[20px]" />
@@ -164,14 +138,14 @@ export function BottomNav() {
                   href={item.href}
                   className={cn(
                     "flex items-center gap-3 rounded-xl px-3 py-2.5 transition",
-                    on ? "bg-rausch/10" : "hover:bg-[var(--bg-2)]"
+                    on ? "brand-bg-subtle" : "hover:bg-[var(--bg-2)]"
                   )}
                 >
-                  <span className={cn("grid h-9 w-9 flex-none place-items-center rounded-lg", on ? "bg-rausch/15 text-rausch" : "bg-[var(--bg-2)] text-[var(--gray)]")}>
+                  <span className={cn("grid h-9 w-9 flex-none place-items-center rounded-lg", on ? "brand-bg-subtle-15 brand-text" : "bg-[var(--bg-2)] text-[var(--gray)]")}>
                     <Icon className="h-[17px] w-[17px]" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={cn("flex items-center gap-1.5 text-[14px] font-semibold", on ? "text-rausch" : "text-[var(--ink)]")}>
+                    <span className={cn("flex items-center gap-1.5 text-[14px] font-semibold", on ? "brand-text" : "text-[var(--ink)]")}>
                       {item.label}
                       {badge > 0 && (
                         <span className="grid h-[16px] min-w-[16px] place-items-center rounded-full bg-rausch px-[3px] text-[9.5px] font-extrabold text-white">
@@ -199,10 +173,13 @@ export function BottomNav() {
             </button>
             <button
               onClick={toggle}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)]"
+              disabled={!!colorTheme}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[14px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              title={colorTheme ? "Your Color Theme sets a fixed palette — change it in Settings to use light/dark mode again." : undefined}
             >
               {theme === "dark" ? <SunIcon className="h-[17px] w-[17px] flex-none" /> : <MoonIcon className="h-[17px] w-[17px] flex-none" />}
               {theme === "dark" ? "Light mode" : "Dark mode"}
+              {colorTheme && <span className="ml-auto text-[11px] font-semibold text-[var(--gray)]">Set by theme</span>}
             </button>
             <button
               onClick={() => { clearQueuedMutations().catch(() => {}); signOut({ callbackUrl: "/login" }); }}

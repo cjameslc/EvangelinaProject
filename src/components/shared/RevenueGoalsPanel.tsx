@@ -5,28 +5,43 @@ import { peso } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { generateGoalInsight, type UnitGoal, type LeaderboardRow, type Milestone } from "@/lib/analytics/revenueGoals";
 
+// "At risk" no longer gets a distinct, more-alarming color than "Behind" —
+// both are a revenue-goal projection running under target, not an
+// operational safety/access issue (compare Upcoming Expenses' genuinely
+// urgent "Overdue" bills, which still use rausch deliberately). Collapsing
+// them to the same amber keeps the dashboard's red reserved for things
+// that actually need action right now.
 const STATUS_STYLE: Record<UnitGoal["status"], { label: string; cls: string }> = {
   achieved: { label: "Achieved", cls: "bg-teal/10 text-teal" },
   ahead: { label: "Ahead of target", cls: "bg-teal/10 text-teal" },
   on_track: { label: "On track", cls: "bg-gold/10 text-gold" },
   behind: { label: "Behind", cls: "bg-amber/10 text-amber" },
-  at_risk: { label: "At risk", cls: "bg-rausch/10 text-rausch" },
+  at_risk: { label: "At risk", cls: "bg-amber/10 text-amber" },
 };
 
 const CONFIDENCE_LABEL: Record<UnitGoal["confidence"], string> = { low: "low confidence", medium: "medium confidence", high: "high confidence" };
 
-function ProgressBar({ pct, tone = "rausch" }: { pct: number; tone?: "rausch" | "teal" | "gold" }) {
-  const bar = tone === "teal" ? "bg-teal" : tone === "gold" ? "bg-gold" : "bg-rausch";
+function ProgressBar({ pct, tone = "violet" }: { pct: number; tone?: "violet" | "teal" | "gold" | "amber" }) {
+  // teal/gold/amber are real status meanings (achieved/on-track/behind) —
+  // fixed regardless of skin/theme, same "never repaint a real status"
+  // principle the Seasonal Skin System already applies elsewhere. "violet"
+  // is the neutral/default case (no status opinion yet), which is what
+  // should actually track the active skin/personal theme's own primary
+  // color instead of being pinned to violet specifically.
+  const bar = tone === "teal" ? "bg-teal" : tone === "gold" ? "bg-gold" : tone === "amber" ? "bg-amber" : undefined;
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--bg-2)]">
-      <div className={cn("h-full rounded-full transition-all", bar)} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+      <div
+        className={cn("h-full rounded-full transition-all", bar)}
+        style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: bar ? undefined : "var(--skin-primary, #6c5ce7)" }}
+      />
     </div>
   );
 }
 
 function UnitGoalCard({ goal, badges }: { goal: UnitGoal; badges: Milestone[] }) {
   const style = STATUS_STYLE[goal.status];
-  const tone = goal.status === "achieved" || goal.status === "ahead" ? "teal" : goal.status === "on_track" ? "gold" : "rausch";
+  const tone = goal.status === "achieved" || goal.status === "ahead" ? "teal" : goal.status === "on_track" ? "gold" : "amber";
   const unitBadges = badges.filter((b) => b.detail.startsWith(goal.unitLabel));
 
   return (
@@ -87,7 +102,7 @@ export function RevenueGoalsPanel({
     <Accordion title="Monthly Revenue Goal" sub={`${portfolio.pctComplete}% complete`}>
       <div className="space-y-4">
         {/* Portfolio summary */}
-        <div className="rounded-2xl border border-[var(--line)] bg-gradient-to-br from-rausch/[.04] to-gold/[.04] p-4">
+        <div className="rounded-2xl border border-[var(--line)] bg-gradient-to-br from-violet/[.06] to-gold/[.04] p-4">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Target</p>
@@ -100,7 +115,7 @@ export function RevenueGoalsPanel({
               <p className="text-[11px] text-[var(--gray)]">{peso(portfolio.remainingPesos)} remaining</p>
             </div>
           </div>
-          <div className="mt-3"><ProgressBar pct={portfolio.pctComplete} tone={portfolio.pctComplete >= 100 ? "teal" : "rausch"} /></div>
+          <div className="mt-3"><ProgressBar pct={portfolio.pctComplete} tone={portfolio.pctComplete >= 100 ? "teal" : "violet"} /></div>
           <p className="mt-1.5 text-[11.5px] font-bold text-[var(--gray)]">{portfolio.pctComplete}% complete</p>
         </div>
 

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getGuidebookSettings } from "@/lib/guidebookService";
+import { getGuidebookSettingsForCurrentGuest } from "@/lib/guidebookService";
 import { getPlaceInsightsByNames } from "@/lib/places/placeInsightService";
 import { GuidePageHeader } from "@/components/guest/GuidePageHeader";
 import { NearbyCategoryList } from "@/components/guest/NearbyCategoryList";
@@ -15,7 +15,7 @@ export default async function NearbyCategoryPage({ params }: { params: { categor
   const meta = NEARBY_SLUGS[slug];
   if (!meta) notFound();
 
-  const g = await getGuidebookSettings();
+  const g = await getGuidebookSettingsForCurrentGuest();
   const categories = g.categories.filter((c) => meta.categoryKeys.includes(c.key));
   const insightRows = await getPlaceInsightsByNames(categories.flatMap((c) => c.items));
   const insights: Record<string, PlaceInsightData> = JSON.parse(JSON.stringify(Object.fromEntries(insightRows)));

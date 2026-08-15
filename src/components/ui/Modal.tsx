@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useLayoutEffect } from "react";
 import { CloseIcon } from "@/components/ui/Icons";
 
 export function Modal({
@@ -24,6 +24,18 @@ export function Modal({
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
+  // Every caller passes onClose as a fresh inline arrow function
+  // (onClose={() => setOpen(false)}), so its reference changes on every
+  // render of the parent — including every keystroke in a field the
+  // parent's state backs. Keeping it out of the effect below via a ref
+  // (updated on every render, but never itself a dependency) means the
+  // effect only re-runs when `open` actually changes, not on every
+  // unrelated parent re-render.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   // Escape-to-close and initial focus on the close button — shared by every
   // modal in the app, so fixing it once here covers all of them rather than
   // each caller reimplementing (or forgetting) the same keyboard behavior.
@@ -31,19 +43,27 @@ export function Modal({
   // without this, a keyboard/screen-reader user's focus was silently
   // dropped to <body> on close, forcing them to re-navigate from the top
   // of the page instead of picking up where they left off.
+  //
+  // Confirmed live bug, now fixed: with `onClose` in this effect's own
+  // dependency array (its old form), every keystroke in any text field
+  // inside a modal re-ran this effect — including the closeRef.current
+  // .focus() call — so focus jumped from the field the user was typing in
+  // back to the ✕ button after every single character. Depending only on
+  // `open` (and reading onCloseRef.current inside, never a stale closure)
+  // means this now runs exactly once per open, not once per keystroke.
   useEffect(() => {
     if (!open) return;
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       previouslyFocusedRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

@@ -33,3 +33,50 @@ export function manilaDayKey(date: Date): string {
 export function isPastManilaDate(dateStr: string): boolean {
   return dateStr < manilaTodayISO();
 }
+
+/** 0-23 hour of day in Asia/Manila — for time-of-day greetings (see
+ * FestiveGreeting), evaluated against the property's own timezone rather
+ * than the browser's, so a guest checking in from abroad still sees
+ * "Good evening" when it's evening in Cubao. */
+export function manilaHour(date: Date = new Date()): number {
+  return parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "numeric", hour12: false }).format(date), 10);
+}
+
+/** "Good morning" / "Good afternoon" / "Good evening", from the Asia/Manila hour. */
+export function manilaTimeGreeting(date: Date = new Date()): string {
+  const h = manilaHour(date);
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+// The Philippines doesn't observe DST — a fixed offset is safe year-round.
+const MANILA_UTC_OFFSET_MS = 8 * 3600 * 1000;
+
+/**
+ * Converts a "fake-UTC" Manila-wall-clock placeholder into the real UTC
+ * instant it's meant to represent.
+ *
+ * Booking.date/checkOutDate (see manilaDayStart's doc comment in
+ * format.ts) store the Manila calendar day as a UTC-midnight instant —
+ * deliberately not a true UTC timestamp, just a stand-in. stayRange.ts's
+ * getOccupiedWindow extends that same placeholder convention to hour/
+ * minute precision (combineDateAndTime's setUTCHours(14, ...) means "2 PM
+ * Manila," not "2 PM UTC"). That's harmless for this app's existing uses —
+ * overlap/conflict checks and calendar day-span math only ever compare
+ * these placeholders against each other, and a consistent offset cancels
+ * out in every such comparison.
+ *
+ * It stops being harmless the moment a real-world external system needs
+ * the actual instant — e.g. handing a guest's check-in/check-out window to
+ * TTLock, whose lock hardware evaluates startDate/endDate against its own
+ * real clock. Sending the placeholder's raw getTime() there activates the
+ * passcode 8 hours late and expires it 8 hours late too — this function is
+ * the one correction point for that handoff. Do NOT apply it to values
+ * that stay entirely inside this app's own internal comparisons; doing so
+ * would re-align only some bookings' windows and break the (consistently
+ * wrong, but consistently so) relative math they rely on.
+ */
+export function manilaWallClockToRealInstant(d: Date): Date {
+  return new Date(d.getTime() - MANILA_UTC_OFFSET_MS);
+}

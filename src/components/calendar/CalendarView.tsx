@@ -9,10 +9,12 @@ import { useToast } from "@/components/ui/Toast";
 import { SyncHistory } from "@/components/calendar/SyncHistory";
 import { ExportToAirbnb } from "@/components/calendar/ExportToAirbnb";
 import { fmtDate, fmtTimeStr, formatUnitDisplay, peso } from "@/lib/format";
-import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL } from "@/lib/constants";
+import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, CALENDAR_TYPE_META, CALENDAR_CLEANING_DONE, CALENDAR_AIRBNB_COLOR } from "@/lib/constants";
 import { nightsFor } from "@/lib/stayRange";
-import { canManageUnits } from "@/lib/rbac";
+import { canManageUnits, canRevealAccessCredential } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
+import { SeasonalBadge } from "@/components/skins/SeasonalBadge";
+import { DoorCodeReveal } from "@/components/access/DoorCodeReveal";
 
 type Unit = { id: string; name: string; unitNumber: string; shortName: string; nightlyRate?: number; icalImportUrl?: string | null; icalToken?: string | null; owners?: { user: { name: string } }[] };
 type BlockBooking = {
@@ -24,35 +26,18 @@ type BlockBooking = {
 } | null;
 type Block = { id: string; unitId: string; unit: Unit; type: string; date: string; endDate: string | null; guest: string | null; note: string | null; status: string; booking?: BlockBooking };
 
-const TYPE_META: Record<string, { label: string; color: string; icon: string; textColor?: string }> = {
-  Full: { label: "21-Hour", color: "#3B71E8", icon: "🛏️" },
-  Night: { label: "Night stay", color: "#7C5CE7", icon: "🌙" },
-  Daycation: { label: "Daycation", color: "#0D9E6E", icon: "☀️" },
-  Flexible: { label: "Flexible", color: "#0EA5A0", icon: "🕐" },
-  Cleaning: { label: "Cleaning", color: "#8E99AA", icon: "🧹" },
-  Maintenance: { label: "Maintenance", color: "#C87D00", icon: "🔧" },
-};
+// A real guest stay, not an internal Cleaning/Maintenance block — same list
+// UnitCalendarView.tsx uses to decide when a door code even makes sense.
+const STAY_TYPE_KEYS = ["Daycation", "Night", "Full", "Flexible"];
 
-// A Cleaning block starts open-ended (endDate: null) while housekeeping is
-// actively working, then gets closed off with an endDate the moment they
-// mark the unit clean (see closeCleaningCalendarBlock in calendarMirror.ts)
-// — surfaced here as a distinct color/icon so "still cleaning" vs "done"
-// is obvious on the grid at a glance, not just in the tile's tooltip text.
-const CLEANING_DONE = { label: "Cleaned", color: "#008A05", icon: "✅" };
+// Legend/tile colors live in src/lib/constants.ts (CALENDAR_TYPE_META etc.)
+// so this Gantt view and /calendar/[unitId]'s monthly view share one legend
+// instead of two independently-maintained lists that can drift apart.
 function cleaningVisual(b: { type: string; endDate: string | null }) {
-  return b.type === "Cleaning" && b.endDate ? CLEANING_DONE : null;
+  return b.type === "Cleaning" && b.endDate ? CALENDAR_CLEANING_DONE : null;
 }
 
 const PLATFORM_ICON: Record<string, string> = { Airbnb: "🏠", TikTok: "🎵", Facebook: "📘", WalkIn: "🚶", Direct: "📞", Other: "🌐" };
-
-// Airbnb bookings get their own dedicated tile color — rausch, the app's
-// brand red (itself Airbnb's own "Rausch" brand color) — instead of the
-// stay-type color, so the platform that drives most of the business is
-// recognizable across the grid at a glance. Airbnb has no day-use product,
-// so every Airbnb booking is a Full (21-Hour) stay (enforced in BookingForm
-// and server-side in normalizeStayTypeForPlatform) — this color always
-// means "Full", never mixed with the Daycation/Night colors.
-const AIRBNB_COLOR = "#FF385C";
 
 // Day-column width and the height of one occupancy "lane" within a unit's
 // row — a slim, timeline-style density (closer to a Gantt chart) so a full
@@ -100,6 +85,14 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
   const router = useRouter();
   const toast = useToast();
   const canSync = canManageUnits(role as any);
+  // Same gate as the per-unit Calendar popover and Bookings row (see
+  // DoorCodeReveal's own doc comment — one component shared across all
+  // three), so the main /calendar grid's own detail modal isn't the odd
+  // one out. "Generate link" is narrower still (OWNER_ADMIN-only,
+  // server-enforced on POST /api/bookings/[id]/confirmation) — matches
+  // UnitCalendarView's identical canGenerateAccessLink.
+  const canRevealAccess = canRevealAccessCredential(role as any);
+  const canGenerateAccessLink = role === "OWNER_ADMIN";
   const [syncing, setSyncing] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const unitsWithAirbnbFeed = useMemo(() => units.filter((u) => u.icalImportUrl), [units]);
@@ -171,16 +164,6 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
     [units, unitFilter]
   );
 
-  // Clicking a unit's row header "focuses" the calendar on just that unit —
-  // reuses the same unitFilter the Filters panel already drives (picking
-  // exactly one unit there is the same state), so every other part of the
-  // page (the grid, "Today at a glance", "Upcoming check-ins") narrows to
-  // match for free, with one obvious way back out.
-  const focusedUnit = unitFilter && unitFilter.size === 1 ? units.find((u) => unitFilter.has(u.id)) ?? null : null;
-  function focusUnit(unitId: string) {
-    setUnitFilter(new Set([unitId]));
-  }
-
   const filteredBlocks = useMemo(() => {
     const q = search.trim().toLowerCase();
     return blocks.filter((b) => {
@@ -205,11 +188,10 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       else if (e.key === "ArrowRight") { setAnchor((a) => new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, 1))); }
       else if (e.key === "t" || e.key === "T") { setAnchor(manilaToday()); }
       else if (e.key === "/") { e.preventDefault(); setFiltersOpen(true); requestAnimationFrame(() => searchInputRef.current?.focus()); }
-      else if (e.key === "Escape" && focusedUnit) { setUnitFilter(null); }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [focusedUnit]);
+  }, []);
 
   const days = useMemo(() => {
     const y = anchor.getUTCFullYear(), m = anchor.getUTCMonth();
@@ -363,7 +345,7 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
     const startOfToday = manilaToday();
     const nowHHMM = manilaNowHHMM();
     return filteredBlocks
-      .filter((b) => TYPE_META[b.type] && (b.type === "Full" || b.type === "Night" || b.type === "Daycation") && new Date(b.date) >= startOfToday)
+      .filter((b) => CALENDAR_TYPE_META[b.type] && (b.type === "Full" || b.type === "Night" || b.type === "Daycation") && new Date(b.date) >= startOfToday)
       // A check-in dated today whose check-in time has already passed isn't
       // "upcoming" anymore — the guest is either already in or already late,
       // not something still ahead. Future days are unaffected; a block with
@@ -393,21 +375,16 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
     <div className="mx-auto max-w-[1400px] px-4 py-9 sm:px-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          {focusedUnit ? (
-            <button
-              onClick={() => setUnitFilter(null)}
-              className="mb-1.5 flex items-center gap-1.5 text-[13px] font-bold text-rausch hover:underline"
-            >
-              <ArrowLeftIcon className="h-3.5 w-3.5" /> All units
-            </button>
-          ) : null}
-          <h1 className="text-[24px] font-extrabold tracking-tight">
-            {focusedUnit ? formatUnitDisplay(focusedUnit.unitNumber, focusedUnit.shortName) : "Availability Calendar"}
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-[24px] font-extrabold tracking-tight">Availability Calendar</h1>
+            {/* Purely decorative — brief section 27 is explicit that the
+                Calendar's actual functionality (lane assignment, focused-
+                unit sync, date math) must never change with the skin. This
+                badge carries zero logic of its own. */}
+            <SeasonalBadge />
+          </div>
           <p className="mt-1 text-[13px] text-[var(--gray)]">
-            {focusedUnit
-              ? "read-only occupancy overview — log or edit bookings from the Bookings page"
-              : `${visibleUnits.length === units.length ? `${units.length} units` : `${visibleUnits.length} of ${units.length} units`} · read-only occupancy overview — log or edit bookings from the Bookings page`}
+            {`${visibleUnits.length === units.length ? `${units.length} units` : `${visibleUnits.length} of ${units.length} units`} · read-only occupancy overview — log or edit bookings from the Bookings page`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -527,12 +504,12 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
 
       <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-2xl border border-[var(--line)] bg-[var(--card)] px-4 py-2.5 text-[12px] font-semibold text-[var(--gray)]">
         <span className="text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Legend</span>
-        {Object.entries(TYPE_META).map(([k, m]) => (
+        {Object.entries(CALENDAR_TYPE_META).map(([k, m]) => (
           <span key={k} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: m.color }} />{m.icon} {m.label}</span>
         ))}
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: CLEANING_DONE.color }} />{CLEANING_DONE.icon} {CLEANING_DONE.label}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: CALENDAR_CLEANING_DONE.color }} />{CALENDAR_CLEANING_DONE.icon} {CALENDAR_CLEANING_DONE.label}</span>
         <span className="h-4 w-px bg-[var(--line)]" />
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: AIRBNB_COLOR }} />🏠 Airbnb (always 21-Hour)</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: CALENDAR_AIRBNB_COLOR }} />🏠 Airbnb (always 21-Hour)</span>
         <span className="h-4 w-px bg-[var(--line)]" />
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green" />Paid</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber" />Unpaid</span>
@@ -549,17 +526,26 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
             <div style={{ minWidth: days.length * CELL_W + SIDEBAR_W }}>
               <div className="flex border-b-2 border-[var(--line)]">
                 <div className="sticky left-0 z-10 flex-none border-r border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)]" style={{ width: SIDEBAR_W }}>Unit</div>
-                {days.map((d) => (
+                {days.map((d) => {
+                  const dIso = isoDate(d);
+                  const isPastDay = dIso < todayIso;
+                  return (
                   <div
                     key={+d}
-                    ref={isoDate(d) === todayIso ? todayColRef : undefined}
-                    className={cn("flex-none border-l border-[var(--line)] py-1 text-center", (d.getUTCDay() === 0 || d.getUTCDay() === 6) && "bg-[var(--bg-2)]", isoDate(d) === todayIso && "border-l-2 border-l-rausch bg-rausch/5")}
+                    ref={dIso === todayIso ? todayColRef : undefined}
+                    className={cn(
+                      "flex-none border-l border-[var(--line)] py-1 text-center",
+                      (isPastDay || d.getUTCDay() === 0 || d.getUTCDay() === 6) && "bg-[var(--bg-2)]",
+                      isPastDay && "opacity-60",
+                      dIso === todayIso && "border-l-2 border-l-rausch bg-rausch/5"
+                    )}
                     style={{ width: CELL_W }}
                   >
                     <div className="text-[8.5px] font-bold uppercase text-[var(--gray)]">{fmtDay2(d)}</div>
-                    <div className={cn("text-[12px] font-extrabold", isoDate(d) === todayIso && "text-rausch")}>{d.getUTCDate()}</div>
+                    <div className={cn("text-[12px] font-extrabold", dIso === todayIso && "text-rausch")}>{d.getUTCDate()}</div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {visibleUnits.length === 0 && (
@@ -572,15 +558,11 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                 <div key={u.id} className="flex border-b border-[var(--line)] last:border-0" style={{ minHeight: rowHeight }}>
                   <button
                     type="button"
-                    onClick={() => focusUnit(u.id)}
-                    disabled={!!focusedUnit}
-                    className={cn(
-                      "group sticky left-0 z-10 flex flex-none flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition",
-                      !focusedUnit && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
-                    )}
+                    onClick={() => router.push(`/calendar/${u.id}`)}
+                    className="group sticky left-0 z-10 flex flex-none cursor-pointer flex-col items-start justify-center gap-1.5 border-r border-[var(--line)] bg-[var(--card)] px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rausch"
                     style={{ width: SIDEBAR_W }}
-                    title={focusedUnit ? undefined : `View ${formatUnitDisplay(u.unitNumber, u.shortName)} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
-                    aria-label={focusedUnit ? undefined : `Focus calendar on ${formatUnitDisplay(u.unitNumber, u.shortName)}`}
+                    title={`View ${formatUnitDisplay(u.unitNumber, u.shortName)} on its own — Owner: ${u.owners?.length ? u.owners.map((o) => o.user.name).join(", ") : "Owner/Admin"}`}
+                    aria-label={`Open ${formatUnitDisplay(u.unitNumber, u.shortName)}'s own calendar`}
                   >
                     {/* Separate opaque-over-opaque overlay, not a translucent
                         override of bg-[var(--card)] above — this button is
@@ -588,39 +570,43 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                         so a hover:bg-rausch/[0.06] on the same background-color
                         property made the whole cell briefly see-through on
                         hover instead of just tinting it. */}
-                    {!focusedUnit && (
-                      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-rausch opacity-0 transition group-hover:opacity-[0.06] group-active:opacity-10" />
-                    )}
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-rausch opacity-0 transition group-hover:opacity-[0.06] group-active:opacity-10" />
                     <div className="flex w-full min-w-0 items-center gap-1.5">
                       <span className="truncate text-[13px] font-extrabold leading-tight group-hover:text-rausch group-hover:underline">{formatUnitDisplay(u.unitNumber, u.shortName)}</span>
-                      {!focusedUnit && (
-                        <ArrowRightIcon className="ml-auto h-3.5 w-3.5 flex-none text-[var(--gray)] opacity-40 transition group-hover:translate-x-0.5 group-hover:text-rausch group-hover:opacity-100" />
-                      )}
+                      <ArrowRightIcon className="ml-auto h-3.5 w-3.5 flex-none text-[var(--gray)] opacity-40 transition group-hover:translate-x-0.5 group-hover:text-rausch group-hover:opacity-100" />
                     </div>
                     <div className="flex flex-none items-center gap-1.5">
-                      <span className="rounded px-1.5 py-0.5 text-[10.5px] font-extrabold whitespace-nowrap" style={{ background: `${TYPE_META.Daycation.color}1A`, color: TYPE_META.Daycation.color }}>
+                      <span className="rounded px-1.5 py-0.5 text-[10.5px] font-extrabold whitespace-nowrap" style={{ background: `${CALENDAR_TYPE_META.Daycation.color}1A`, color: CALENDAR_TYPE_META.Daycation.color }}>
                         ☀️ {typeCounts.Daycation}
                       </span>
-                      <span className="rounded px-1.5 py-0.5 text-[10.5px] font-extrabold whitespace-nowrap" style={{ background: `${TYPE_META.Night.color}1A`, color: TYPE_META.Night.color }}>
+                      <span className="rounded px-1.5 py-0.5 text-[10.5px] font-extrabold whitespace-nowrap" style={{ background: `${CALENDAR_TYPE_META.Night.color}1A`, color: CALENDAR_TYPE_META.Night.color }}>
                         🌙 {typeCounts.Night}
                       </span>
                     </div>
                   </button>
                   <div className="relative flex flex-1">
-                    {days.map((d) => (
+                    {days.map((d) => {
+                      const dIso = isoDate(d);
+                      return (
                       <div
                         key={+d}
-                        className={cn("flex-none border-l border-[var(--line)]", (d.getUTCDay() === 0 || d.getUTCDay() === 6) && "bg-[var(--bg-2)]", isoDate(d) === todayIso && "bg-rausch/5")}
+                        className={cn(
+                          "flex-none border-l border-[var(--line)]",
+                          (dIso < todayIso || d.getUTCDay() === 0 || d.getUTCDay() === 6) && "bg-[var(--bg-2)]",
+                          dIso < todayIso && "opacity-60",
+                          dIso === todayIso && "bg-rausch/5"
+                        )}
                         style={{ width: CELL_W }}
                       />
-                    ))}
+                      );
+                    })}
                     <div className="pointer-events-none absolute inset-0">
                       {(barsByUnit.get(u.id) ?? []).map((bar) => {
                         const b = bar.block;
-                        const meta = TYPE_META[b.type];
+                        const meta = CALENDAR_TYPE_META[b.type];
                         const isAirbnb = b.booking?.platform === "Airbnb";
                         const done = cleaningVisual(b);
-                        const tileColor = isAirbnb ? AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999";
+                        const tileColor = isAirbnb ? CALENDAR_AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999";
                         const isDaycation = b.type === "Daycation";
                         const isHalf = bar.half !== "full";
                         const nights = b.booking && !isDaycation ? nightsFor(b.type, new Date(b.date), b.endDate ? new Date(b.endDate) : null) : 0;
@@ -701,9 +687,9 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                 <div className="w-[54px] text-[11px] font-extrabold">{fmtDate(b.date, { month: "short", day: "numeric" })}</div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-bold">{b.guest ?? "Guest"}</div>
-                  <div className="truncate text-[10.5px] text-[var(--gray)]">{b.unit.shortName} · {TYPE_META[b.type]?.label}</div>
+                  <div className="truncate text-[10.5px] text-[var(--gray)]">{b.unit.shortName} · {CALENDAR_TYPE_META[b.type]?.label}</div>
                 </div>
-                <span className="h-2 w-2 flex-none rounded-full" style={{ background: TYPE_META[b.type]?.color }} />
+                <span className="h-2 w-2 flex-none rounded-full" style={{ background: CALENDAR_TYPE_META[b.type]?.color }} />
               </button>
             ))}
           </div>
@@ -713,13 +699,20 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
       {canSync && <SyncHistory units={units} isSyncingNow={syncing} refreshSignal={historyRefresh} />}
       {canSync && <ExportToAirbnb units={units} />}
 
-      {selected && <BookingDetailModal block={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <BookingDetailModal
+          block={selected}
+          onClose={() => setSelected(null)}
+          canRevealAccess={canRevealAccess}
+          canGenerateAccessLink={canGenerateAccessLink}
+        />
+      )}
     </div>
   );
 }
 
-function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () => void }) {
-  const meta = TYPE_META[b.type];
+function BookingDetailModal({ block: b, onClose, canRevealAccess, canGenerateAccessLink }: { block: Block; onClose: () => void; canRevealAccess: boolean; canGenerateAccessLink: boolean }) {
+  const meta = CALENDAR_TYPE_META[b.type];
   const isAirbnb = b.booking?.platform === "Airbnb";
   const isDaycation = b.type === "Daycation";
   const done = cleaningVisual(b);
@@ -730,11 +723,11 @@ function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () =
     <Modal open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={formatUnitDisplay(b.unit.unitNumber, b.unit.shortName ?? b.unit.name)} maxWidth={440}>
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999" }}>
+          <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? CALENDAR_AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999" }}>
             {done?.icon ?? meta?.icon} {done?.label ?? meta?.label ?? b.type}
           </span>
           {bk && (
-            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", isAirbnb ? "text-white" : "bg-[var(--bg-2)]")} style={isAirbnb ? { background: AIRBNB_COLOR } : undefined}>
+            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", isAirbnb ? "text-white" : "bg-[var(--bg-2)]")} style={isAirbnb ? { background: CALENDAR_AIRBNB_COLOR } : undefined}>
               {PLATFORM_ICON[bk.platform] ?? ""} {PLATFORM_LABEL[bk.platform] ?? bk.platform}
             </span>
           )}
@@ -811,6 +804,16 @@ function BookingDetailModal({ block: b, onClose }: { block: Block; onClose: () =
           <div>
             <div className="text-[11px] font-bold text-[var(--gray)]">Note</div>
             <div className="text-[13.5px]">{b.note}</div>
+          </div>
+        )}
+
+        {bk && canRevealAccess && STAY_TYPE_KEYS.includes(b.type) && (
+          <div className="border-t border-[var(--line)] pt-3 text-[13px]">
+            <DoorCodeReveal
+              bookingId={bk.id}
+              guestName={b.guest ?? undefined}
+              canGenerateLink={canGenerateAccessLink && bk.platform !== "Airbnb"}
+            />
           </div>
         )}
 

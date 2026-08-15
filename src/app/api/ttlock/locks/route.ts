@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { listTtlockLocks } from "@/lib/ttlock/client";
-import { recordTtlockOutcome } from "@/lib/ttlock/reliability";
+import { recordTtlockOutcome } from "@/lib/access/service";
 
 // Admin → Units "Link TTLock lock" dropdown data — the live lock list from
 // TTLock (not a cached DB copy), cross-referenced against which units
@@ -23,6 +23,16 @@ export async function GET() {
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
+  // TTLock itself is one shared account-wide inventory (not per-tenant —
+  // see Unit.ttlockLockId's unique constraint, enforced globally so a lock
+  // can never be double-claimed across tenants), so a lock already linked
+  // to ANY unit — this tenant's or another's — genuinely can't be offered
+  // here. Previously this list still included those locks (with an
+  // `alreadyLinked` flag the client filtered out itself), which meant one
+  // tenant's Admin could see another tenant's lock aliases/names before
+  // they were ever linked. The client already only ever used this to drop
+  // them (UnitsTab.tsx's `.filter(l => !l.alreadyLinked)`), so excluding
+  // them server-side instead is a strict behavior subset, not a change.
   const mappedLockIds = new Set(
     (await prisma.unit.findMany({ where: { ttlockLockId: { not: null } }, select: { ttlockLockId: true } })).map(
       (u) => u.ttlockLockId
@@ -30,13 +40,14 @@ export async function GET() {
   );
 
   return NextResponse.json(
-    locks.map((l) => ({
-      lockId: l.lockId,
-      lockAlias: l.lockAlias,
-      lockName: l.lockName,
-      electricQuantity: l.electricQuantity,
-      hasGateway: l.hasGateway === 1,
-      alreadyLinked: mappedLockIds.has(l.lockId),
-    }))
+    locks
+      .filter((l) => !mappedLockIds.has(l.lockId))
+      .map((l) => ({
+        lockId: l.lockId,
+        lockAlias: l.lockAlias,
+        lockName: l.lockName,
+        electricQuantity: l.electricQuantity,
+        hasGateway: l.hasGateway === 1,
+      }))
   );
 }

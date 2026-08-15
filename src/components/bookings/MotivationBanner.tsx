@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { TrophyIcon, RocketIcon, SunriseIcon, SparkleIcon, CalendarIcon } from "@/components/ui/Icons";
 import { Confetti } from "@/components/guest/Confetti";
+import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { cn } from "@/lib/utils";
 
 type BannerState = "full" | "partial" | "empty";
@@ -68,6 +69,7 @@ export function MotivationBanner({
   canEdit?: boolean;
 }) {
   const prefersReduced = useReducedMotion();
+  const skin = useSeasonalSkin();
   const pct = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
   const state: BannerState = totalUnits > 0 && occupiedUnits >= totalUnits ? "full" : occupiedUnits === 0 ? "empty" : "partial";
   const copy = COPY[state];
@@ -90,7 +92,7 @@ export function MotivationBanner({
 
   return (
     <div className="relative mb-5 max-h-40 overflow-hidden">
-      {showConfetti && <Confetti count={50} />}
+      {showConfetti && <Confetti count={50} colors={skin.confettiColors} />}
       <AnimatePresence mode="wait">
         <motion.div
           key={state}

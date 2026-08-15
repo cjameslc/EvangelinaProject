@@ -63,8 +63,12 @@ function findMissing<T extends { id: string }>(templates: T[], existing: { templ
  * either takes a write lock) — isUniqueConstraintError below is expected to
  * fire rarely, not on every losing request.
  */
-export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
-  const templates = await prisma.recurringExpenseTemplate.findMany({ where: { active: true } });
+export async function ensureRecurringBillsForMonth(month: Date, ownerId: string | null): Promise<void> {
+  // ownerId-scoped — previously generated bills from EVERY tenant's active
+  // templates on every call, regardless of who was viewing. Found during
+  // the Felian multi-owner audit; see RecurringExpenseTemplate/Bill's own
+  // ownerId doc comments.
+  const templates = await prisma.recurringExpenseTemplate.findMany({ where: { active: true, ownerId } });
   if (templates.length === 0) return;
 
   const templateIds = templates.map((t) => t.id);
@@ -83,6 +87,7 @@ export async function ensureRecurringBillsForMonth(month: Date): Promise<void> {
       try {
         await tx.bill.create({
           data: {
+            ownerId: t.ownerId,
             unitId: t.unitId,
             key: CATEGORY_TO_BILL_KEY[t.category as ExpenseCategory] as any,
             label: t.description,

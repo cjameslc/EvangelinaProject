@@ -14,6 +14,8 @@ export function UpcomingExpensesSection({
   billsPaidMonthCentavos,
   billsDueMonthCentavos,
   overdueCentavos,
+  dueThisWeekBills,
+  dueThisWeekCentavos,
   todayIso,
 }: {
   dueBills: Bill[];
@@ -22,6 +24,8 @@ export function UpcomingExpensesSection({
   billsPaidMonthCentavos: number;
   billsDueMonthCentavos: number;
   overdueCentavos: number;
+  dueThisWeekBills: Bill[];
+  dueThisWeekCentavos: number;
   todayIso: string;
 }) {
   // The "Upcoming expenses" widget only ever shows bills that are actually
@@ -114,10 +118,59 @@ export function UpcomingExpensesSection({
           );
         })}
         <div className="flex items-center justify-between border-t border-[var(--line)] bg-[var(--bg-2)] p-4 text-sm font-extrabold">
-          <span>Total due this week</span>
+          {/* Was mislabeled "Total due this week" — this list and total are
+              overdue bills only (see upcomingExpenseBills' own filter
+              above), never a due-this-week figure. Fixed name, same math. */}
+          <span>Total overdue</span>
           <span>{pesoCentavos(visibleDueBillsCentavos)}</span>
         </div>
       </div>
+
+      {/* A real "due this week" list — distinct from the overdue list
+          above (not yet late, but close enough to plan cash flow around).
+          Kept as its own block rather than merged into the overdue list so
+          "Overdue" only ever means genuinely overdue, matching this
+          section's own established rule. */}
+      {dueThisWeekBills.length > 0 && (
+        <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--line)]">
+          <div className="border-b border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5 text-[11px] font-extrabold uppercase tracking-wide text-[var(--gray)]">
+            Due this week
+          </div>
+          {dueThisWeekBills.map((b) => {
+            const meta = billMeta(b);
+            const dueDate = dueDateFor(b);
+            return (
+              <div key={b.id} className="flex items-center gap-3 border-t border-[var(--line)] p-4 first:border-0">
+                {dueDate ? (
+                  <span className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-amber/10">
+                    <span className="flex flex-col items-center leading-tight">
+                      <span className="text-[9.5px] font-extrabold uppercase tracking-wide text-amber">
+                        {fmtDate(dueDate, { month: "short", timeZone: "Asia/Manila" })}
+                      </span>
+                      <span className="text-[15px] font-extrabold">{fmtDate(dueDate, { day: "numeric", timeZone: "Asia/Manila" })}</span>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-[var(--bg-2)] text-lg">{meta.icon}</span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13.5px] font-bold">{meta.label}</span>
+                    <span className="rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--gray)]">{b.unit?.shortName ?? "Shared"}</span>
+                    <span className="rounded-full bg-amber px-2 py-0.5 text-[10.5px] font-bold text-white">Due soon</span>
+                  </div>
+                  <div className="text-[11.5px] text-[var(--gray)]">{meta.sub}</div>
+                </div>
+                <div className="text-[14px] font-extrabold">{pesoCentavos(billCentavos(b))}</div>
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between border-t border-[var(--line)] bg-[var(--bg-2)] p-4 text-sm font-extrabold">
+            <span>Total due this week</span>
+            <span>{pesoCentavos(dueThisWeekCentavos)}</span>
+          </div>
+        </div>
+      )}
     </Accordion>
   );
 }

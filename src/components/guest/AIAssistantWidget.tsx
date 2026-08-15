@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { BellIcon } from "@/components/ui/Icons";
 import { CONCIERGE_SAMPLE_QUESTIONS } from "@/lib/guidebookContent";
 
@@ -16,6 +17,12 @@ export const OPEN_CONCIERGE_EVENT = "open-ai-concierge";
 // like the rest of the Guest Portal chrome.
 export function AIAssistantWidget() {
   const { data: session } = useSession();
+  const pathname = usePathname();
+  // /o/[ownerSlug]/... is the only owner-prefixed part of the guest site
+  // (see src/app/o/[ownerSlug]) — tells the assistant which owner's data to
+  // answer from when there's no signed-in guest session to derive one from.
+  const ownerSlugMatch = pathname?.match(/^\/o\/([^/]+)/);
+  const ownerSlug = ownerSlugMatch ? ownerSlugMatch[1] : null;
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([
@@ -45,7 +52,7 @@ export function AIAssistantWidget() {
       const res = await fetch("/api/guest/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text, history, ownerSlug }),
       });
       const j = await res.json().catch(() => ({ reply: "Sorry, something went wrong." }));
       setMessages((m) => [...m, { role: "assistant", text: j.reply, escalate: j.escalate }]);

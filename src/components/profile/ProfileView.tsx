@@ -6,6 +6,7 @@ import { ROLE_LABEL } from "@/lib/constants";
 import { initials, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 import { useAvatar } from "@/components/profile/AvatarProvider";
+import { ColorThemeTab } from "@/components/profile/ColorThemeTab";
 import { cn } from "@/lib/utils";
 import { LogoutIcon, EditIcon } from "@/components/ui/Icons";
 
@@ -213,6 +214,8 @@ export function ProfileView({ user }: { user: ProfileUser }) {
         </div>
         <button onClick={saveInfo} disabled={savingInfo} className="btn-primary">{savingInfo ? "Saving…" : "Save changes"}</button>
       </div>
+
+      <ColorThemeTab />
 
       <div className="card mb-5 space-y-4 p-5">
         <h2 className="text-[15px] font-extrabold">Change password</h2>

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { formatUnitDisplay } from "@/lib/format";
 import { computeUnitGoal, computePortfolioGoal, computeMilestones, computeLeaderboard, computeBookerContribution } from "@/lib/analytics/revenueGoals";
+import { manilaNowPlaceholder } from "@/lib/analytics/period";
 
 type Unit = { id: string; unitNumber: string; shortName: string; monthlyRevenueTargetOverride?: number | null };
 type Booking = { unitId: string; date: string; amount: number; paid: boolean; dpAmount: number | null; refundedAt?: string | null; bookerId?: string | null };
@@ -41,7 +42,12 @@ export function useRevenueGoalsPanelData({
           targetPesos: u.monthlyRevenueTargetOverride ?? monthlyRevenueTargetPerUnit,
           bookingsThisMonth: bookingsMonth,
           bookingsLastMonth: bookingsPrevMonth,
-          now: new Date(),
+          // Manila-placeholder, matching monthStart/monthEnd/every booking
+          // date this function compares it against — a true UTC Date.now()
+          // here silently mixed the two (same bug class already fixed
+          // elsewhere in Analytics — see manilaNowPlaceholder's own doc
+          // comment for why that up-to-8-hour gap matters).
+          now: manilaNowPlaceholder(),
           monthStart: new Date(monthRangeStart),
           monthEnd: new Date(monthRangeEnd),
         })
