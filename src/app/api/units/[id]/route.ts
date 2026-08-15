@@ -16,6 +16,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!await isUnitInScope(user, params.id)) return forbiddenUnitScopeResponse(user);
 
   const { ownerUserIds, icalImportUrl, ...body } = unitSchema.partial().parse(await req.json());
+  // Single-row, admin-only, low-frequency action — worth the extra query to
+  // capture what these fields said before the edit, for the audit trail.
+  const existing = await prisma.unit.findUnique({ where: { id: params.id } });
+  const before: Record<string, unknown> = {};
+  if (existing) for (const k of Object.keys(body)) if (k in existing) before[k] = (existing as any)[k];
   const unit = await prisma.unit.update({
     where: { id: params.id },
     data: { ...body, ...(icalImportUrl !== undefined && { icalImportUrl: icalImportUrl || null }) },
@@ -28,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.unitOwner.createMany({ data: ownerUserIds.map((userId) => ({ userId, unitId: unit.id })) });
     }
   }
-  await logAudit(user.id, "unit.update", "Unit", unit.id, { ...body, ownerUserIds });
+  await logAudit(user.id, "unit.update", "Unit", unit.id, { before, after: { ...body, ownerUserIds } });
   return NextResponse.json(unit);
 }
 
@@ -57,7 +62,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     );
   }
 
-  await prisma.unit.delete({ where: { id: params.id } });
-  await logAudit(user.id, "unit.delete", "Unit", params.id);
+  // .delete() already returns the deleted row — no extra query needed to
+  // capture it for the audit trail.
+  const deleted = await prisma.unit.delete({ where: { id: params.id } });
+  await logAudit(user.id, "unit.delete", "Unit", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

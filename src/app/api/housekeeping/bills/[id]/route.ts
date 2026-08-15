@@ -57,8 +57,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Bill not found." }, { status: 404 });
   if (existing.unitId && !await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
 
-  await prisma.bill.delete({ where: { id: params.id } });
-  await logAudit(user.id, "bill.delete", "Bill", params.id);
+  const deleted = await prisma.bill.delete({ where: { id: params.id } });
+  await logAudit(user.id, "bill.delete", "Bill", params.id, { before: deleted });
   revalidateBillDependentPages();
   return NextResponse.json({ ok: true });
 }

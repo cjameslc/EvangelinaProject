@@ -45,12 +45,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // select-only — this booking's proofUrl/dpProofUrl (base64 receipt/DP
   // images) are never read in this handler, same over-fetching fix already
-  // applied to the list-page queries elsewhere in this app.
+  // applied to the list-page queries elsewhere in this app. The extra
+  // scalar fields below (notes, guests, contactNumber, amount, etc.) exist
+  // solely to give the audit-trail before-snapshot real coverage of what
+  // staff actually edit most — still no large blobs.
   const existing = await prisma.booking.findUnique({
     where: { id: params.id },
     select: {
       id: true, unitId: true, bookerId: true, date: true, checkOutDate: true, platform: true, stayType: true,
       checkInTime: true, checkOutTime: true, paid: true, checkedOutAt: true,
+      notes: true, guests: true, contactNumber: true, pax: true, amount: true,
+      dpAmount: true, receivedById: true, method: true,
     },
   });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
@@ -160,7 +165,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       throw e;
     }
   }
-  await logAudit(user.id, "booking.update", "Booking", booking.id, body);
+  // Before-snapshot restricted to the fields this edit actually touched, from
+  // `existing` (already fetched above, no new query) — lets the audit log
+  // show what a field used to say, not just what it was changed to.
+  const before: Record<string, unknown> = {};
+  for (const k of Object.keys(body)) if (k in existing) before[k] = (existing as any)[k];
+  await logAudit(user.id, "booking.update", "Booking", booking.id, { before, after: body });
 
   // Keep the mirrored calendar entry (date/span/type/guest) in sync so an
   // edited booking always shows on its exact — and correctly spanned —
@@ -196,7 +206,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const limited = rateLimit(`booking-mutate:${user.id}`, 60, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: "Too many requests — please slow down." }, { status: 429 });
 
-  const existing = await prisma.booking.findUnique({ where: { id: params.id }, select: { unitId: true, bookerId: true } });
+  // Fuller snapshot than a routine-edit's existing-fetch above — a delete
+  // destroys the row for good, so this is the one copy of "what it looked
+  // like" the audit trail will ever have.
+  const existing = await prisma.booking.findUnique({
+    where: { id: params.id },
+    select: {
+      unitId: true, bookerId: true, date: true, checkOutDate: true, stayType: true, platform: true, guests: true,
+      contactNumber: true, amount: true, paid: true, confirmationNumber: true,
+    },
+  });
   if (!existing) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
 
@@ -221,6 +240,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // the bookingId relation), so /calendar never shows an orphaned entry.
   const { count } = await prisma.booking.deleteMany({ where: { id: params.id } });
   if (count === 0) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  await logAudit(user.id, "booking.delete", "Booking", params.id);
+  await logAudit(user.id, "booking.delete", "Booking", params.id, { before: existing });
   return NextResponse.json({ ok: true });
 }

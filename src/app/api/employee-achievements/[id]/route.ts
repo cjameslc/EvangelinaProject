@@ -35,7 +35,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const existing = await prisma.employeeAchievement.findUnique({ where: { id: params.id }, select: { employee: { select: { ownerId: true } } } });
   if (!existing || existing.employee.ownerId !== user.ownerId) return NextResponse.json({ error: "Achievement not found." }, { status: 404 });
 
-  await prisma.employeeAchievement.delete({ where: { id: params.id } });
-  await logAudit(user.id, "employeeAchievement.delete", "EmployeeAchievement", params.id);
+  const deleted = await prisma.employeeAchievement.delete({ where: { id: params.id } });
+  await logAudit(user.id, "employeeAchievement.delete", "EmployeeAchievement", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

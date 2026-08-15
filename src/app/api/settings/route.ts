@@ -19,6 +19,11 @@ export async function PATCH(req: NextRequest) {
   const parsed = parseOrError(settingsSchema.partial(), await req.json().catch(() => ({})));
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
+  // Low-frequency admin action — worth the extra query for a real
+  // before-snapshot of just the fields this edit touches.
+  const priorSettings = await prisma.settings.findUnique({ where: { ownerId: user.ownerId! } });
+  const before: Record<string, unknown> = {};
+  if (priorSettings) for (const k of Object.keys(body)) if (k in priorSettings) before[k] = (priorSettings as any)[k];
   const settings = await prisma.settings.upsert({ where: { ownerId: user.ownerId! }, update: body as any, create: { ownerId: user.ownerId!, ...body } as any });
   // Only invalidate the tagged skin cache when this save actually belongs
   // to the default owner — getCachedActiveSkinId (root layout) always
@@ -29,6 +34,6 @@ export async function PATCH(req: NextRequest) {
     const defaultOwnerId = await getDefaultOwnerId();
     if (user.ownerId === defaultOwnerId) revalidateTag("active-skin-id");
   }
-  await logAudit(user.id, "settings.update", "Settings", user.ownerId ?? "unknown", body);
+  await logAudit(user.id, "settings.update", "Settings", user.ownerId ?? "unknown", { before, after: body });
   return NextResponse.json(settings);
 }

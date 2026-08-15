@@ -16,6 +16,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   try {
+    // Tenant-scoped fetch before the update, restricted to the fields this
+    // edit actually touches — the audit trail's before-snapshot.
+    const priorCoupon = await prisma.coupon.findFirst({ where: { id: params.id, ownerId: user.ownerId } });
+    const before: Record<string, unknown> = {};
+    if (priorCoupon) for (const k of Object.keys(body)) if (k in priorCoupon) before[k] = (priorCoupon as any)[k];
+
     // updateMany + ownerId in the where, not a plain update(where:{id}) —
     // the write-path tenant check (same principle as isUnitInScope in
     // session.ts): without this, any owner's admin could edit another
@@ -34,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     });
     if (result.count === 0) return NextResponse.json({ error: "Coupon not found." }, { status: 404 });
     const coupon = await prisma.coupon.findUnique({ where: { id: params.id } });
-    await logAudit(user.id, "coupon.update", "Coupon", params.id, { code: coupon?.code });
+    await logAudit(user.id, "coupon.update", "Coupon", params.id, { before, after: body });
     return NextResponse.json(coupon);
   } catch (e: any) {
     if (isUniqueConstraintError(e)) return NextResponse.json({ error: "That coupon code already exists." }, { status: 409 });
@@ -48,8 +54,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   // No FK from Booking — couponCode/couponDiscountAmount are a denormalized
   // snapshot there (see schema.prisma), so deleting a Coupon never touches
   // historical bookings that used it.
+  const priorCoupon = await prisma.coupon.findFirst({ where: { id: params.id, ownerId: user.ownerId } });
   const result = await prisma.coupon.deleteMany({ where: { id: params.id, ownerId: user.ownerId } });
   if (result.count === 0) return NextResponse.json({ error: "Coupon not found." }, { status: 404 });
-  await logAudit(user.id, "coupon.delete", "Coupon", params.id);
+  await logAudit(user.id, "coupon.delete", "Coupon", params.id, { before: priorCoupon });
   return NextResponse.json({ ok: true });
 }

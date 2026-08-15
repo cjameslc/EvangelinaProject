@@ -56,6 +56,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if ("endsAt" in patch) data.endsAt = patch.endsAt ? new Date(patch.endsAt) : null;
   if ("affectedModules" in patch) data.affectedModules = patch.affectedModules ? JSON.stringify(patch.affectedModules) : null;
 
+  // Low-frequency platform-admin action — worth the extra query for a real
+  // before-snapshot of just the fields this edit touches.
+  const priorEvent = await prisma.deploymentEvent.findUnique({ where: { id: params.id } });
+  const before: Record<string, unknown> = {};
+  if (priorEvent) for (const k of Object.keys(patch)) if (k in priorEvent) before[k] = (priorEvent as any)[k];
+
   const updated = await prisma.deploymentEvent.update({
     where: { id: params.id },
     data,
@@ -63,7 +69,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }).catch(() => null);
   if (!updated) return NextResponse.json({ error: "Deployment event not found." }, { status: 404 });
 
-  await logAudit(user.id, "deployment.updated", "DeploymentEvent", params.id, patch);
+  await logAudit(user.id, "deployment.updated", "DeploymentEvent", params.id, { before, after: patch });
   return NextResponse.json(updated);
 }
 
@@ -81,6 +87,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   }
 
   await prisma.deploymentEvent.delete({ where: { id: params.id } });
-  await logAudit(user.id, "deployment.deleted", "DeploymentEvent", params.id, { title: event.title });
+  await logAudit(user.id, "deployment.deleted", "DeploymentEvent", params.id, { before: event });
   return NextResponse.json({ ok: true });
 }

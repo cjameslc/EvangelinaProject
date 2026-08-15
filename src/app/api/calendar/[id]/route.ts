@@ -33,7 +33,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
 
-  await prisma.calendarBlock.delete({ where: { id: params.id } });
-  await logAudit(user.id, "calendar.delete", "CalendarBlock", params.id);
+  const deleted = await prisma.calendarBlock.delete({ where: { id: params.id } });
+  await logAudit(user.id, "calendar.delete", "CalendarBlock", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

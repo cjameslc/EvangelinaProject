@@ -59,7 +59,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!feedback) return NextResponse.json({ error: "Feedback not found." }, { status: 404 });
   if (!await isUnitInScope(user, feedback.unitId)) return forbiddenUnitScopeResponse(user);
 
-  await prisma.feedbackResponse.delete({ where: { id: params.id } });
-  await logAudit(user.id, "feedback.delete", "FeedbackResponse", params.id, { voucherCode: feedback.voucherCode });
+  const deleted = await prisma.feedbackResponse.delete({ where: { id: params.id } });
+  await logAudit(user.id, "feedback.delete", "FeedbackResponse", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

@@ -89,6 +89,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   let cleaningLogId: string | null = null;
   let cleaningEmployeeId: string | null = null;
 
+  // Single indexed row read, cheap even on this hot path — the QA-flagged
+  // audit trail gap (Start cleaning/Complete cleaning previously logged the
+  // new status only, never what it changed from).
+  const priorState = await prisma.housekeepingUnitState.findUnique({ where: { unitId: params.id }, select: { status: true, byName: true } });
+
   const state = await prisma.$transaction(async (tx) => {
     // Read-then-append, done inside the transaction rather than before it —
     // this field accumulates (see the schema comment on cleanedBookingIds)
@@ -207,6 +212,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
-  await logAudit(user.id, "housekeeping.update", "HousekeepingUnitState", params.id, { status: body.status });
+  await logAudit(user.id, "housekeeping.update", "HousekeepingUnitState", params.id, {
+    before: { status: priorState?.status ?? "todo", byName: priorState?.byName ?? null },
+    after: { status: body.status, byName: state.byName },
+  });
   return NextResponse.json(state);
 }

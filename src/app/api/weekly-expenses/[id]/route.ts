@@ -50,7 +50,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const existing = await prisma.weeklyExpense.findUnique({ where: { id: params.id }, select: { ownerId: true } });
   if (!existing || existing.ownerId !== user.ownerId) return NextResponse.json({ error: "Expense not found." }, { status: 404 });
 
-  await prisma.weeklyExpense.delete({ where: { id: params.id } });
-  await logAudit(user.id, "expense.delete", "WeeklyExpense", params.id);
+  const deleted = await prisma.weeklyExpense.delete({ where: { id: params.id } });
+  await logAudit(user.id, "expense.delete", "WeeklyExpense", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

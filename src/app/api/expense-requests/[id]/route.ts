@@ -61,5 +61,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (existing.status !== "PENDING") return NextResponse.json({ error: "Only a pending request can be cancelled." }, { status: 409 });
 
   await prisma.expenseRequest.delete({ where: { id: params.id } });
+  // Was missing entirely — this action had no audit trail at all before.
+  await logAudit(user.id, "expenseRequest.cancel", "ExpenseRequest", params.id, { before: existing });
   return NextResponse.json({ ok: true });
 }

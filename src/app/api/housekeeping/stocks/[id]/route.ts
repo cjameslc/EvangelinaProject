@@ -23,7 +23,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const existing = await prisma.stock.findUnique({ where: { id: params.id }, select: { unitId: true } });
   if (!existing) return NextResponse.json({ error: "Stock item not found." }, { status: 404 });
   if (!await isUnitInScope(user, existing.unitId)) return forbiddenUnitScopeResponse(user);
-  await prisma.stock.delete({ where: { id: params.id } });
-  await logAudit(user.id, "stock.delete", "Stock", params.id);
+  const deleted = await prisma.stock.delete({ where: { id: params.id } });
+  await logAudit(user.id, "stock.delete", "Stock", params.id, { before: deleted });
   return NextResponse.json({ ok: true });
 }

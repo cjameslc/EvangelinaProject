@@ -14,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // including setting a new password (full account takeover) or changing
   // their role. Found while sweeping every by-ID route after the same
   // pattern turned up on Units.
-  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { ownerId: true } });
+  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { name: true, username: true, role: true, active: true, ownerId: true } });
   if (!target || target.ownerId !== user.ownerId) return NextResponse.json({ error: "User not found." }, { status: 404 });
 
   const body = userSchema.partial().parse(await req.json());
@@ -48,7 +48,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (body.active !== undefined) {
       await prisma.employee.updateMany({ where: { userId: params.id }, data: { active: body.active } });
     }
-    await logAudit(user.id, "user.update", "User", params.id, { role: body.role });
+    // Never includes password/passwordHash in the audit trail itself — just
+    // whether one was changed. Role changes especially matter here
+    // (privilege escalation risk), which the old {role: body.role}-only
+    // shape couldn't show what it changed *from*.
+    const { password: _password, ...bodyWithoutPassword } = body;
+    const before: Record<string, unknown> = {};
+    for (const k of Object.keys(bodyWithoutPassword)) if (k in target) before[k] = (target as any)[k];
+    await logAudit(user.id, "user.update", "User", params.id, {
+      before,
+      after: bodyWithoutPassword,
+      ...(body.password ? { passwordChanged: true } : {}),
+    });
     const { passwordHash, ...safe } = updated;
     return NextResponse.json(safe);
   } catch (e: any) {
