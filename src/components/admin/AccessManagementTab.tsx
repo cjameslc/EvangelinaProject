@@ -54,7 +54,7 @@ export function AccessManagementTab() {
   return (
     <div>
       <p className="mb-4 text-[13px] text-[var(--gray)]">
-        Every member starts with their role's own default pages and transactions. Grant more here to give one person
+        Every member starts with their role&apos;s own default pages and transactions. Grant more here to give one person
         access beyond their role — e.g. letting a Booker see Analytics, or a Housekeeping account delete a booking —
         without creating a whole new role for it.
       </p>
