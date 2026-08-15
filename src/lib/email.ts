@@ -4,6 +4,16 @@ import { STAY_TYPES } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
 import { getDefaultOwnerId } from "@/lib/ownerScope";
 
+// guestName below is raw, publicly-submitted booking-form input — any
+// anonymous guest can set it to arbitrary HTML/script. This app's own React
+// frontend auto-escapes everywhere else, but a hand-built HTML email string
+// has no such protection, so it needs its own escape before interpolation
+// (confirmed live: an unescaped guest name could inject markup into the
+// booking-confirmation email an actual guest receives).
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // Guest-facing email only (magic-link login now; booking-confirmation/
 // reminder emails plug into this same sender later via notificationService).
 // Staff auth never sends email — this file has no bearing on staff login.
@@ -32,7 +42,7 @@ export async function sendGuestLoginEmail(to: string, link: string) {
     subject: `Your sign-in link — ${businessName}`,
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-        <h2 style="color:#FF385C">${businessName}</h2>
+        <h2 style="color:#FF385C">${escapeHtml(businessName)}</h2>
         <p>Tap the button below to sign in. This link works once and expires in 15 minutes.</p>
         <p style="margin:24px 0">
           <a href="${link}" style="background:#FF385C;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Sign in</a>
@@ -71,13 +81,13 @@ export async function sendBookingConfirmationEmail(to: string, b: BookingConfirm
     subject: `Booking confirmed — ${b.confirmationNumber} — ${businessName}`,
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-        <h2 style="color:#FF385C">${businessName}</h2>
-        <p>Hi ${b.guestName}, your booking request is in.</p>
+        <h2 style="color:#FF385C">${escapeHtml(businessName)}</h2>
+        <p>Hi ${escapeHtml(b.guestName)}, your booking request is in.</p>
         <div style="background:#f7f7f7;border-radius:12px;padding:16px;margin:16px 0">
           <p style="margin:0 0 8px;font-size:12px;color:#767676;text-transform:uppercase;letter-spacing:.04em">Confirmation number</p>
-          <p style="margin:0;font-size:20px;font-weight:bold">${b.confirmationNumber}</p>
+          <p style="margin:0;font-size:20px;font-weight:bold">${escapeHtml(b.confirmationNumber)}</p>
         </div>
-        <p>${b.unitName} &middot; ${stayLabel} &middot; ${fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</p>
+        <p>${escapeHtml(b.unitName)} &middot; ${escapeHtml(stayLabel)} &middot; ${fmtDate(b.date, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</p>
         ${dueRow}
         <p style="color:#767676;font-size:13px">Sign in anytime with your email and this confirmation number to view or manage your booking.</p>
       </div>
