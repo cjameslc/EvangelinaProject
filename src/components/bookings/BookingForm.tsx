@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { TimePicker } from "@/components/ui/TimePicker";
-import { CloseIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
+import { CloseIcon, AlertIcon, CopyIcon, CheckIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
 import { peso, fmtDate, fmtTimeStr, fmtUtcTime, unitLabel, formatUnitDisplay, manilaDayStart } from "@/lib/format";
 import { STAY_TYPES, STAY_TYPE_DEFAULT_TIMES, AIRBNB_DEFAULT_TIMES, PLATFORMS, PLATFORM_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/constants";
@@ -366,6 +366,15 @@ export function BookingForm({
     setV((s) => (s.totalAmount === suggestedQuote.total ? s : { ...s, totalAmount: suggestedQuote.total }));
   }, [suggestedQuote, totalTouched]);
 
+  // Progressive disclosure — the Downpayment/Full payment sections stay out
+  // of the way until the core stay details are actually filled in, so a
+  // booker logging a quick walk-in isn't scrolling past two payment blocks
+  // before they've even picked a unit and dates. An existing booking being
+  // edited already has every one of these fields from `initial`, so this
+  // is true from first render there — nothing new to reveal, no regression
+  // to the edit flow.
+  const coreComplete = !!(v.unitId && v.date && v.checkOutDate && v.stayType && v.guests.length > 0 && v.contactNumber && v.bookerId && v.platform && v.totalAmount);
+
   function set<K extends keyof BookingFormValue>(key: K, val: BookingFormValue[K]) {
     setV((s) => ({ ...s, [key]: val }));
   }
@@ -551,6 +560,17 @@ export function BookingForm({
             {units.map((u) => <option key={u.id} value={u.id}>{unitLabel(u)}</option>)}
           </select>
           {err("unitId")}
+          {/* Positive confirmation once a unit + full schedule check out clean
+              — the conflict banner below only ever fires the negative case,
+              so today a booker gets no feedback at all once a unit turns out
+              to be free (silence reads as "still checking" or "did nothing
+              happen"). Mirrors the same live check, just surfacing its other
+              outcome. */}
+          {v.unitId && v.date && v.stayType && !checkingConflict && !conflict && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold text-green">
+              <CheckIcon className="h-3.5 w-3.5 flex-none" /> Available for these dates
+            </p>
+          )}
         </div>
 
         {conflict && (
@@ -618,6 +638,32 @@ export function BookingForm({
               </div>
             </div>
             {duration && <div className="mt-2.5 text-[12px] font-bold text-rausch">{duration}</div>}
+            {/* Second row — fills in as the rest of the form is completed, so
+                this card grows into a real pre-submit review (guests,
+                total, payment status) instead of staying limited to just
+                the schedule once everything else has been entered. */}
+            {(v.guests.length > 0 || v.totalAmount) && (
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[var(--line)] pt-3 text-[13.5px] sm:grid-cols-4">
+                {v.guests.length > 0 && (
+                  <div className="col-span-2">
+                    <div className="text-[11px] font-bold text-[var(--gray)]">Guest{v.guests.length > 1 ? "s" : ""}</div>
+                    <div className="font-extrabold">{v.guests.join(", ")}</div>
+                  </div>
+                )}
+                {!!v.totalAmount && (
+                  <div>
+                    <div className="text-[11px] font-bold text-[var(--gray)]">Total</div>
+                    <div className="font-extrabold">{peso(v.totalAmount)}</div>
+                  </div>
+                )}
+                {!!v.totalAmount && (
+                  <div>
+                    <div className="text-[11px] font-bold text-[var(--gray)]">Payment</div>
+                    <div className={cn("font-extrabold", v.paid ? "text-green" : "text-amber")}>{v.paid ? "Fully paid" : "Balance pending"}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -823,6 +869,14 @@ export function BookingForm({
         </div>
       )}
 
+      {!coreComplete && (
+        <div className="rounded-2xl border border-dashed border-[var(--line-2)] p-4 text-center text-[13px] font-semibold text-[var(--gray)]">
+          Fill in the booking details above to record payment.
+        </div>
+      )}
+
+      {coreComplete && (
+      <>
       {/* Downpayment block */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-4">
         <div className="flex items-center gap-2 text-[13.5px] font-extrabold">
@@ -886,6 +940,8 @@ export function BookingForm({
           </div>
         </div>
       </div>
+      </>
+      )}
       </fieldset>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">

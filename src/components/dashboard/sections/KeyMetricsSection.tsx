@@ -225,7 +225,7 @@ export function KeyMetricsSection({
         />
       </div>
 
-      <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5">
+      <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <div className="flex items-start justify-between gap-3">
           <p className="text-[12.5px] leading-relaxed text-[var(--gray)]">{aiInsight ?? keyMetricsInsights.join(" ")}</p>
           {/* Gemini call only ever happens on click — see useKeyMetricsInsight
@@ -236,7 +236,7 @@ export function KeyMetricsSection({
             onClick={generateInsight}
             disabled={loadingInsight}
             title={aiInsight ? "Regenerate this insight" : "Generate an AI-written version of this summary"}
-            className="flex-none whitespace-nowrap rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-[11.5px] font-bold text-[var(--gray)] transition hover:text-[var(--ink)] disabled:opacity-60"
+            className="flex-none whitespace-nowrap rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-[11.5px] font-bold text-[var(--gray)] transition-[color,transform] duration-150 ease-[var(--ease-out)] hover:text-[var(--ink)] active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100"
           >
             {loadingInsight ? "Generating…" : aiInsight ? "✨ Regenerate" : "✨ Generate insight"}
           </button>

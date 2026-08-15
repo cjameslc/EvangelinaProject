@@ -24,6 +24,25 @@
   --success: #008a05;
   --warning: #c87d00;
   --destructive: #ff385c;
+
+  /* Motion tokens — strong custom curves, not the built-in CSS easings
+     (those read as weak/sluggish). ease-out for anything entering or
+     responding to input (the vast majority of UI motion); ease-in-out only
+     for something already on screen that's moving/morphing in place. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Elevation scale — four depth levels, light values. Formalizes what was
+     otherwise dozens of one-off shadow-[...] arbitrary values scattered
+     across the app (confirmed via grep: 20+ distinct hand-picked shadows,
+     no shared scale) into named steps any new surface can pick from by
+     role rather than inventing another bespoke value. --elevation-1 is
+     the same value shadow-s already used (kept, not replaced, so existing
+     .card/.btn usage is untouched); 2-4 are new. */
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --elevation-2: 0 4px 14px rgba(0, 0, 0, 0.08);
+  --elevation-3: 0 10px 28px rgba(0, 0, 0, 0.12);
+  --elevation-4: 0 24px 56px rgba(0, 0, 0, 0.18);
 }
 
 /* Scoped luxury palette for the guest booking storefront (/book) only —
@@ -103,6 +122,13 @@
   --success: #4ade80;
   --warning: #fbbf24;
   --destructive: #f87171;
+
+  /* Same four elevation steps, deeper/darker — roughly matching the
+     existing shadow-cardDark reference point at level 2. */
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --elevation-2: 0 6px 18px rgba(0, 0, 0, 0.4);
+  --elevation-3: 0 14px 32px rgba(0, 0, 0, 0.5);
+  --elevation-4: 0 28px 64px rgba(0, 0, 0, 0.6);
 }
 
 /* Seasonal Skin System (src/lib/skins/) — one shared token set every
@@ -311,14 +337,41 @@
   border-radius: 18px;
   background: var(--bg-2);
   border-color: transparent;
-  transition: box-shadow 0.2s, transform 0.2s;
+  transition: box-shadow 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 /* Subtle premium lift on hover, scoped to Dashboard only — .stat-card is
    used all over the app (Housekeeping, Admin, etc.), this only ever
-   applies inside .dashboard-metrics. */
-.dashboard-metrics .stat-card:hover {
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--skin-primary, #6c5ce7) 16%, transparent);
-  transform: translateY(-1px);
+   applies inside .dashboard-metrics. Gated to devices that actually have
+   real hover (a fine pointer) so a touch tap doesn't trigger a hover state
+   that then sticks until the next tap elsewhere. */
+@media (hover: hover) and (pointer: fine) {
+  .dashboard-metrics .stat-card:hover {
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--skin-primary, #6c5ce7) 16%, transparent);
+    transform: translateY(-1px);
+  }
+}
+/* Press feedback on every pointer type, including touch — confirms the
+   card actually registered the tap before anything else on screen reacts.
+   Instant on press (100ms, matching the app's own .btn timing), eased back
+   out on release. */
+.dashboard-metrics .stat-card:active {
+  transform: scale(0.98);
+  transition-duration: 100ms;
+}
+/* Shared tooltip entrance for hover-triggered info bubbles (StatCard's info
+   icon, the earnings bar-chart's per-bar tooltip) — scale + opacity instead
+   of a bare opacity fade (nothing in the real world pops into existence at
+   full size; even a barely-there initial scale reads as "growing in"
+   rather than "appearing"), anchored to the edge it points from via
+   transform-origin so it visibly emerges from its trigger. The end state
+   (scale-100/opacity-100 on hover) is applied per call site via Tailwind's
+   own group-hover utility, since callers use differently-named groups
+   (group/info vs a bare group) that a raw CSS :hover selector can't both
+   match. */
+.dash-tooltip {
+  transform-origin: var(--dash-tooltip-origin, bottom center);
+  transform: scale(0.94);
+  transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
 }
 .dashboard-metrics .dash-gradient-bar {
   background: linear-gradient(180deg, color-mix(in srgb, var(--skin-primary, #6c5ce7) 55%, white) 0%, var(--skin-primary, #6c5ce7) 100%);
@@ -451,6 +504,32 @@ body {
   }
   .stat-card {
     @apply rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4;
+  }
+
+  /* Typography scale, named by role rather than literal size — grounded in
+     the combinations already repeated most across the app (grep-confirmed:
+     the eyebrow-label combo alone appears verbatim 26 times across 9
+     files; the caption and card-title combos 40-50+ times each). Existing
+     pages keep their own inline text-[Npx] utilities unchanged — rewriting
+     every call site app-wide would be a purely mechanical, high-risk pass
+     with no user-facing benefit. These classes are for new and updated
+     sections going forward, starting with the Bookings/Calendar redesign
+     work, so the scale earns its keep incrementally instead of all at
+     once. */
+  .eyebrow {
+    @apply text-[10.5px] font-extrabold uppercase tracking-wide text-[var(--gray)];
+  }
+  .text-page-title {
+    @apply text-[26px] font-extrabold tracking-tight sm:text-[30px];
+  }
+  .text-section-title {
+    @apply text-[14px] font-extrabold;
+  }
+  .text-card-title {
+    @apply text-[15px] font-extrabold;
+  }
+  .text-caption {
+    @apply text-[12.5px] text-[var(--gray)];
   }
 }
 

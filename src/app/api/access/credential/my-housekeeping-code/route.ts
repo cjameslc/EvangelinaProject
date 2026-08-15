@@ -15,8 +15,14 @@ export async function GET(req: NextRequest) {
   if (!unitId) return NextResponse.json({ error: "unitId is required." }, { status: 400 });
 
   const employee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
-  if (!employee) return NextResponse.json({ code: null });
+  if (!employee) return NextResponse.json({ code: null, validUntil: null, status: "none" });
 
   const credential = await getMyActiveHousekeepingCredential(employee.id, unitId);
-  return NextResponse.json({ code: credential?.code ?? null, validUntil: credential?.validUntil ?? null });
+  if (credential?.status === "active") {
+    return NextResponse.json({ code: credential.code, validUntil: credential.validUntil, status: "active" });
+  }
+  if (credential?.status === "failed") {
+    return NextResponse.json({ code: null, validUntil: null, status: "failed", reason: credential.reason });
+  }
+  return NextResponse.json({ code: null, validUntil: null, status: "none" });
 }

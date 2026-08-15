@@ -22,7 +22,7 @@ export function StayMixSection({
               </div>
               <div className="mt-1 text-sm font-bold">{meta.label} <span className="text-xs font-semibold text-[var(--gray)]">{meta.hrs}</span></div>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--bg-2)]">
-                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: meta.color }} />
+                <div className="h-full w-full origin-left rounded-full transition-transform duration-200 ease-[var(--ease-out)]" style={{ transform: `scaleX(${pct / 100})`, background: meta.color }} />
               </div>
             </div>
           );

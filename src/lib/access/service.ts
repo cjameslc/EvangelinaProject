@@ -3,6 +3,7 @@ import { logAudit } from "@/lib/audit";
 import { addTtlockPasscode, addTtlockPermanentPasscode, deleteTtlockPasscode } from "@/lib/ttlock/client";
 import { getOccupiedWindow } from "@/lib/stayRange";
 import { manilaWallClockToRealInstant } from "@/lib/manilaTime";
+import { isUniqueConstraintError } from "@/lib/apiValidation";
 
 // The Access Control Service. This module, and src/lib/ttlock/client.ts
 // (the low-level HTTP adapter it calls into), are the ONLY code in the app
@@ -447,38 +448,55 @@ export async function createHousekeepingCredential(params: {
     const claimed = await claimReserveCode(params.unitId, { fallbackReason: `Housekeeping, TTLock unavailable: ${result.error}` });
     if (!claimed) throw new Error(`${result.error} — and no reserve codes are available for this unit either.`);
 
-    const credential = await prisma.accessCredential.create({
+    let credential;
+    try {
+      credential = await prisma.accessCredential.create({
+        data: {
+          type: "HOUSEKEEPING",
+          unitId: params.unitId,
+          assignedEmployeeId: params.assignedEmployeeId,
+          code: claimed.code,
+          source: "reserve",
+          reserveCodeId: claimed.id,
+          status: "ACTIVE",
+          validFrom,
+          validUntil,
+          createdByUserId: params.actorUserId,
+        },
+      });
+    } catch (e) {
+      // Real backstop against two near-simultaneous "Start Cleaning" taps
+      // (the findFirst check above has a TOCTOU gap) — a partial unique
+      // index on (type, unitId, assignedEmployeeId) WHERE status='ACTIVE'
+      // rejects the loser here instead of both writes landing.
+      if (isUniqueConstraintError(e)) throw new Error("This housekeeper already has an active code for this unit.");
+      throw e;
+    }
+    await logAudit(params.actorUserId, "access.credential.generated", "AccessCredential", credential.id, { unitId: params.unitId, type: "HOUSEKEEPING", assignedEmployeeId: params.assignedEmployeeId, source: "reserve", fallbackReason: result.error });
+    return { id: credential.id, code: credential.code, validUntil };
+  }
+
+  let credential;
+  try {
+    credential = await prisma.accessCredential.create({
       data: {
         type: "HOUSEKEEPING",
         unitId: params.unitId,
         assignedEmployeeId: params.assignedEmployeeId,
-        code: claimed.code,
-        source: "reserve",
-        reserveCodeId: claimed.id,
+        code: passcode,
+        source: "ttlock",
+        ttlockKeyboardPwdId: result.value.keyboardPwdId,
         status: "ACTIVE",
         validFrom,
         validUntil,
         createdByUserId: params.actorUserId,
       },
     });
-    await logAudit(params.actorUserId, "access.credential.generated", "AccessCredential", credential.id, { unitId: params.unitId, type: "HOUSEKEEPING", assignedEmployeeId: params.assignedEmployeeId, source: "reserve", fallbackReason: result.error });
-    return { id: credential.id, code: credential.code, validUntil };
+  } catch (e) {
+    // Same race backstop as the reserve-code branch above.
+    if (isUniqueConstraintError(e)) throw new Error("This housekeeper already has an active code for this unit.");
+    throw e;
   }
-
-  const credential = await prisma.accessCredential.create({
-    data: {
-      type: "HOUSEKEEPING",
-      unitId: params.unitId,
-      assignedEmployeeId: params.assignedEmployeeId,
-      code: passcode,
-      source: "ttlock",
-      ttlockKeyboardPwdId: result.value.keyboardPwdId,
-      status: "ACTIVE",
-      validFrom,
-      validUntil,
-      createdByUserId: params.actorUserId,
-    },
-  });
   await logAudit(params.actorUserId, "access.credential.generated", "AccessCredential", credential.id, { unitId: params.unitId, type: "HOUSEKEEPING", assignedEmployeeId: params.assignedEmployeeId });
   return { id: credential.id, code: credential.code, validUntil };
 }
@@ -563,18 +581,39 @@ export async function releaseHousekeepingCredentialForCleaning(cleaningLogId: st
  * deliberately excludes HOUSEKEEPING for guest codes; this is a narrower,
  * separate path that only ever returns a code already assigned to the
  * caller). */
-export async function getMyActiveHousekeepingCredential(employeeId: string, unitId: string): Promise<{ id: string; code: string; validUntil: Date | null } | null> {
+export async function getMyActiveHousekeepingCredential(
+  employeeId: string,
+  unitId: string
+): Promise<
+  | { status: "active"; id: string; code: string; validUntil: Date | null }
+  | { status: "failed"; reason: string | null }
+  | null
+> {
   const credential = await prisma.accessCredential.findFirst({
     where: { type: "HOUSEKEEPING", assignedEmployeeId: employeeId, unitId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
   });
-  if (!credential) return null;
-  if (credential.validUntil && credential.validUntil.getTime() < Date.now()) {
-    await prisma.accessCredential.update({ where: { id: credential.id }, data: { status: "EXPIRED" } }).catch(() => {});
-    await logAudit(null, "access.credential.expired", "AccessCredential", credential.id, {});
-    return null;
+  if (credential) {
+    if (credential.validUntil && credential.validUntil.getTime() < Date.now()) {
+      await prisma.accessCredential.update({ where: { id: credential.id }, data: { status: "EXPIRED" } }).catch(() => {});
+      await logAudit(null, "access.credential.expired", "AccessCredential", credential.id, {});
+    } else {
+      return { status: "active", id: credential.id, code: credential.code, validUntil: credential.validUntil };
+    }
   }
-  return { id: credential.id, code: credential.code, validUntil: credential.validUntil };
+
+  // No usable code right now — check whether that's because nothing was
+  // ever requested (the common, silent case) or because the most recent
+  // attempt for this unit+employee actually failed (ensureHousekeepingCredentialOnStart's
+  // FAILED-status record below). Superseded automatically the next time
+  // Start Cleaning is tapped, since that always attempts fresh generation
+  // again rather than no-op'ing on a FAILED record.
+  const mostRecent = await prisma.accessCredential.findFirst({
+    where: { type: "HOUSEKEEPING", assignedEmployeeId: employeeId, unitId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (mostRecent?.status === "FAILED") return { status: "failed", reason: mostRecent.reason };
+  return null;
 }
 
 /** One-time provisioning (never called from a cron/background job, per

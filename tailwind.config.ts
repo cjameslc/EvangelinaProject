@@ -40,6 +40,14 @@ const config: Config = {
         card: "0 6px 20px rgba(0,0,0,.10)",
         cardDark: "0 8px 24px rgba(0,0,0,.55)",
         s: "0 1px 2px rgba(0,0,0,.06)",
+        // Elevation scale (see globals.css's --elevation-1..4, light/dark
+        // aware) — shadow-elevation-1 (resting) through shadow-elevation-4
+        // (modal), for new surfaces to pick from by role instead of
+        // another one-off shadow-[...] arbitrary value.
+        "elevation-1": "var(--elevation-1)",
+        "elevation-2": "var(--elevation-2)",
+        "elevation-3": "var(--elevation-3)",
+        "elevation-4": "var(--elevation-4)",
       },
       keyframes: {
         "toast-in": { from: { opacity: "0", transform: "translate(-50%, 20px)" }, to: { opacity: "1", transform: "translate(-50%, 0)" } },

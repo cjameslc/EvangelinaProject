@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
-import { ChevronDownIcon } from "@/components/ui/Icons";
+import { ChevronDownIcon, ClockIcon, AlertIcon } from "@/components/ui/Icons";
 import { fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { manilaTimeGreeting } from "@/lib/manilaTime";
 import { STAY_TYPES } from "@/lib/constants";
@@ -30,6 +30,21 @@ import { LaundryPanel } from "./laundry/LaundryPanel";
 const dayOf = (d: Date) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
+// Minutes since Manila midnight, for comparing against a booking's
+// checkOutTime ("HH:MM") to gauge how overdue an unstarted clean is —
+// same Manila-anchored approach as dayOf above, not the browser's local time.
+function manilaMinutesNow(d = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+  const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  return h * 60 + m;
+}
+function hhmmToMinutes(hhmm: string | null): number | null {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
+
 type Unit = { id: string; name: string; shortName: string; unitNumber: string };
 type HkState = { id?: string; unitId: string; status: string; byName: string | null; checked: boolean[][]; startedAt?: string | null; endedAt?: string | null; cleanedBookingIds?: string[] };
 type Log = { id: string; unitId: string; unit: { shortName: string; unitNumber?: string }; startedAt: string; endedAt: string | null };
@@ -39,7 +54,7 @@ type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
 type OpenShift = { id: string; clockIn: string; user: { id: string; name: string } };
 type ChecklistGroup = { name: string; optional?: boolean; items: string[]; unitIds?: string[] };
 type ScheduleBooking = {
-  id: string; unitId: string; date: string; checkOutDate: string | null; checkOutTime: string | null; stayType: string; guests: string[];
+  id: string; unitId: string; date: string; checkOutDate: string | null; checkInTime: string | null; checkOutTime: string | null; stayType: string; guests: string[];
   unit: Unit; cleaner: { id: string; name: string } | null;
 };
 
@@ -276,6 +291,52 @@ export function HousekeepingView({
   const todoCount = units.filter((u) => roomEffectiveStatus(u.id) === "todo").length;
   const cleaningCount = units.filter((u) => roomEffectiveStatus(u.id) === "cleaning").length;
 
+  // "What needs to be done right now" — a room whose guest has already
+  // checked out today but nobody's started cleaning it yet. Derived
+  // entirely from data already computed above (no new query, no new
+  // business rule) — this is the same "todo + checkout already happened"
+  // fact roomEffectiveStatus already uses, just surfaced as its own list
+  // instead of only being visible by scanning every room card.
+  // Urgency tier per room, from data already on hand — no invented signal:
+  // "critical" means another guest is checking into this same unit later
+  // today (a real same-day turnover, found by scanning upcomingBookings for
+  // the unit's next reservation), "warning" means the guest checked out
+  // over 3 hours ago with nobody having started, "normal" is everything
+  // else. Lets the card (and its sort order) surface the same-day turnover
+  // that actually can't wait, ahead of a room that merely checked out
+  // recently.
+  const needsAttention = useMemo(() => {
+    const todayI = dayOf(new Date());
+    const nowMin = manilaMinutesNow();
+
+    return units
+      .map((u) => {
+        const pendingId = pendingBookingIdForUnit(u.id);
+        if (!pendingId) return null;
+        if (roomEffectiveStatus(u.id) !== "todo") return null; // already in progress
+        const booking = todaysCheckoutsByUnit.get(u.id)?.find((b) => b.id === pendingId);
+        if (!booking) return null;
+
+        const nextCheckIn = upcomingBookings
+          .filter((b) => b.unitId === u.id && b.id !== booking.id && dayOf(new Date(b.date)) >= todayI)
+          .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+        const isSameDayTurnover = !!nextCheckIn && dayOf(new Date(nextCheckIn.date)) === todayI;
+
+        const checkoutMin = hhmmToMinutes(booking.checkOutTime);
+        const overdueMin = checkoutMin !== null ? Math.max(0, nowMin - checkoutMin) : 0;
+
+        const tier: "critical" | "warning" | "normal" = isSameDayTurnover ? "critical" : overdueMin > 180 ? "warning" : "normal";
+
+        return { unit: u, booking, nextCheckIn, tier, overdueMin };
+      })
+      .filter((x) => x !== null)
+      .sort((a, b) => {
+        const rank = { critical: 0, warning: 1, normal: 2 };
+        return rank[a.tier] - rank[b.tier] || (a.booking.checkOutTime ?? "99:99").localeCompare(b.booking.checkOutTime ?? "99:99");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [units, states, todaysCheckoutsByUnit, upcomingBookings]);
+
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
       <div className="mb-6">
@@ -323,6 +384,65 @@ export function HousekeepingView({
           )}
         </div>
       )}
+
+      {needsAttention.length > 0 && (() => {
+        const criticalCount = needsAttention.filter((x) => x.tier === "critical").length;
+        const warningCount = needsAttention.filter((x) => x.tier === "warning").length;
+        const normalCount = needsAttention.length - criticalCount - warningCount;
+        const summaryParts = [
+          criticalCount > 0 ? `${criticalCount} same-day turnover${criticalCount > 1 ? "s" : ""}` : null,
+          warningCount > 0 ? `${warningCount} overdue` : null,
+          normalCount > 0 ? `${normalCount} pending` : null,
+        ].filter(Boolean);
+
+        return (
+          <div className={cn("mb-5 rounded-2xl border p-4", criticalCount > 0 ? "border-rausch/30 bg-rausch/[0.06]" : "border-amber/30 bg-amber/[0.06]")}>
+            <div className="mb-3 flex items-center gap-2">
+              <span className={cn("grid h-6 w-6 flex-none place-items-center rounded-full", criticalCount > 0 ? "bg-rausch/15 text-rausch" : "bg-amber/15 text-amber")}>
+                {criticalCount > 0 ? <AlertIcon className="h-3.5 w-3.5" /> : <ClockIcon className="h-3.5 w-3.5" />}
+              </span>
+              <h2 className="text-[14px] font-extrabold">Needs attention</h2>
+              <span className="text-[12.5px] text-[var(--gray)]">{summaryParts.join(" · ")}</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {needsAttention.map(({ unit, booking, nextCheckIn, tier, overdueMin }) => (
+                <div
+                  key={unit.id}
+                  className={cn(
+                    "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-[var(--card)] px-3.5 py-2.5",
+                    tier === "critical" ? "border-rausch/40" : tier === "warning" ? "border-amber/40" : "border-[var(--line)]"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 flex-none rounded-full",
+                      tier === "critical" ? "bg-rausch" : tier === "warning" ? "bg-amber" : "bg-[var(--gray)]"
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="text-[13.5px] font-extrabold">{formatUnitDisplay(unit.unitNumber, unit.shortName)}</span>
+                  {tier === "critical" ? (
+                    <span className="text-[12.5px] font-bold text-rausch">
+                      Next guest today{nextCheckIn?.checkInTime ? ` at ${fmtTimeStr(nextCheckIn.checkInTime)}` : ""}
+                    </span>
+                  ) : tier === "warning" ? (
+                    <span className="text-[12.5px] font-bold text-amber">
+                      Overdue {Math.floor(overdueMin / 60)}h {overdueMin % 60}m
+                    </span>
+                  ) : (
+                    <span className="text-[12.5px] text-[var(--gray)]">
+                      Checked out {booking.checkOutTime ? `at ${fmtTimeStr(booking.checkOutTime)}` : "today"}
+                    </span>
+                  )}
+                  {booking.cleaner && (
+                    <span className="text-[12.5px] text-[var(--gray)]">· assigned to {booking.cleaner.name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Medium intensity (brief's "Staff Experience" table) — only appears
           at all when a real seasonal skin is active, and stays a single

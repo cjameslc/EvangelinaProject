@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal } from "@/components/ui/Modal";
+import { Drawer } from "@/components/ui/Drawer";
 import { Pill } from "@/components/ui/Pill";
 import { ArrowLeftIcon, ArrowRightIcon, FilterIcon, SearchIcon, RefreshIcon } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/Toast";
@@ -638,8 +638,17 @@ export function CalendarView({ role, units, initialBlocks }: { role: string; uni
                             }}
                           >
                             {b.booking && (
+                              // Shape-differentiated, not just color — a
+                              // filled dot for Paid vs a hollow ring for
+                              // Unpaid reads correctly for color-blind
+                              // viewers and on a low-brightness phone
+                              // screen, where green/amber alone can look
+                              // identical.
                               <span
-                                className={cn("absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-1 ring-white/70", b.booking.paid ? "bg-green" : "bg-amber")}
+                                className={cn(
+                                  "absolute right-1 top-1 h-1.5 w-1.5 rounded-full",
+                                  b.booking.paid ? "bg-green ring-1 ring-white/70" : "bg-transparent ring-2 ring-amber"
+                                )}
                                 aria-hidden="true"
                               />
                             )}
@@ -720,7 +729,7 @@ function BookingDetailModal({ block: b, onClose, canRevealAccess, canGenerateAcc
   const bk = b.booking;
 
   return (
-    <Modal open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={formatUnitDisplay(b.unit.unitNumber, b.unit.shortName ?? b.unit.name)} maxWidth={440}>
+    <Drawer open onClose={onClose} title={b.guest ?? done?.label ?? meta?.label ?? b.type} sub={formatUnitDisplay(b.unit.unitNumber, b.unit.shortName ?? b.unit.name)} maxWidth={440}>
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: isAirbnb ? CALENDAR_AIRBNB_COLOR : done?.color ?? meta?.color ?? "#999" }}>
@@ -819,6 +828,6 @@ function BookingDetailModal({ block: b, onClose, canRevealAccess, canGenerateAcc
 
         <p className="border-t border-[var(--line)] pt-3 text-[12px] text-[var(--gray)]">Read-only — edit or cancel this booking from the Bookings page.</p>
       </div>
-    </Modal>
+    </Drawer>
   );
 }

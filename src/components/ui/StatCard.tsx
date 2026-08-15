@@ -52,7 +52,7 @@ export function StatCard({
           {info && (
             <span className="group/info relative inline-flex flex-none">
               <InfoIcon className="h-3 w-3 cursor-help text-[var(--gray)]/60 hover:text-[var(--ink)]" />
-              <span className={cn("pointer-events-none absolute bottom-[calc(100%+7px)] z-20 w-[170px] rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center text-[11px] font-semibold normal-case leading-snug tracking-normal text-white opacity-0 shadow-card transition-opacity group-hover/info:opacity-100", INFO_TOOLTIP_POSITION[infoAlign])}>
+              <span className={cn("dash-tooltip pointer-events-none absolute bottom-[calc(100%+7px)] z-20 w-[170px] rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center text-[11px] font-semibold normal-case leading-snug tracking-normal text-white opacity-0 shadow-card group-hover/info:opacity-100 group-hover/info:scale-100", INFO_TOOLTIP_POSITION[infoAlign])}>
                 {info}
               </span>
             </span>

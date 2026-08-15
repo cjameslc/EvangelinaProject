@@ -291,19 +291,27 @@ export function EarningsSection({
             <div className="mt-4 flex h-[130px] items-end gap-2 sm:gap-3">
               {(() => {
                 const max = Math.max(1, ...earningsBuckets.map((b) => b.amount));
-                return earningsBuckets.map((b, i) => (
-                  <div key={i} className="group relative flex flex-1 flex-col items-center gap-1.5">
-                    <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center opacity-0 shadow-card transition-opacity group-hover:opacity-100">
-                      <div className="text-[11px] font-extrabold text-white">{peso(b.amount)}</div>
-                      <div className="text-[10px] font-semibold text-white/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
+                return earningsBuckets.map((b, i) => {
+                  const heightPx = Math.max(4, Math.round((b.amount / max) * 80));
+                  return (
+                    <div key={i} className="group relative flex flex-1 flex-col items-center gap-1.5">
+                      <div className="dash-tooltip pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#1c1c1e] px-2.5 py-1.5 text-center opacity-0 shadow-card group-hover:opacity-100 group-hover:scale-100">
+                        <div className="text-[11px] font-extrabold text-white">{peso(b.amount)}</div>
+                        <div className="text-[10px] font-semibold text-white/70">{b.dateLabel} · {b.count} booking{b.count === 1 ? "" : "s"}</div>
+                      </div>
+                      {/* Animates via transform: scaleY (compositor-only) rather
+                          than the height property — height/transition-all
+                          forces layout+paint on every re-render; a fixed-height
+                          bar scaled from its own bottom edge produces the same
+                          visual result without triggering either. */}
+                      <div
+                        className={cn("w-full max-w-[36px] origin-bottom rounded-t-md transition-transform duration-200 ease-[var(--ease-out)] group-hover:brightness-110", b.amount > 0 ? "dash-gradient-bar" : "bg-[var(--bg-2)]")}
+                        style={{ height: 80, transform: `scaleY(${heightPx / 80})` }}
+                      />
+                      <span className="text-[10.5px] font-semibold text-[var(--gray)]">{b.label}</span>
                     </div>
-                    <div
-                      className={cn("w-full max-w-[36px] rounded-t-md transition-all group-hover:brightness-110", b.amount > 0 ? "dash-gradient-bar" : "bg-[var(--bg-2)]")}
-                      style={{ height: `${Math.max(4, Math.round((b.amount / max) * 80))}px` }}
-                    />
-                    <span className="text-[10.5px] font-semibold text-[var(--gray)]">{b.label}</span>
-                  </div>
-                ));
+                  );
+                });
               })()}
             </div>
           )}

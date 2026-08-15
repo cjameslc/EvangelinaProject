@@ -48,7 +48,7 @@ export default async function HousekeepingPage() {
       // tile on /calendar alongside that day's real checkout.
       where: { ...where, date: { gte: scheduleFrom, lte: scheduleTo }, cancelledAt: null },
       select: {
-        id: true, unitId: true, date: true, checkOutDate: true, checkOutTime: true, stayType: true, guests: true,
+        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, guests: true,
         unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },
         cleaner: { select: { id: true, name: true } },
       },

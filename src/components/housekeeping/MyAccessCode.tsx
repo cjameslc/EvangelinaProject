@@ -1,30 +1,53 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AlertIcon } from "@/components/ui/Icons";
+
+type FetchStatus = "active" | "failed" | "none";
 
 // Spec section 9 — a housekeeper's own temporary code for a unit, if an
-// Owner/Booker has generated one ahead of their clean. Fetches through
-// GET /api/access/credential/my-housekeeping-code, the one reveal path
-// open to HOUSEKEEPING itself (see that route + rbac.ts's
+// Owner/Booker has generated one ahead of their clean, or auto-requested
+// the moment their own clean started. Fetches through GET
+// /api/access/credential/my-housekeeping-code, the one reveal path open
+// to HOUSEKEEPING itself (see that route + rbac.ts's
 // canRevealAccessCredential, which excludes this role from the general
-// guest-code reveal). Renders nothing when there's no active code — most
-// cleans still happen with no pre-generated code at all (self-service,
-// unchanged from before this feature).
+// guest-code reveal). Renders nothing when status is "none" — most cleans
+// still happen with no code requested at all (self-service, unchanged
+// from before this feature). When the most recent generation attempt
+// itself failed (TTLock down and the reserve pool exhausted), shows a
+// clear unavailable state instead of silently rendering nothing — the
+// existing recovery path is an Owner/Booker manually generating one via
+// GenerateHousekeepingCode, surfaced here as guidance rather than a new
+// retry mechanism.
 export function MyAccessCode({ unitId }: { unitId: string }) {
-  const [state, setState] = useState<{ loading: boolean; code: string | null; validUntil: string | null; credentialId: string | null; copied: boolean }>({
-    loading: true, code: null, validUntil: null, credentialId: null, copied: false,
+  const [state, setState] = useState<{ loading: boolean; code: string | null; validUntil: string | null; status: FetchStatus; copied: boolean }>({
+    loading: true, code: null, validUntil: null, status: "none", copied: false,
   });
 
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/access/credential/my-housekeeping-code?unitId=${unitId}`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setState((s) => ({ ...s, loading: false, code: data.code, validUntil: data.validUntil })); })
+      .then((data) => { if (!cancelled) setState((s) => ({ ...s, loading: false, code: data.code, validUntil: data.validUntil, status: data.status ?? "none" })); })
       .catch(() => { if (!cancelled) setState((s) => ({ ...s, loading: false })); });
     return () => { cancelled = true; };
   }, [unitId]);
 
-  if (state.loading || !state.code) return null;
+  if (state.loading || state.status === "none") return null;
+
+  if (state.status === "failed") {
+    return (
+      <div className="rounded-xl border border-rausch/30 bg-rausch/5 p-3">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-rausch">
+          <AlertIcon className="h-3.5 w-3.5 flex-none" />
+          Access Code Unavailable
+        </div>
+        <p className="mt-1 text-[12px] font-medium text-[var(--ink)]">
+          Ask an Owner or Booker to generate one for you.
+        </p>
+      </div>
+    );
+  }
 
   const remainingMs = state.validUntil ? new Date(state.validUntil).getTime() - Date.now() : null;
   const remainingLabel = remainingMs && remainingMs > 0
