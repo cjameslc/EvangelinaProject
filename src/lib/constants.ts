@@ -29,6 +29,7 @@ export const NAV_ITEMS: (NavItem & { roles: string[] })[] = [
   { href: "/social", label: "Social", icon: "megaphone", subtitle: "Posts & promotions", group: "Marketing", roles: ["OWNER_ADMIN", "CO_OWNER", "BOOKER", "HOUSEKEEPING", "AUDITOR"] },
   { href: "/housekeeping", label: "Housekeeping", icon: "home", subtitle: "Cleaning & turnovers", group: "Operations", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING"] },
   { href: "/earnings", label: "My Earnings", icon: "wallet", subtitle: "Payroll & performance", group: "Finance", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
+  { href: "/gamification", label: "Championship", icon: "trophy", subtitle: "Sales competition & rewards", group: "Finance", roles: ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"] },
   { href: "/auditor", label: "Auditor", icon: "search", subtitle: "Quality & compliance", group: "Insights", roles: ["OWNER_ADMIN", "AUDITOR", "CO_OWNER"] },
   { href: "/admin", label: "Admin", icon: "settings", subtitle: "Units, users & settings", group: "Administration", roles: ["OWNER_ADMIN"] },
 ];

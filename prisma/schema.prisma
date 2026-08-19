@@ -66,6 +66,7 @@ model Owner {
   recurringExpenseTemplates RecurringExpenseTemplate[]
   auditFindings  AuditFinding[]
   ownerAccess    OwnerAccess[]
+  gamificationCampaigns GamificationCampaign[]
 
   @@map("owners")
 }
@@ -426,6 +427,7 @@ model Employee {
   achievements        EmployeeAchievement[]
   laundryOrdersAssigned LaundryOrder[]
   assignedAccessCredentials AccessCredential[]
+  campaignParticipations CampaignParticipant[]
 
   @@index([active])
   @@index([ownerId, active])
@@ -461,6 +463,78 @@ model EliteBookerAward {
 
   @@unique([employeeId, month, tier])
   @@map("elite_booker_awards")
+}
+
+// Sales Championship — a distinct gamification system from the Elite
+// Booker Challenge above: ranked by real profit generated (collected
+// revenue, the same collectedAmountPesos() finance.ts already uses
+// everywhere else — never a second, competing profit formula), not
+// completed-booking count, and built as a reusable per-period "campaign"
+// so a future month/target/roster/theme never needs a UI rebuild (see
+// campaignEngine/campaign.ts). periodStart/periodEnd are UTC-midnight
+// Manila-calendar-day boundaries, directly comparable against
+// Booking.date/checkOutDate without any timezone conversion — same
+// established convention as every other booking-date boundary in this
+// codebase.
+//
+// status flips ACTIVE -> CLOSED exactly once, lazily, the first time
+// GET /api/gamification/campaign is called after `now >= periodEnd` —
+// no cron needed. targetAchievedAt is a separate, earlier event (the live
+// ₱-target crossing mid-period, which can happen well before period end
+// and doesn't freeze anything by itself) — see campaign.ts's doc comment
+// for why these are deliberately two different moments, not one.
+//
+// Reward money here is display/record-keeping only, by explicit design
+// decision — closing a campaign never writes a Bill/expense; an actual
+// payout stays a manual admin action outside this feature, same as any
+// other manual disbursement.
+model GamificationCampaign {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String // e.g. "September 2026 Sales Championship"
+  periodStart DateTime
+  periodEnd   DateTime // exclusive
+  targetPesos Int
+  winnerRewardPesos      Int
+  participantRewardPesos Int
+  heroImageUrl String? // admin-configurable; null falls back to built-in CSS artwork, never a hardcoded URL
+  status       String   @default("ACTIVE") // ACTIVE | CLOSED
+  targetAchievedAt DateTime? // set once, lazily, the first time live total crosses targetPesos
+  winnerEmployeeId String? // set only at CLOSE, and only if target was reached
+  winnerProfitPesos Int?
+  closedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  participants CampaignParticipant[]
+
+  @@unique([ownerId, periodStart])
+  @@map("gamification_campaigns")
+}
+
+// A campaign's roster + side assignment — deliberately its own field
+// rather than reusing Employee.teamKey (payroll's Team A/B/C grouping,
+// see teamKey's own doc comment): production already runs 3 payroll teams,
+// this is always exactly 2 competing sides, and a sales-competition
+// boundary should never be silently coupled to a payroll one. Admin-set
+// per campaign via POST /api/gamification/campaign/config.
+model CampaignParticipant {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   GamificationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  side       String // "A" | "B"
+  // Frozen at CLOSE only — everything shown while the campaign is ACTIVE
+  // is computed live from real bookings, never read from these columns.
+  finalProfitPesos Int?
+  finalRank        Int?
+  rewardPesos      Int?
+  createdAt        DateTime @default(now())
+
+  @@unique([campaignId, employeeId])
+  @@map("gamification_campaign_participants")
 }
 
 // Append-only log of monthlySalary changes, so a report for a past period
