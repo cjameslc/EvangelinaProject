@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { StatCard } from "@/components/ui/StatCard";
 import { Accordion } from "@/components/ui/Accordion";
@@ -512,14 +513,22 @@ export function EarningsView({
         </div>
       )}
 
-      {/* Gamification — the Elite Booker Challenge world map + Achievement
-          badges are retired for now; a real replacement is coming. Nothing
-          from the old system (tiers, badges, awards) renders here anymore. */}
-      <div className="card mb-5 p-8 text-center">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--bg-2)] text-3xl">🚧</div>
-        <h2 className="text-[16px] font-extrabold">Coming Soon</h2>
-        <p className="mx-auto mt-1.5 max-w-[380px] text-[13px] text-[var(--gray)]">A new rewards &amp; recognition experience is on the way. Check back soon.</p>
-      </div>
+      {/* Gamification — the old Elite Booker Challenge world map + Achievement
+          badges (tiers/badges/awards) are retired; replaced by the real Sales
+          Championship dashboard at /gamification. This is just a cross-link
+          promo, not a re-embed of that page. */}
+      <Link
+        href="/gamification"
+        className="group relative mb-5 block overflow-hidden rounded-card p-8 text-center text-white shadow-card transition duration-200 [transition-timing-function:var(--ease-out)] hover:-translate-y-0.5 active:scale-[0.99]"
+        style={{ background: "linear-gradient(135deg, #1e0a3c 0%, #4a1a6e 45%, #7a1f4d 100%)" }}
+      >
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 text-3xl backdrop-blur">🏆</div>
+        <h2 className="text-[16px] font-extrabold">Sales Championship</h2>
+        <p className="mx-auto mt-1.5 max-w-[380px] text-[13px] text-white/80">See the live leaderboard, team battle, and rewards — and how close you are to #1.</p>
+        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-[12.5px] font-extrabold backdrop-blur transition duration-150 [transition-timing-function:var(--ease-out)] group-hover:bg-white/25">
+          View Championship →
+        </span>
+      </Link>
 
       <Accordion title="Payroll history" sub="last 10 weeks">
         <input
