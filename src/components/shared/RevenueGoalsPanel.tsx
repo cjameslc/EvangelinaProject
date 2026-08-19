@@ -29,11 +29,12 @@ function ProgressBar({ pct, tone = "violet" }: { pct: number; tone?: "violet" | 
   // should actually track the active skin/personal theme's own primary
   // color instead of being pinned to violet specifically.
   const bar = tone === "teal" ? "bg-teal" : tone === "gold" ? "bg-gold" : tone === "amber" ? "bg-amber" : undefined;
+  const clamped = Math.min(100, Math.max(0, pct));
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--bg-2)]">
       <div
-        className={cn("h-full rounded-full transition-all", bar)}
-        style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: bar ? undefined : "var(--skin-primary, #6c5ce7)" }}
+        className={cn("h-full w-full origin-left rounded-full transition-transform duration-300 ease-[var(--ease-out)]", bar)}
+        style={{ transform: `scaleX(${clamped / 100})`, background: bar ? undefined : "var(--skin-primary, #6c5ce7)" }}
       />
     </div>
   );

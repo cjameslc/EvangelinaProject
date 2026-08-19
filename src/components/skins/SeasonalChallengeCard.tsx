@@ -49,8 +49,8 @@ export function SeasonalChallengeCard({ current, target, title, subtitle }: { cu
       </div>
       <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-[var(--bg-2)]">
         <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${skin.colors.primary}, ${skin.colors.secondary})` }}
+          className="h-full w-full origin-left rounded-full transition-transform duration-300 ease-[var(--ease-out)]"
+          style={{ transform: `scaleX(${pct / 100})`, background: `linear-gradient(90deg, ${skin.colors.primary}, ${skin.colors.secondary})` }}
         />
       </div>
       <p className="mt-2 text-[12px] font-semibold text-[var(--gray)]">

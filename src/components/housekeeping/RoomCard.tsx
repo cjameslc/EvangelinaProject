@@ -137,7 +137,7 @@ export function RoomCard({
               const doneCount = g.items.filter((_, ii) => isChecked(gi, ii)).length;
               return (
                 <div key={g.name} className="rounded-xl border border-[var(--line)] overflow-hidden">
-                  <button onClick={() => setOpenGroup(open ? null : gi)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-extrabold">
+                  <button onClick={() => setOpenGroup(open ? null : gi)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-extrabold transition-colors duration-100 active:bg-[var(--bg-2)]">
                     {g.name}
                     {g.optional && <span className="rounded-full bg-[var(--bg-2)] px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-[var(--gray)]">optional</span>}
                     <span className={cn("ml-auto text-[12px] font-semibold", doneCount === g.items.length ? "text-teal" : "text-[var(--gray)]")}>
@@ -155,9 +155,9 @@ export function RoomCard({
                             type="button"
                             disabled={!canEdit}
                             onClick={() => toggleCheck(gi, ii)}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-semibold text-[var(--ink)] hover:bg-[var(--bg-2)] disabled:cursor-default disabled:hover:bg-transparent"
+                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-semibold text-[var(--ink)] transition-colors duration-100 hover:bg-[var(--bg-2)] active:bg-[var(--bg-2)] disabled:cursor-default disabled:hover:bg-transparent disabled:active:bg-transparent"
                           >
-                            <span className={cn("grid h-4 w-4 flex-none place-items-center rounded border", on ? "border-teal bg-teal text-white" : "border-[var(--line-2)]")}>
+                            <span className={cn("grid h-4 w-4 flex-none place-items-center rounded border transition-colors duration-150", on ? "border-teal bg-teal text-white" : "border-[var(--line-2)]")}>
                               {on && <CheckIcon className="h-3 w-3" />}
                             </span>
                             <span className={cn(on && "text-[var(--gray)] line-through")}>{item}</span>

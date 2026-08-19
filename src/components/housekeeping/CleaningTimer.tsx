@@ -46,8 +46,14 @@ export function CleaningTimer({ startedAt }: { startedAt: string }) {
         <span style={{ color: colors }}>{tone === "red" ? "Overdue" : tone === "yellow" ? "Running long" : "On track"}</span>
       </div>
       <div className="mt-1 font-mono text-[22px] font-extrabold text-[var(--ink)]">{fmtElapsed(elapsedMs)}</div>
+      {/* scaleX (compositor-only) instead of animating width, which forces
+          layout+paint on every 30s tick — see EarningsSection.tsx's bar
+          chart for the same technique. Color still transitions normally. */}
       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-2)]">
-        <div className={cn("h-full rounded-full transition-all")} style={{ width: `${progressPct}%`, background: colors }} />
+        <div
+          className={cn("h-full w-full origin-left rounded-full transition-[background-color,transform] duration-300 ease-[var(--ease-out)]")}
+          style={{ transform: `scaleX(${progressPct / 100})`, background: colors }}
+        />
       </div>
       <div className="mt-1.5 flex justify-between text-[11px] font-semibold text-[var(--gray)]">
         <span>Expected finish {fmtClock(expectedFinish)}</span>

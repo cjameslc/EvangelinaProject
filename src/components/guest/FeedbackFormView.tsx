@@ -100,7 +100,7 @@ export function FeedbackFormView({ bookingId, unitName, existingVoucher }: { boo
 
       {/* Progress bar */}
       <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-2)]">
-        <div className="h-full rounded-full bg-rausch transition-all duration-500" style={{ width: `${(step / TOTAL_STEPS) * 100}%` }} />
+        <div className="h-full w-full origin-left rounded-full bg-rausch transition-transform duration-500 ease-[var(--ease-out)]" style={{ transform: `scaleX(${step / TOTAL_STEPS})` }} />
       </div>
       <div className="mt-1.5 text-center text-[11px] font-bold text-[var(--gray)]">Step {step} of {TOTAL_STEPS}</div>
 

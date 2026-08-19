@@ -67,7 +67,10 @@ export function OpportunityPanel({
                 <span>{peso(realizedToday)} / {peso(dailyRevenueGoal)}</span>
               </div>
               <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--line)]">
-                <div className="h-full rounded-full bg-gradient-to-r from-rausch to-gold transition-all" style={{ width: `${goalPct}%` }} />
+                <div
+                  className="h-full w-full origin-left rounded-full bg-gradient-to-r from-rausch to-gold transition-transform duration-300 ease-[var(--ease-out)]"
+                  style={{ transform: `scaleX(${goalPct / 100})` }}
+                />
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--gray)]">
                 <span>{goalPct}% complete</span>
