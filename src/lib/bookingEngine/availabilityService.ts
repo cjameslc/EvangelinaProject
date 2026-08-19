@@ -96,6 +96,41 @@ export async function checkAvailability(
   return { available: !conflict };
 }
 
+/**
+ * Which of a booking's *sibling* units (same owner, active, excluding its
+ * current unit) could take it without a conflict — powers the Bookings
+ * tab's "suggest an available unit" action on a flagged conflict. Airbnb
+ * has no visibility into this app's local bookings (sync is one-way, in
+ * only), so it can and does confirm a reservation that collides with one
+ * already on the books here (see icalSync.ts's conflict-on-import
+ * handling) — staff need a fast way to see where else the guest could
+ * actually go, since Airbnb having already committed to the guest doesn't
+ * go away just because we flag it.
+ */
+export async function suggestAlternateUnits(bookingId: string): Promise<{ id: string; name: string; shortName: string; unitNumber: string }[]> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      unitId: true, date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true,
+      unit: { select: { ownerId: true } },
+    },
+  });
+  if (!booking) return [];
+  const siblings = await prisma.unit.findMany({
+    where: { ownerId: booking.unit.ownerId, active: true, id: { not: booking.unitId } },
+    select: { id: true, name: true, shortName: true, unitNumber: true },
+  });
+  if (siblings.length === 0) return [];
+  const availability = await checkAvailabilityForUnits(siblings.map((u) => u.id), {
+    date: booking.date,
+    checkOutDate: booking.checkOutDate,
+    stayType: booking.stayType as StayType,
+    checkInTime: booking.checkInTime,
+    checkOutTime: booking.checkOutTime,
+  });
+  return siblings.filter((u) => availability[u.id]);
+}
+
 /** Availability across every given unit for the same date range — powers the guest-facing search/listing grid ("which of these 5 units are free for these dates"). */
 export async function checkAvailabilityForUnits(
   unitIds: string[],

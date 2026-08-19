@@ -156,10 +156,24 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
   const activeEvents = events.filter((e) => !e.cancelled && e.uid && e.summary.trim().toLowerCase() === "reserved");
   const feedUids = new Set(activeEvents.map((e) => e.uid));
 
-  const [existingImported, others] = await Promise.all([
+  const [unitTrackedImports, ownerWideImports, others] = await Promise.all([
+    // Scoped to THIS unit only — the right scope for staleness: "did this
+    // unit's own live feed drop a UID it used to carry."
     prisma.booking.findMany({
       where: { unitId, source: "AIRBNB" },
-      select: { id: true, externalUid: true, date: true, checkOutDate: true, amount: true, paid: true, conflict: true },
+      select: { id: true, externalUid: true },
+    }),
+    // Scoped to the whole owner, not just this unit — a booking staff
+    // manually reassigned to a sibling unit (via the "suggest available
+    // unit" action, see availabilityService.ts's suggestAlternateUnits) no
+    // longer has unitId === unitId here, but its externalUid must still be
+    // recognized as "already imported," or this loop would treat it as
+    // never-seen and recreate a duplicate at the original unit on every
+    // future sync. Cross-owner isolation still holds — never queries
+    // outside unit.ownerId.
+    prisma.booking.findMany({
+      where: { unit: { ownerId: unit.ownerId }, source: "AIRBNB" },
+      select: { id: true, unitId: true, externalUid: true, date: true, checkOutDate: true, amount: true, paid: true, conflict: true },
     }),
     prisma.booking.findMany({
       // cancelledAt: null was missing — a cancelled manual booking was
@@ -169,6 +183,7 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
       select: { date: true, checkOutDate: true, stayType: true, checkInTime: true, checkOutTime: true },
     }),
   ]);
+  const existingImported = ownerWideImports;
 
   let imported = 0, updated = 0, removed = 0, conflicts = 0;
 
@@ -176,7 +191,11 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
   // removed upstream, so drop our copy too. One batched deleteMany instead
   // of a per-row delete in a loop; CalendarBlock.bookingId is onDelete:
   // Cascade, so each mirror row goes with its booking either way.
-  const staleIds = existingImported.filter((b) => !b.externalUid || !feedUids.has(b.externalUid)).map((b) => b.id);
+  // Deliberately scoped to unitTrackedImports (this unit's own feed), not
+  // ownerWideImports — a booking reassigned to a sibling unit is invisible
+  // to this query and so never gets swept up here even if it's since
+  // become stale; known limitation, see the reassignment note above.
+  const staleIds = unitTrackedImports.filter((b) => !b.externalUid || !feedUids.has(b.externalUid)).map((b) => b.id);
   if (staleIds.length > 0) {
     await prisma.booking.deleteMany({ where: { id: { in: staleIds } } });
     removed = staleIds.length;
@@ -197,6 +216,15 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
     const existing = existingImported.find((b) => b.externalUid === ev.uid);
 
     if (existing) {
+      // Staff already resolved this one by hand — moved it off its
+      // original Airbnb-listing unit onto a sibling unit with real
+      // availability (see the reassign-unit route). It no longer occupies
+      // THIS unit at all, so this unit's own conflict/date/revenue state has
+      // nothing further to say about it — re-running the checks below
+      // would incorrectly re-flag it as conflicting against a unit it no
+      // longer sits on. Leave it exactly as staff set it.
+      if (existing.unitId !== unitId) continue;
+
       if (overlapsManual) {
         // Never move an already-imported booking onto dates that would
         // create a real double-booking — leave it exactly where it last
@@ -252,29 +280,29 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
     // website booking's *real* check-in/check-out times (not just calendar
     // days — see bookingsConflict above) is a genuine double-booking, e.g.
     // a guest paying for a 4pm late checkout while Airbnb's own default
-    // check-in is 2pm the same day. Don't accept it into the system at all
-    // — no Booking row, no calendar block, no revenue counted — so the unit
-    // never shows as available to two guests at once. It stays unimported
-    // (re-counted as a conflict on every sync, surfaced via the sync
-    // toast/history) until the conflict is actually resolved on one side,
-    // at which point the next sync imports it normally.
-    if (overlapsManual) {
-      conflicts++;
-      continue;
-    }
-
+    // check-in is 2pm the same day. Airbnb has no visibility into our local
+    // bookings (sync is one-way, in), so it already confirmed this
+    // reservation and took the guest's money — refusing to import it here
+    // doesn't undo that, it only hides a real, paying, already-confirmed
+    // guest from staff. So: always import it, flagged conflict:true (the
+    // same flag/badge already used for an already-imported booking that
+    // develops a conflict) so it's visible and actionable in the Bookings
+    // tab instead of silently missing. Every sync re-evaluates this flag,
+    // so once the conflicting side is actually resolved, the next sync
+    // clears it automatically.
+    //
     // Airbnb collects payment off-platform and remits it directly, so an
     // imported booking counts as paid revenue as soon as it's synced — there's
     // no local payment step for staff to log.
-    const raceConflict = await prisma.$transaction(async (tx) => {
+    const conflictNow = await prisma.$transaction(async (tx) => {
       // Re-check against the transaction's own live view — the outer
       // overlapsManual above was computed from a snapshot fetched once at
       // the top of this sync run, which can be stale by the time this
       // specific event's transaction actually executes (events are
       // processed one at a time). Without this, a manual booking created
-      // in that window could still slip past and genuinely double-book the
-      // unit alongside this Airbnb import.
-      if (await overlapsManualTx(tx, unitId, evAsBooking)) return true;
+      // in that window wouldn't be reflected in this booking's initial
+      // conflict flag.
+      const stillConflicts = overlapsManual || (await overlapsManualTx(tx, unitId, evAsBooking));
       const booking = await tx.booking.create({
         data: {
           unitId,
@@ -290,12 +318,13 @@ async function doSync(unitId: string): Promise<IcalSyncResult> {
           paid: true,
           source: "AIRBNB",
           externalUid: ev.uid,
+          conflict: stillConflicts,
         },
       });
       await mirrorCalendarBlockTx(tx, booking);
-      return false;
+      return stillConflicts;
     });
-    if (raceConflict) conflicts++;
+    if (conflictNow) conflicts++;
     else imported++;
   }
 

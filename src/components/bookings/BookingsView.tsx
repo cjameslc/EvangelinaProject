@@ -370,6 +370,27 @@ export function BookingsView({
     return true;
   }
 
+  // Moves a flagged-conflict booking (almost always an Airbnb import that
+  // collided with a local booking Airbnb never knew about — see
+  // icalSync.ts) onto a different, actually-available unit. The server
+  // re-verifies availability itself and only clears `conflict` as a proven
+  // consequence of that check — see reassign-unit/route.ts's own comment.
+  async function reassignUnit(id: string, unitId: string) {
+    const res = await fetch(`/api/bookings/${id}/reassign-unit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unitId }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "Couldn't move this booking", true);
+      return false;
+    }
+    toast("Booking moved ✓");
+    refresh();
+    return true;
+  }
+
   // Opportunity Engine — recomputes automatically off the same `bookings`
   // state every other section on this page already reads, so creating,
   // editing, or cancelling a booking updates it for free via the existing
@@ -1089,6 +1110,7 @@ export function BookingsView({
                           canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           onQuickEditTotal={(newTotal) => quickEditTotal(b.id, newTotal, b.dpAmount ?? 0)}
+                          onReassignUnit={(unitId) => reassignUnit(b.id, unitId)}
                           toast={toast}
                         />
                       ))}
@@ -1111,6 +1133,7 @@ export function BookingsView({
                           canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
                           onQuickEditTotal={(newTotal) => quickEditTotal(b.id, newTotal, b.dpAmount ?? 0)}
+                          onReassignUnit={(unitId) => reassignUnit(b.id, unitId)}
                           toast={toast}
                         />
                       ))}
@@ -1278,7 +1301,7 @@ function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed
 }
 
 function BookingLine({
-  b, kind, unitColor, isFirstBooking, canEdit, canDelete, canRevealAccessCode, canGenerateAccessLink, onEdit, onCancel, onRefund, onDelete, onRemove, onQuickEditTotal, toast,
+  b, kind, unitColor, isFirstBooking, canEdit, canDelete, canRevealAccessCode, canGenerateAccessLink, onEdit, onCancel, onRefund, onDelete, onRemove, onQuickEditTotal, onReassignUnit, toast,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
@@ -1296,11 +1319,16 @@ function BookingLine({
   onRemove: () => void;
   /** Returns false on failure so the input can stay open/editable for a retry, same contract as updateBooking(). */
   onQuickEditTotal: (newTotal: number) => Promise<boolean>;
+  /** Returns false on failure so the picker can stay open for a retry, same contract as onQuickEditTotal. */
+  onReassignUnit: (unitId: string) => Promise<boolean>;
   toast: (msg: string, isError?: boolean) => void;
 }) {
   const [editingTotal, setEditingTotal] = useState(false);
   const [totalDraft, setTotalDraft] = useState("");
   const [savingTotal, setSavingTotal] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ id: string; name: string; shortName: string; unitNumber: string }[] | null>(null);
+  const [reassigningTo, setReassigningTo] = useState<string | null>(null);
   const pastDue = isPastDue(b);
   const { inIso, outIso } = effectiveRange(b);
   const totalFee = b.amount + (b.dpAmount ?? 0);
@@ -1319,6 +1347,25 @@ function BookingLine({
     setSavingTotal(false);
     if (ok) setEditingTotal(false);
   }
+
+  async function loadSuggestions() {
+    setSuggesting(true);
+    try {
+      const res = await fetch(`/api/bookings/${b.id}/reassign-unit`);
+      const j = await res.json().catch(() => ({}));
+      setSuggestions(res.ok ? (j.units ?? []) : []);
+      if (!res.ok) toast(j.error ?? "Couldn't check other units", true);
+    } finally {
+      setSuggesting(false);
+    }
+  }
+  async function confirmReassign(unitId: string) {
+    setReassigningTo(unitId);
+    const ok = await onReassignUnit(unitId);
+    setReassigningTo(null);
+    if (ok) setSuggestions(null);
+  }
+
   return (
     <div
       className={cn(
@@ -1442,7 +1489,41 @@ function BookingLine({
           <span className="text-[var(--gray)]">Out </span>
           <span className="font-bold">{fmtDate(outIso, { month: "short", day: "numeric" })}{b.checkOutTime ? ` · ${fmtTimeStr(b.checkOutTime)}` : ""}</span>
         </div>
-        {b.conflict && <div className="flex items-center gap-1 font-bold text-rausch"><span aria-hidden>⚠</span> Conflict</div>}
+        {b.conflict && (
+          <div className="col-span-2 -mt-0.5">
+            <div className="flex flex-wrap items-center gap-1.5 font-bold text-rausch">
+              <span aria-hidden>⚠</span> Conflict — Airbnb confirmed this over an existing local booking
+              {canEdit && suggestions === null && (
+                <button
+                  onClick={loadSuggestions}
+                  disabled={suggesting}
+                  className="ml-1 rounded-full border border-rausch/30 bg-rausch/5 px-2 py-0.5 text-[11px] font-bold text-rausch transition duration-150 [transition-timing-function:var(--ease-out)] hover:bg-rausch/10 active:scale-[0.96] disabled:opacity-50"
+                >
+                  {suggesting ? "Checking…" : "Find available unit"}
+                </button>
+              )}
+            </div>
+            {suggestions !== null && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {suggestions.length === 0 ? (
+                  <span className="text-[12px] font-normal text-[var(--gray)]">No other unit is free for these dates right now.</span>
+                ) : (
+                  suggestions.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => confirmReassign(u.id)}
+                      disabled={reassigningTo !== null}
+                      className="rounded-full border border-green/30 bg-green/5 px-2.5 py-1 text-[12px] font-bold text-green transition duration-150 [transition-timing-function:var(--ease-out)] hover:bg-green/10 active:scale-[0.96] disabled:opacity-50"
+                    >
+                      {reassigningTo === u.id ? "Moving…" : `Move to ${formatUnitDisplay(u.unitNumber)}`}
+                    </button>
+                  ))
+                )}
+                <button onClick={() => setSuggestions(null)} className="text-[11px] font-semibold text-[var(--gray)] underline">Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
         <div><span className="text-[var(--gray)]">Booker </span><span className="font-bold">{b.booker?.name ?? (b.platform === "Airbnb" ? "Airbnb booking" : b.platform === "Direct" ? "Direct Booking" : "Unassigned")}</span></div>
         {b.dpReceivedBy && <div><span className="text-[var(--gray)]">DP To </span><span className="font-bold text-blue">{b.dpReceivedBy.name}</span></div>}
         {b.receivedBy && <div><span className="text-[var(--gray)]">FP To </span><span className="font-bold text-blue">{b.receivedBy.name}</span></div>}
