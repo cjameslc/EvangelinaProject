@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatCard } from "@/components/ui/StatCard";
 import { ChevronDownIcon, ClockIcon, AlertIcon } from "@/components/ui/Icons";
-import { fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
+import { fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay, meterReadingTargetDay } from "@/lib/format";
 import { manilaTimeGreeting } from "@/lib/manilaTime";
 import { STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -19,7 +19,9 @@ import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { SeasonalChallengeCard } from "@/components/skins/SeasonalChallengeCard";
 import { StockPanel } from "./StockPanel";
 import { BillsPanel } from "./BillsPanel";
+import { MeterReadingPanel } from "./MeterReadingPanel";
 import { LaundryPanel } from "./laundry/LaundryPanel";
+import { getOccupiedWindow, checkoutDisplayDay } from "@/lib/stayRange";
 
 // Business runs in Manila (UTC+8), but this component renders both on the
 // server (Vercel functions run in UTC) and the client (browser's local
@@ -50,16 +52,17 @@ type HkState = { id?: string; unitId: string; status: string; byName: string | n
 type Log = { id: string; unitId: string; unit: { shortName: string; unitNumber?: string }; startedAt: string; endedAt: string | null };
 type Stock = { id: string; unitId: string; name: string; count: number };
 type Bill = any;
+type MeterReading = any;
 type Shift = { id: string; clockIn: string; clockOut: string | null } | null;
 type OpenShift = { id: string; clockIn: string; user: { id: string; name: string } };
 type ChecklistGroup = { name: string; optional?: boolean; items: string[]; unitIds?: string[] };
 type ScheduleBooking = {
-  id: string; unitId: string; date: string; checkOutDate: string | null; checkInTime: string | null; checkOutTime: string | null; stayType: string; guests: string[];
+  id: string; unitId: string; date: string; checkOutDate: string | null; checkInTime: string | null; checkOutTime: string | null; stayType: string; platform?: string; guests: string[];
   unit: Unit; cleaner: { id: string; name: string } | null;
 };
 
 export function HousekeepingView({
-  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, checklistGroups, upcomingBookings = [], housekeepingOpenShifts = [],
+  role, units, initialStates, initialLogs, initialStocks, employees, initialShift, initialBills, initialMeterReadings = [], checklistGroups, upcomingBookings = [], housekeepingOpenShifts = [],
 }: {
   role: string;
   units: Unit[];
@@ -69,6 +72,7 @@ export function HousekeepingView({
   employees: { id: string; name: string; role: string; userId?: string | null }[];
   initialShift: Shift;
   initialBills: Bill[];
+  initialMeterReadings?: MeterReading[];
   checklistGroups: ChecklistGroup[];
   upcomingBookings?: ScheduleBooking[];
   housekeepingOpenShifts?: OpenShift[];
@@ -80,6 +84,7 @@ export function HousekeepingView({
   const [logs, setLogs] = useState(initialLogs);
   const [stocks, setStocks] = useState(initialStocks);
   const [bills, setBills] = useState(initialBills);
+  const [meterReadings, setMeterReadings] = useState(initialMeterReadings);
   const [shift, setShift] = useState(initialShift);
   const [showLogs, setShowLogs] = useState(true);
   const [scheduleTab, setScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
@@ -125,6 +130,10 @@ export function HousekeepingView({
   async function refreshBills() {
     const res = await fetch("/api/housekeeping/bills");
     if (res.ok) setBills(await res.json());
+  }
+  async function refreshMeterReadings() {
+    const res = await fetch("/api/housekeeping/meters");
+    if (res.ok) setMeterReadings(await res.json());
   }
 
   async function updateUnit(unitId: string, patch: any) {
@@ -217,12 +226,32 @@ export function HousekeepingView({
   const HK_STATUS_COLOR: Record<string, string> = { todo: "var(--gray)", cleaning: "var(--amber)", clean: "var(--green)" };
 
   // A room needs cleaning the moment a guest checks out — so the schedule is
-  // driven by each booking's checkout day (checkOutDate for Night/Full,
-  // same-day for Daycation), not by check-in, bucketed into Today / Tomorrow
-  // / This week the same Manila-safe way every other date grouping on this
-  // page already works.
+  // driven by each booking's real checkout day via getOccupiedWindow (same
+  // canonical engine Bookings/Calendar use), not the raw checkOutDate field
+  // read directly. Those can disagree: checkOutDate is staff-editable
+  // independently of checkInTime/checkOutTime (BookingForm.tsx has separate
+  // pickers for each, with nothing recomputing one when the others change),
+  // so a Flexible booking set to e.g. 22:00-04:00 without also moving
+  // checkOutDate to the next day would have this schedule show its cleaning
+  // task a full day early — the same class of bug the Bookings-tab
+  // checkout-date fix (checkoutDisplayDay) addressed, found here during an
+  // audit for duplicated date logic across the app, not yet reported live.
   const schedule = useMemo(() => {
-    const withCheckout = upcomingBookings.map((b) => ({ ...b, checkoutIso: (b.checkOutDate ?? b.date).slice(0, 10) }));
+    const withCheckout = upcomingBookings.map((b) => ({
+      ...b,
+      checkoutIso: dayOf(
+        checkoutDisplayDay(
+          getOccupiedWindow({
+            stayType: b.stayType,
+            date: new Date(b.date),
+            checkOutDate: b.checkOutDate ? new Date(b.checkOutDate) : null,
+            checkInTime: b.checkInTime,
+            checkOutTime: b.checkOutTime,
+            platform: b.platform,
+          })
+        )
+      ),
+    }));
     const todayI = dayOf(new Date());
     const tomorrowD = new Date(`${todayI}T00:00:00Z`); tomorrowD.setUTCDate(tomorrowD.getUTCDate() + 1);
     const tomorrowI = dayOf(tomorrowD);
@@ -337,6 +366,32 @@ export function HousekeepingView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [units, states, todaysCheckoutsByUnit, upcomingBookings]);
 
+  // Meter Reading's compliance target — every Monday and the 1st of the
+  // month, both meter types should have a fresh reading per unit (see
+  // meterReadingTargetDay's own comment). This is the SAME-DAY half of the
+  // alarm: visible the moment anyone opens Housekeeping on a target day,
+  // while there's still time to act. The other half — an actual missed
+  // target, once the day is fully over — is a persisted StaffNotification
+  // fired by checkMissedMeterReadingTargets in the meters API route, not
+  // computed here (this list only ever reflects "not done YET today", not
+  // "missed", so it must never itself claim something was missed).
+  const meterTargetToday = meterReadingTargetDay();
+  const meterReadingAlerts = useMemo(() => {
+    if (!meterTargetToday.isTarget) return [];
+    const todayI = dayOf(new Date());
+    const missing: { unit: Unit; meterType: "WATER" | "ELECTRICITY" }[] = [];
+    for (const u of units) {
+      for (const meterType of ["WATER", "ELECTRICITY"] as const) {
+        const loggedToday = meterReadings.some(
+          (r: any) => r.unitId === u.id && r.meterType === meterType && dayOf(new Date(r.createdAt)) === todayI
+        );
+        if (!loggedToday) missing.push({ unit: u, meterType });
+      }
+    }
+    return missing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [units, meterReadings, meterTargetToday.isTarget]);
+
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-9 sm:px-6">
       <div className="mb-6">
@@ -443,6 +498,28 @@ export function HousekeepingView({
           </div>
         );
       })()}
+
+      {meterReadingAlerts.length > 0 && (
+        <div className="mb-5 rounded-2xl border border-amber/30 bg-amber/[0.06] p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-amber/15 text-amber">
+              <AlertIcon className="h-3.5 w-3.5" />
+            </span>
+            <h2 className="text-[14px] font-extrabold">📸 Meter Reading target</h2>
+            <span className="text-[12.5px] text-[var(--gray)]">{meterTargetToday.label} · {meterReadingAlerts.length} not yet logged today</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {meterReadingAlerts.map(({ unit, meterType }) => (
+              <span
+                key={`${unit.id}-${meterType}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber/40 bg-[var(--card)] px-2.5 py-1.5 text-[12.5px] font-bold"
+              >
+                {meterType === "WATER" ? "💧" : "⚡"} {formatUnitDisplay(unit.unitNumber, unit.shortName)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Medium intensity (brief's "Staff Experience" table) — only appears
           at all when a real seasonal skin is active, and stays a single
@@ -595,6 +672,10 @@ export function HousekeepingView({
 
       <Accordion title="💳 Bills tracker" sub="association dues, utilities & subscriptions">
         <BillsPanel units={units} bills={bills} canEdit={false} canTogglePaid={canEdit} onChanged={refreshBills} />
+      </Accordion>
+
+      <Accordion title="📸 Meter Reading" sub="snap a photo, Gemini reads the register">
+        <MeterReadingPanel units={units} readings={meterReadings} canEdit={canEdit} onChanged={refreshMeterReadings} />
       </Accordion>
 
       <Accordion title="🧺 Laundry Management" sub="orders, services, payments & reports" defaultOpen={false}>

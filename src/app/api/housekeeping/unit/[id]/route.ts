@@ -5,33 +5,31 @@ import { hasActionAccess } from "@/lib/actionAccess";
 import { openCleaningCalendarBlock, closeCleaningCalendarBlock, clearCleaningCalendarBlock } from "@/lib/calendarMirror";
 import { linkHousekeepingCredentialToCleaning, releaseHousekeepingCredentialForCleaning, ensureHousekeepingCredentialOnStart } from "@/lib/access/service";
 import { notifyStaff } from "@/lib/bookingEngine/notificationService";
+import { minutesLateFor } from "@/lib/stayRange";
 
-// Grace period before a cleaning start counts as "Late" — spec section 11.
-const TARDINESS_GRACE_MINUTES = 10;
 // Anything later than this isn't a real tardiness signal — it's a
 // mis-paired booking (a legacy-migration checkout with no realistic
 // checkOutTime, or a clean logged against the wrong booking). Observed for
 // real on test data: an "Avg delay" north of 5,000 minutes on a handful of
 // old records. Excluded rather than clamped, so it doesn't quietly drag
 // the average toward a still-misleading (if smaller) number.
-const MAX_PLAUSIBLE_LATE_MINUTES = 24 * 60;
+const MAX_PLAUSIBLE_LATE_MS = 24 * 3600 * 1000;
 
 /** Scheduled clean time is the booking's own checkout — the natural "this
  * unit needs cleaning starting around now" moment already used everywhere
  * else in this app (upcomingBookings in housekeeping/page.tsx). Returns
- * null for ad-hoc cleans with no bookingId (nothing to be late against) and
- * for implausible outliers (see MAX_PLAUSIBLE_LATE_MINUTES). */
+ * null for ad-hoc cleans with no bookingId (nothing to be late against).
+ * The actual lateness math now lives in stayRange.ts's minutesLateFor —
+ * see its own doc comment for why this used to hand-build a "scheduled"
+ * timestamp locally, and why that was wrong by up to 8 real hours. */
 async function minutesLate(bookingId: string | null | undefined, startedAt: Date): Promise<number | null> {
   if (!bookingId) return null;
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { checkOutDate: true, date: true, checkOutTime: true } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, platform: true },
+  });
   if (!booking) return null;
-  const scheduledDate = booking.checkOutDate ?? booking.date;
-  const [h, m] = (booking.checkOutTime ?? "12:00").split(":").map(Number);
-  const scheduled = new Date(scheduledDate);
-  scheduled.setUTCHours(h, m, 0, 0);
-  const lateMs = startedAt.getTime() - scheduled.getTime() - TARDINESS_GRACE_MINUTES * 60 * 1000;
-  const lateMinutes = lateMs > 0 ? Math.round(lateMs / 60000) : null;
-  return lateMinutes !== null && lateMinutes <= MAX_PLAUSIBLE_LATE_MINUTES ? lateMinutes : null;
+  return minutesLateFor(booking, startedAt, MAX_PLAUSIBLE_LATE_MS);
 }
 
 // PATCH body: { checked?: boolean[][], status?: "todo"|"cleaning"|"clean", byName?: string, start?: boolean, end?: boolean, bookingId?: string, photoUrls?: string[] }
@@ -94,7 +92,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // new status only, never what it changed from).
   const priorState = await prisma.housekeepingUnitState.findUnique({ where: { unitId: params.id }, select: { status: true, byName: true } });
 
-  const state = await prisma.$transaction(async (tx) => {
+  let state;
+  try {
+    state = await prisma.$transaction(async (tx) => {
+    // Two housekeeping staff tapping "Start Cleaning" on the same unit
+    // within moments of each other previously both got a 200 — nothing
+    // checked whether the unit was already mid-clean before the upsert
+    // below, so whichever request's transaction committed second silently
+    // overwrote the first (attributing the session to a different
+    // employee, and each independently requesting their own housekeeping
+    // access credential). A fresh read *inside* the transaction (not the
+    // priorState snapshot taken before it, for the exact same
+    // read-inside-not-before reason as the cleanedBookingIds append just
+    // below) closes the gap the mutex alone doesn't. Found during a
+    // concurrency audit, not yet reported live.
+    if (body.start) {
+      const live = await tx.housekeepingUnitState.findUnique({ where: { unitId: params.id }, select: { status: true } });
+      if (live?.status === "cleaning") throw new Error("ALREADY_CLEANING");
+    }
+
     // Read-then-append, done inside the transaction rather than before it —
     // this field accumulates (see the schema comment on cleanedBookingIds)
     // rather than overwrites, so two different checkouts on the same unit
@@ -161,7 +177,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     return state;
-  });
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "ALREADY_CLEANING") {
+      return NextResponse.json({ error: "This unit is already being cleaned." }, { status: 409 });
+    }
+    throw e;
+  }
 
   // Mirror onto the calendar so /calendar shows a unit is currently being
   // cleaned — same mirroring pattern used for bookings (syncCalendarMirror).

@@ -5,6 +5,7 @@ import { requirePlatformAdmin, findDuplicateBusinessName } from "@/lib/ownerScop
 import { logAudit } from "@/lib/session";
 import { createOwnerSchema } from "@/lib/validation";
 import { parseOrError, isUniqueConstraintError } from "@/lib/apiValidation";
+import { ensureEmployeeForUser } from "@/lib/employeeProvision";
 
 // Every newly-created owner starts on this limited default tier unless the
 // Create Owner form's module checklist was changed (see
@@ -122,9 +123,11 @@ export async function POST(req: NextRequest) {
         mustChangePassword: true,
       },
     });
-    // OWNER_ADMIN isn't a payroll role (see ensureEmployeeForUser), so no
-    // linked Employee record is expected here — matches how Evangelina's
-    // own OWNER_ADMIN accounts already work today.
+    // OWNER_ADMIN now also gets a linked Employee record (see
+    // ensureEmployeeForUser's doc comment) — without it, this brand-new
+    // owner's own admin account would hit the exact "Booker field renders
+    // blank" bug reported live on The Felian, from the very first login.
+    await ensureEmployeeForUser(ownerUser);
     await logAudit(user.id, "platform.owner.create", "Owner", owner.id, { businessName: owner.businessName, slug: owner.slug, ownerUserId: ownerUser.id });
     return NextResponse.json({ owner, login: { username, tempPassword } }, { status: 201 });
   } catch (e: any) {

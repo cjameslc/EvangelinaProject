@@ -8,6 +8,17 @@ import { z } from "zod";
  * individual field's own validator doesn't change that. */
 const isValidDateString = (v: string) => !Number.isNaN(new Date(v).getTime());
 
+/** Booking.amount/dpAmount are whole pesos by convention (unlike
+ * Bill.amountDueCentavos, the one place this app actually tracks
+ * centavos) — a bare z.number().int() used to hard-reject a typed
+ * "1648.50" with a raw "Expected integer, received float" reaching the
+ * user unformatted, confirmed live on a Felian Airbnb booking's
+ * extend-stay edit (BookingForm's Total Amount field and its "Extra
+ * amount" add-to-total both now round at entry, but this is the
+ * server-side backstop — for any request from a not-yet-refreshed client,
+ * rounding a peso amount loses nothing this app actually tracks). */
+const moneyInt = z.number().nonnegative().transform((n) => Math.round(n));
+
 /** Airbnb has no day-use product — every Airbnb booking is a full 21-hour stay, never a Daycation or Night stay. Enforced here (server) and mirrored client-side in BookingForm's stay-type picker. */
 export function normalizeStayTypeForPlatform<T extends string>(platform: string, stayType: T): T | "Full" {
   return platform === "Airbnb" ? "Full" : stayType;
@@ -39,11 +50,11 @@ export const bookingSchema = z.object({
   cleanerId: z.string().nullable().optional(),
   platform: z.enum(["Airbnb", "TikTok", "Facebook", "WalkIn", "Direct", "Other"]),
   platformOther: z.string().nullable().optional(),
-  dpAmount: z.number().int().nonnegative().nullable().optional(),
+  dpAmount: moneyInt.nullable().optional(),
   dpReceivedById: z.string().nullable().optional(),
   dpMethod: z.enum(["Cash", "GCash", "BankTransfer"]).nullable().optional(),
   dpProofUrl: z.string().nullable().optional(),
-  amount: z.number().int().nonnegative(),
+  amount: moneyInt,
   receivedById: z.string().nullable().optional(),
   method: z.enum(["Cash", "GCash", "BankTransfer"]).nullable().optional(),
   proofUrl: z.string().nullable().optional(),

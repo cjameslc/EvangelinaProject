@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatUnitDisplay, peso, fmtTimeStr } from "@/lib/format";
@@ -337,6 +337,25 @@ export function UnitCalendarView({ initialUnitId, allUnits, blocks: initialBlock
     setViewMonth(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
     setWeekStart(addDays(today, -today.getUTCDay()));
   }
+  // Prev/next only ever stepped by a fixed week or month — no way to land
+  // on an arbitrary date without clicking through every increment in
+  // between. Same "clickable label overlaying a hidden native picker"
+  // pattern already established in CalendarView.tsx's own "Jump to month"
+  // control, adapted per view mode: month mode jumps by <input type="month">
+  // (unambiguous — any day within it resolves the same month), week mode
+  // jumps by <input type="date"> and resolves to that date's own week
+  // (Sunday-start, matching how weekStart is derived everywhere else here).
+  const jumpInputRef = useRef<HTMLInputElement | null>(null);
+  function jumpToMonth(value: string) {
+    if (!value) return;
+    const [y, m] = value.split("-").map(Number);
+    setViewMonth(new Date(Date.UTC(y, m - 1, 1)));
+  }
+  function jumpToWeek(value: string) {
+    if (!value) return;
+    const picked = new Date(`${value}T00:00:00Z`);
+    setWeekStart(addDays(picked, -picked.getUTCDay()));
+  }
 
   return (
     <div className="unit-cal-luxury min-h-screen bg-[var(--uc-cream)]">
@@ -417,7 +436,38 @@ export function UnitCalendarView({ initialUnitId, allUnits, blocks: initialBlock
         {/* ---------- Main ---------- */}
         <main className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-semibold text-[24px] text-[var(--uc-ink)]">{viewMode === "month" ? monthLabel(viewMonth) : weekLabel(weekStart)}</h2>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => jumpInputRef.current?.showPicker?.() ?? jumpInputRef.current?.click()}
+                className="rounded-lg px-1 py-0.5 text-left font-semibold text-[24px] text-[var(--uc-ink)] hover:bg-[var(--uc-gold-10)]"
+                aria-label={viewMode === "month" ? "Jump to month" : "Jump to week"}
+                title={viewMode === "month" ? "Click to jump to a specific month" : "Click to jump to any date's week"}
+              >
+                {viewMode === "month" ? monthLabel(viewMonth) : weekLabel(weekStart)}
+              </button>
+              {viewMode === "month" ? (
+                <input
+                  key="month-jump"
+                  ref={jumpInputRef}
+                  type="month"
+                  className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  onChange={(e) => jumpToMonth(e.target.value)}
+                />
+              ) : (
+                <input
+                  key="week-jump"
+                  ref={jumpInputRef}
+                  type="date"
+                  className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  onChange={(e) => jumpToWeek(e.target.value)}
+                />
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <div className="flex rounded-full border border-[var(--uc-line)] p-0.5">
                 <button

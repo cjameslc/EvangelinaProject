@@ -193,7 +193,11 @@ export function BookingForm({
   const [extraError, setExtraError] = useState("");
 
   function addExtraCharge() {
-    const amt = Number(extraCharge);
+    // Same whole-peso rounding as the Total Amount field above — this is
+    // the other entry point that can push a typed decimal into
+    // totalAmount (and from there into the server's z.number().int()
+    // amount field) with nothing to round it first.
+    const amt = Math.round(Number(extraCharge));
     if (!extraCharge || Number.isNaN(amt) || amt <= 0) { setExtraError("Enter a valid amount."); return; }
     if (!extraSamePayment && (!extraReceivedById || !extraMethod)) {
       setExtraError("Choose who received it and how.");
@@ -736,11 +740,13 @@ export function BookingForm({
             <>
               <select value={v.bookerId} onChange={(e) => set("bookerId", e.target.value)} className="field-input mt-1.5">
                 <option value="">— Select —</option>
-                {/* Staff whose Admin-assigned role is Booker or Housekeeping —
+                {/* Staff whose Admin-assigned role is Booker, Housekeeping, or
+                    Owner/Admin (an Owner logging their own walk-in/direct
+                    booking needs to be creditable too, same as any Booker) —
                     plus the currently selected person even if their role no
                     longer matches, so editing an older booking never silently
                     drops its booker. */}
-                {employees.filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                {employees.filter((e) => e.role === "BOOKER" || e.role === "HOUSEKEEPING" || e.role === "OWNER_ADMIN" || e.id === v.bookerId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
               {err("bookerId")}
             </>
@@ -772,8 +778,16 @@ export function BookingForm({
         <label className="field-label">Total Amount <span className="text-rausch">*</span></label>
         <input
           type="number"
+          step={1}
           value={v.totalAmount ?? ""}
-          onChange={(e) => { setTotalTouched(true); set("totalAmount", e.target.value ? +e.target.value : null); }}
+          // Booking.amount/dpAmount are whole pesos (z.number().int() in
+          // validation.ts) — a typed "1648.50" used to pass straight
+          // through to the server as a float and get rejected on Save with
+          // a bare "Expected integer, received float" (confirmed live on
+          // a Felian Airbnb booking's extend-stay edit). Round at entry,
+          // not just before submit, so what's on screen always matches
+          // what a save would actually persist.
+          onChange={(e) => { setTotalTouched(true); set("totalAmount", e.target.value ? Math.round(+e.target.value) : null); }}
           className="field-input mt-1.5 text-[16px] font-extrabold"
           placeholder="1,799"
         />
@@ -823,6 +837,7 @@ export function BookingForm({
             <input
               type="number"
               min={0}
+              step={1}
               value={extraCharge}
               onChange={(e) => setExtraCharge(e.target.value)}
               className="field-input mt-1.5 max-w-[200px]"

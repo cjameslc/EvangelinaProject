@@ -129,20 +129,44 @@ export async function createGuestAccessCode(params: AccessCodeParams): Promise<v
       return;
     }
 
-    const credential = await prisma.accessCredential.create({
-      data: {
-        type: "GUEST",
-        unitId: params.unitId,
-        bookingId: params.bookingId,
-        guestId: params.guestId,
-        code: passcode,
-        source: "ttlock",
-        ttlockKeyboardPwdId: result.value.keyboardPwdId,
-        status: "ACTIVE",
-        validFrom,
-        validUntil,
-      },
-    });
+    let credential;
+    try {
+      credential = await prisma.accessCredential.create({
+        data: {
+          type: "GUEST",
+          unitId: params.unitId,
+          bookingId: params.bookingId,
+          guestId: params.guestId,
+          code: passcode,
+          source: "ttlock",
+          ttlockKeyboardPwdId: result.value.keyboardPwdId,
+          status: "ACTIVE",
+          validFrom,
+          validUntil,
+        },
+      });
+    } catch (e) {
+      // Real backstop against two near-simultaneous calls for the same
+      // booking (a double-clicked confirmation link, two tabs) both passing
+      // the findFirst check above before either has written its row — the
+      // findFirst alone has a TOCTOU gap spanning a real TTLock HTTP call,
+      // not just a DB round trip, so it's a genuinely reachable window, not
+      // a theoretical one. access_credentials_active_guest_unique (a
+      // partial unique index on (type, bookingId) WHERE type='GUEST' AND
+      // status='ACTIVE') rejects the loser here instead of both writes
+      // landing and issuing two live door codes for one booking. Same
+      // pattern already proven for HOUSEKEEPING-type credentials just
+      // below in this file. The real passcode this losing call already
+      // created on the physical lock (before losing the DB race) has no
+      // credential row to track/release it later — delete it now,
+      // best-effort, rather than leaving an unused code active on the lock
+      // for the rest of the stay.
+      if (isUniqueConstraintError(e)) {
+        await deleteTtlockPasscode(lockId, result.value.keyboardPwdId).catch(() => {});
+        return;
+      }
+      throw e;
+    }
     await logAudit(null, "access.credential.generated", "AccessCredential", credential.id, { bookingId: params.bookingId, unitId: params.unitId, source: "ttlock" });
   } catch (e) {
     // Absolute last resort — should be unreachable given the guards above,

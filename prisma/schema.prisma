@@ -330,6 +330,7 @@ model Unit {
   feedbackResponses FeedbackResponse[]
   reserveAccessCodes ReserveAccessCode[]
   accessCredentials AccessCredential[]
+  meterReadings MeterReading[]
 
   @@index([ownerId])
   @@map("units")
@@ -999,6 +1000,65 @@ model Bill {
   @@index([unitId, key, month])
   @@unique([templateId, month])
   @@map("bills")
+}
+
+// A single AI-read water or Meralco electricity meter photo, logged from the
+// Housekeeping tab. Gemini vision reads the register and returns a
+// confidence-scored result (src/lib/meterReadingPrompt.ts has the full
+// spec) — never a guess: an unreadable or ambiguous photo is still saved,
+// just flagged, so the history stays honest even when a reading fails.
+model MeterReading {
+  id     String @id @default(cuid())
+  unitId String
+  // Restrict — same reasoning as CleaningLog/Bill above: a unit with real
+  // meter-reading history must never be deletable out from under it.
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  meterType    String // WATER | ELECTRICITY | UNKNOWN
+  meterSubtype String?
+
+  // Vercel Blob URL, not base64-in-DB — same reasoning as every other photo
+  // field in this app (see src/lib/blob.ts's own comments).
+  photoUrl String
+
+  readingValue      Float?
+  rawDisplay        String?
+  readingUnit       String? // m³ | kWh — named readingUnit, not "unit", since that name is the relation above
+  readingConfidence Int
+
+  registerConfidence Int
+  imageQualityScore  Int
+  imageQualityClass  String
+
+  serialNumber  String?
+  meterModel    String?
+  accountNumber String?
+
+  digitAnalysis String // JSON-encoded array of {position, digit, confidence, alternatives}
+
+  // Historical validation (spec STEP 10) — previousReading/consumption are
+  // computed server-side from this same unit+meterType's last reading, at
+  // request time, never from client-suppliable input.
+  previousReading    Float?
+  consumption        Float?
+  anomalyDetected    Boolean @default(false)
+  anomalyType        String?
+  anomalyExplanation String?
+
+  integrityStatus String // NORMAL | REVIEW_REQUIRED
+  integrityReason String?
+
+  warnings          String // JSON-encoded string[]
+  recommendedAction String // AUTO_ACCEPT | MANUAL_REVIEW_REQUIRED
+
+  rawResponse String // full JSON returned by the model, kept verbatim for audit
+
+  loggedByName String? // snapshot of who captured it, same convention as HousekeepingUnitState.byName
+
+  createdAt DateTime @default(now())
+
+  @@index([unitId, meterType, createdAt])
+  @@map("meter_readings")
 }
 
 // The source of truth for a recurring monthly operating expense — Admin

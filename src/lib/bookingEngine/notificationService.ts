@@ -72,7 +72,8 @@ export type StaffNotificationEvent =
   | { type: "code.expiring"; unitId: string; unitName: string; employeeName: string }
   | { type: "code.copied"; unitId: string; unitName: string; employeeName: string }
   | { type: "employee.autologout"; employeeName: string }
-  | { type: "security.unauthorized_access"; unitId: string; unitName: string; classification: string; severity: string };
+  | { type: "security.unauthorized_access"; unitId: string; unitName: string; classification: string; severity: string }
+  | { type: "meterReading.missed"; unitId: string; unitName: string; meterType: "WATER" | "ELECTRICITY"; targetLabel: string };
 
 function staffMessage(event: StaffNotificationEvent): string {
   switch (event.type) {
@@ -87,6 +88,16 @@ function staffMessage(event: StaffNotificationEvent): string {
     case "security.unauthorized_access": {
       const label = event.severity === "CRITICAL" ? "🚨 Unauthorized access" : "⚠️ Suspicious access";
       return `${label} detected at ${event.unitName} — ${event.classification.replace(/_/g, " ").toLowerCase()}. Check Security Monitor.`;
+    }
+    case "meterReading.missed": {
+      const emoji = event.meterType === "WATER" ? "💧" : "⚡";
+      const label = event.meterType === "WATER" ? "Water" : "Electricity";
+      // The literal word "Water"/"Electricity" here is load-bearing, not
+      // just copy — checkMissedMeterReadingTargets dedupes same-day
+      // re-notification by checking for it in the message text rather than
+      // adding a new schema column for a fact that only needs a same-day
+      // lifetime.
+      return `${emoji} ${label} meter reading target missed at ${event.unitName} — nothing logged for the ${event.targetLabel}.`;
     }
   }
 }

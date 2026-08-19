@@ -175,3 +175,64 @@ export async function askGeminiVision(systemPrompt: string, userMessage: string,
   if (!text) throw new Error("Gemini returned no text.");
   return text;
 }
+
+const METER_VISION_TIMEOUT_MS = 45_000;
+
+/**
+ * Combines askGeminiVision's inlineData image part with askGeminiJSON's
+ * responseSchema-constrained output in one call — Housekeeping's Meter
+ * Reading feature (src/app/api/housekeeping/meters/analyze/route.ts) needs
+ * both at once: read a photo AND return a specific JSON shape, which
+ * neither existing helper alone covers. Deliberately NOT on the shared
+ * MODEL constant above — a wrong meter reading becomes a wrong utility
+ * bill, so this one call site trades this app's usual cost-optimized
+ * default for a stronger model; the caller passes it explicitly. Own
+ * (longer) timeout than askGeminiVision's guest-facing 20s — this runs
+ * from a background housekeeping action, not a blocking guest checkout
+ * step, and a full-resolution meter photo genuinely needs more processing
+ * time than a payment screenshot.
+ */
+export async function askGeminiVisionJSON<T>(
+  systemPrompt: string,
+  userMessage: string,
+  imageBase64: string,
+  mimeType: string,
+  responseSchema: unknown,
+  model: string,
+): Promise<T> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), METER_VISION_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }, { inlineData: { mimeType, data: imageBase64 } }] }],
+        generationConfig: { responseMimeType: "application/json", responseSchema },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  const body = await res.json();
+  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no text.");
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("Gemini returned invalid JSON.");
+  }
+}

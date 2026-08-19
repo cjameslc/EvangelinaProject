@@ -4,6 +4,7 @@
 // calendarMirror.ts re-exports these for its existing server-side callers.
 
 import { STAY_TYPE_DEFAULT_TIMES, AIRBNB_DEFAULT_TIMES } from "@/lib/constants";
+import { manilaWallClockToRealInstant } from "@/lib/manilaTime";
 
 /**
  * Computes the `endDate` for a Booking's mirrored CalendarBlock.
@@ -103,6 +104,40 @@ export function lastOccupiedDay(window: { end: Date }): Date {
   return day;
 }
 
+/** The literal calendar day a checkout *timestamp* falls on — the "when
+ * does this booking check out" reading, as opposed to lastOccupiedDay's
+ * "which day was actually occupied" reading (those two agree for every
+ * checkout time except exactly midnight, where lastOccupiedDay steps back
+ * a day on purpose — see its own comment).
+ *
+ * getOccupiedWindow()'s start/end are NOT real UTC instants: combineDateAndTime
+ * builds them via setUTCHours() on a UTC-midnight-anchored day, so the
+ * hour-of-day is a placeholder for Asia/Manila wall-clock time, not a real
+ * UTC hour. A genuine UTC->Asia/Manila conversion (e.g. an Intl
+ * DateTimeFormat with timeZone: "Asia/Manila") is therefore WRONG here — it
+ * would double-apply the +8h shift and silently push any checkout time
+ * from 16:00 onward into the next calendar day. Confirmed live: a Daycation
+ * checking in Aug 21 08:00 and out Aug 21 20:00 displayed "Out Aug 22" in
+ * the Bookings tab (booking EVA-BRFSWK) when an earlier fix ran window.end
+ * through exactly that kind of real timezone conversion. window.end's own
+ * UTC-labeled Y/M/D already IS the intended calendar day — no further zone
+ * conversion is needed or correct. */
+/** Truncates any getOccupiedWindow() instant (start OR end, not just a
+ * checkout) down to its own bare UTC-midnight calendar day — the general
+ * form of checkoutDisplayDay below, for callers that need "what calendar
+ * day does this placeholder nominally fall on" for a check-in instant, a
+ * checkout instant, or any other occupied-window boundary. Safe to run
+ * through a REAL timezone conversion afterward (e.g. manilaDayKey/dayOf),
+ * unlike the placeholder timestamp itself — see checkoutDisplayDay's own
+ * comment for the full explanation of why that matters. */
+export function nominalCalendarDay(instant: Date): Date {
+  return new Date(Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), instant.getUTCDate()));
+}
+
+export function checkoutDisplayDay(window: { end: Date }): Date {
+  return nominalCalendarDay(window.end);
+}
+
 /**
  * Whether two bookings on the same unit actually conflict — a pure
  * real-timestamp overlap of their actual (or stay-type-defaulted)
@@ -128,4 +163,57 @@ export function lastOccupiedDay(window: { end: Date }): Date {
  */
 export function bookingsConflict(a: BookingLike, b: BookingLike): boolean {
   return windowsOverlap(getOccupiedWindow(a), getOccupiedWindow(b));
+}
+
+const TARDINESS_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * How many real minutes late a cleaning started relative to its booking's
+ * real scheduled checkout, past a 10-minute grace period — null if
+ * on-time/early, or an implausible outlier (see maxPlausibleLateMs).
+ *
+ * Was previously hand-duplicated in two API routes (housekeeping's own
+ * unit/[id] PATCH handler, and the Dashboard's housekeeping-ops metrics
+ * route — the second one's own comment admitted the copy-paste outright).
+ * Both were wrong in two independent ways, found during an audit for
+ * duplicated date logic:
+ *
+ * 1. The scheduled time was built with a hardcoded "12:00" fallback for a
+ *    booking with no recorded checkOutTime — correct for Night/Full, wrong
+ *    for a Daycation (which defaults to 20:00 everywhere else in the app).
+ *    A Daycation with no explicit checkout time would read as ~8 hours
+ *    "late" the moment a housekeeper started right on time.
+ *
+ * 2. Far more severe: that hand-built "scheduled" timestamp is an Asia/
+ *    Manila wall-clock placeholder (setUTCHours stamps the checkout HOUR
+ *    directly onto a UTC-labeled day — see getOccupiedWindow's own
+ *    comment), not a real UTC instant. Both routes then subtracted it from
+ *    startedAt — a REAL timestamp (`new Date()` at PATCH-time, or a real
+ *    CleaningLog.startedAt column) — with no conversion. Confirmed
+ *    empirically before this fix: a housekeeper starting a genuine 1 real
+ *    hour after the true scheduled checkout (well past the 10-minute
+ *    grace) was reported as perfectly on time, because the placeholder sits
+ *    a full Manila-UTC-offset (+8h) ahead of the real scheduled instant —
+ *    tardiness only registered at all once a housekeeper started more than
+ *    8 real hours late, and even then under-reported the delay by exactly
+ *    8 hours. This silently suppressed the tardiness/"cleaning.late"
+ *    notification and the Dashboard's late-cleaning metrics for the
+ *    overwhelming majority of realistic same-day lateness.
+ */
+export function minutesLateFor(
+  booking: { stayType?: string; date: Date; checkOutDate: Date | null; checkInTime?: string | null; checkOutTime?: string | null; platform?: string },
+  startedAt: Date,
+  maxPlausibleLateMs: number = 24 * 3600 * 1000
+): number | null {
+  const window = getOccupiedWindow({
+    stayType: booking.stayType ?? "Full",
+    date: booking.date,
+    checkOutDate: booking.checkOutDate,
+    checkInTime: booking.checkInTime,
+    checkOutTime: booking.checkOutTime,
+    platform: booking.platform,
+  });
+  const scheduledReal = manilaWallClockToRealInstant(window.end);
+  const delayMs = startedAt.getTime() - scheduledReal.getTime() - TARDINESS_GRACE_MS;
+  return delayMs > 0 && delayMs <= maxPlausibleLateMs ? Math.round(delayMs / 60000) : null;
 }

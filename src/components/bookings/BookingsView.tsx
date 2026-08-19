@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
-import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, HomeIcon, AlertIcon, CopyIcon } from "@/components/ui/Icons";
+import { EditIcon, TrashIcon, SearchIcon, UploadIcon, PlusIcon, ChevronDownIcon, ArrowLeftIcon, ArrowRightIcon, FilterIcon, CloseIcon, RefreshIcon, HomeIcon, AlertIcon, CopyIcon, CheckIcon } from "@/components/ui/Icons";
 import { peso, fmtDate, fmtTime, fmtTimeStr, formatUnitDisplay } from "@/lib/format";
 import { PLATFORMS, PLATFORM_LABEL, PAYMENT_METHOD_LABEL, STAY_TYPES } from "@/lib/constants";
 import { useToast } from "@/components/ui/Toast";
@@ -28,7 +28,7 @@ import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { computeOpportunities } from "@/lib/bookingEngine/opportunity";
 import type { RateTable } from "@/lib/pricing/rates";
 import { manilaTodayISO, manilaTimeGreeting } from "@/lib/manilaTime";
-import { getOccupiedWindow, lastOccupiedDay } from "@/lib/stayRange";
+import { getOccupiedWindow, checkoutDisplayDay } from "@/lib/stayRange";
 import { collectedAmountPesos, grossAmountPesos } from "@/lib/finance";
 
 type Employee = { id: string; name: string; role: string };
@@ -80,10 +80,20 @@ function unitBadgeColor(unitId: string, units: { id: string }[]) {
 }
 
 /** Effective check-in/check-out day for a booking — derived from the same
- * real-timestamp occupancy engine (stayRange.ts's getOccupiedWindow +
- * lastOccupiedDay) the Calendar page and Schedule grid use, so this List
- * view can never show a different occupied range than what the actual
- * conflict guard enforces. */
+ * real-timestamp occupancy engine (stayRange.ts's getOccupiedWindow) the
+ * Calendar page and Schedule grid use, so this List view can never show a
+ * different occupied range than what the actual conflict guard enforces.
+ *
+ * outIso reads window.end through checkoutDisplayDay() (stayRange.ts),
+ * not lastOccupiedDay() — see that function's own comment for the full
+ * "when does this booking check out" vs. "which day was last occupied"
+ * distinction and the live incident (THE-4UB8X6, then a regression on
+ * EVA-BRFSWK) that established it. checkoutDisplayDay() returns a bare
+ * UTC-midnight Date, so running it through the real dayOf() below is safe
+ * — same reasoning as inIso: adding Manila's +8h to a UTC midnight never
+ * crosses a day boundary. lifecycleStatus's active/completed cutoff and
+ * the agenda grouping's occupied-nights loop below both read outIso too,
+ * so this one fix covers all three. */
 function effectiveRange(b: Booking) {
   const inDate = new Date(b.date);
   const window = getOccupiedWindow({
@@ -94,7 +104,7 @@ function effectiveRange(b: Booking) {
     checkOutTime: b.checkOutTime,
     platform: b.platform,
   });
-  return { inIso: dayOf(inDate), outIso: dayOf(lastOccupiedDay(window)) };
+  return { inIso: dayOf(inDate), outIso: dayOf(checkoutDisplayDay(window)) };
 }
 
 export function BookingsView({
@@ -142,6 +152,14 @@ export function BookingsView({
   const [bookerFilter, setBookerFilter] = useState("all");
   const [unitFilter, setUnitFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<"today" | "3days" | "week" | "month">("week");
+  // "This month" was pinned to whatever calendar month `today` falls in,
+  // with no way to move forward — reported live: an admin filtering by
+  // month could never actually see next month's bookings. Not a
+  // permission/setting to "enable"; the UI simply had no prev/next
+  // control. Only meaningful while dateFilter === "month"; left as-is
+  // (not reset) when switching away so returning to Month picks up where
+  // they left off.
+  const [monthOffset, setMonthOffset] = useState(0);
   const [checkinScheduleTab, setCheckinScheduleTab] = useState<"today" | "tomorrow" | "week">("today");
   // A Booker lands on their own list first — every other role that reaches
   // this page (Owner/Admin, Co-owner, Housekeeping) sees exactly what it
@@ -325,6 +343,31 @@ export function BookingsView({
     if (!res.ok) { const j = await res.json().catch(() => ({})); toast(j.error ?? "Couldn't mark booking refunded", true); return; }
     toast("Booking marked refunded");
     refresh();
+  }
+
+  // A lightweight sibling of updateBooking() for the one field staff adjust
+  // most often from the list view — the full total (b.amount + b.dpAmount).
+  // Sends only `amount`, not the rest of BookingForm's payload (the PATCH
+  // route accepts a partial body — see its own bookingSchema.partial()) —
+  // dpAmount (money already actually collected) is left untouched, same as
+  // BookingForm's own live-sync effect: the new total's difference is
+  // absorbed entirely into the remaining balance, clamped at 0 so a total
+  // edited below what's already been collected doesn't go negative.
+  async function quickEditTotal(id: string, newTotal: number, dpAmount: number) {
+    const newAmount = Math.max(0, newTotal - dpAmount);
+    const res = await fetch(`/api/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: newAmount }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "Couldn't update the total", true);
+      return false;
+    }
+    toast("Total updated ✓");
+    refresh();
+    return true;
   }
 
   // Opportunity Engine — recomputes automatically off the same `bookings`
@@ -566,8 +609,8 @@ export function BookingsView({
       return { start: startOfToday, end };
     }
     if (dateFilter === "month") {
-      const start = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth(), 1));
-      const end = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth() + 1, 1));
+      const start = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth() + monthOffset, 1));
+      const end = new Date(Date.UTC(startOfToday.getUTCFullYear(), startOfToday.getUTCMonth() + monthOffset + 1, 1));
       return { start, end };
     }
     // week: Sunday through Saturday of the current week
@@ -576,7 +619,7 @@ export function BookingsView({
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + 7);
     return { start, end };
-  }, [dateFilter]);
+  }, [dateFilter, monthOffset]);
 
   // The tab bar's scope — "mine" and the four lifecycle tabs all read from
   // myBookings (a Booker's own workload), "all" breaks out to the complete,
@@ -952,8 +995,21 @@ export function BookingsView({
           <option value="today">Today</option>
           <option value="3days">Next 3 days</option>
           <option value="week">This week (Sun–Sat)</option>
-          <option value="month">This month</option>
+          <option value="month">Month</option>
         </select>
+        {dateFilter === "month" && (
+          <div className="flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--bg-2)] px-1 py-1">
+            <button onClick={() => setMonthOffset((o) => o - 1)} aria-label="Previous month" className="btn-icon h-7 w-7">
+              <ArrowLeftIcon className="h-3.5 w-3.5" />
+            </button>
+            <span className="min-w-[104px] text-center text-[12.5px] font-bold">
+              {fmtDate(dateRange.start, { month: "long", year: "numeric", timeZone: "UTC" })}
+            </span>
+            <button onClick={() => setMonthOffset((o) => o + 1)} aria-label="Next month" className="btn-icon h-7 w-7">
+              <ArrowRightIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All statuses</option>
           <option value="unpaid">Unpaid only</option>
@@ -973,7 +1029,10 @@ export function BookingsView({
         </select>
         <select value={bookerFilter} onChange={(e) => setBookerFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All bookers</option>
-          {emps.filter((e) => e.role === "BOOKER").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          {/* Owner/Admin can now be credited as a booking's booker too (see
+              BookingForm's own bookerId select) — filterable here for the
+              same reason. */}
+          {emps.filter((e) => e.role === "BOOKER" || e.role === "OWNER_ADMIN").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <select value={unitFilter} onChange={(e) => setUnitFilter(e.target.value)} className="field-input w-auto">
           <option value="all">All units</option>
@@ -1029,6 +1088,7 @@ export function BookingsView({
                           canRevealAccessCode={canRevealAccessCredential(role as any)}
                           canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
+                          onQuickEditTotal={(newTotal) => quickEditTotal(b.id, newTotal, b.dpAmount ?? 0)}
                           toast={toast}
                         />
                       ))}
@@ -1050,6 +1110,7 @@ export function BookingsView({
                           canRevealAccessCode={canRevealAccessCredential(role as any)}
                           canGenerateAccessLink={role === "OWNER_ADMIN" && b.platform !== "Airbnb"}
                           onEdit={() => setEditing(b)} onCancel={() => setCancelModal({ booking: b, mode: "cancel" })} onRefund={() => refundBooking(b.id)} onDelete={() => deleteBooking(b.id)} onRemove={() => setCancelModal({ booking: b, mode: "remove" })}
+                          onQuickEditTotal={(newTotal) => quickEditTotal(b.id, newTotal, b.dpAmount ?? 0)}
                           toast={toast}
                         />
                       ))}
@@ -1217,7 +1278,7 @@ function lifecycleStatus(b: Booking, todayIso: string): "cancelled" | "completed
 }
 
 function BookingLine({
-  b, kind, unitColor, isFirstBooking, canEdit, canDelete, canRevealAccessCode, canGenerateAccessLink, onEdit, onCancel, onRefund, onDelete, onRemove, toast,
+  b, kind, unitColor, isFirstBooking, canEdit, canDelete, canRevealAccessCode, canGenerateAccessLink, onEdit, onCancel, onRefund, onDelete, onRemove, onQuickEditTotal, toast,
 }: {
   b: Booking;
   kind: "checkin" | "checkout";
@@ -1233,12 +1294,31 @@ function BookingLine({
   onRefund: () => void;
   onDelete: () => void;
   onRemove: () => void;
+  /** Returns false on failure so the input can stay open/editable for a retry, same contract as updateBooking(). */
+  onQuickEditTotal: (newTotal: number) => Promise<boolean>;
   toast: (msg: string, isError?: boolean) => void;
 }) {
+  const [editingTotal, setEditingTotal] = useState(false);
+  const [totalDraft, setTotalDraft] = useState("");
+  const [savingTotal, setSavingTotal] = useState(false);
   const pastDue = isPastDue(b);
   const { inIso, outIso } = effectiveRange(b);
   const totalFee = b.amount + (b.dpAmount ?? 0);
   const canRefund = canEdit && !b.refundedAt && (b.paid || (b.dpAmount ?? 0) > 0);
+
+  function openEditTotal() {
+    setTotalDraft(String(totalFee));
+    setEditingTotal(true);
+  }
+  async function saveTotal() {
+    const next = Number(totalDraft);
+    if (!Number.isFinite(next) || next < 0) { toast("Enter a valid total.", true); return; }
+    if (next === totalFee) { setEditingTotal(false); return; }
+    setSavingTotal(true);
+    const ok = await onQuickEditTotal(Math.round(next));
+    setSavingTotal(false);
+    if (ok) setEditingTotal(false);
+  }
   return (
     <div
       className={cn(
@@ -1304,7 +1384,52 @@ function BookingLine({
       <div className="mt-2 text-[12px] text-[var(--gray)]">From {fmtDate(inIso, { month: "short", day: "numeric", year: "numeric" })}</div>
 
       <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12.5px]">
-        <div><span className="text-[var(--gray)]">Fee </span><span className="font-bold">{peso(totalFee)}</span></div>
+        <div className="flex items-center gap-1">
+          <span className="text-[var(--gray)]">Fee </span>
+          {editingTotal ? (
+            <span className="inline-flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                autoFocus
+                value={totalDraft}
+                disabled={savingTotal}
+                onChange={(e) => setTotalDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveTotal();
+                  if (e.key === "Escape") setEditingTotal(false);
+                }}
+                className="field-input h-7 w-24 px-2 py-0 text-[12.5px] font-bold"
+              />
+              <button
+                onClick={saveTotal}
+                disabled={savingTotal}
+                aria-label="Save total"
+                className="grid h-6 w-6 flex-none place-items-center rounded-full text-green transition duration-150 [transition-timing-function:var(--ease-out)] hover:bg-green/10 active:scale-90 disabled:opacity-50"
+              >
+                <CheckIcon className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setEditingTotal(false)}
+                disabled={savingTotal}
+                aria-label="Cancel"
+                className="grid h-6 w-6 flex-none place-items-center rounded-full text-[var(--gray)] transition duration-150 [transition-timing-function:var(--ease-out)] hover:bg-rausch/10 hover:text-rausch active:scale-90 disabled:opacity-50"
+              >
+                <CloseIcon className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ) : canEdit ? (
+            <button
+              onClick={openEditTotal}
+              className="group inline-flex items-center gap-1 rounded-md font-bold transition duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.96]"
+            >
+              {peso(totalFee)}
+              <EditIcon className="h-3 w-3 text-[var(--gray)] opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+            </button>
+          ) : (
+            <span className="font-bold">{peso(totalFee)}</span>
+          )}
+        </div>
         <div>
           <span className="text-[var(--gray)]">In </span>
           <span className="font-bold">{fmtDate(inIso, { month: "short", day: "numeric" })}{b.checkInTime ? ` · ${fmtTimeStr(b.checkInTime)}` : ""}</span>

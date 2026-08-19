@@ -30,7 +30,7 @@ export default async function HousekeepingPage() {
   // (see prisma.ts), so these 10 queries ran back-to-back over the network
   // despite the Promise.all wrapper. Matches the pattern already used in
   // bookings/page.tsx.
-  const [units, states, logs, stocks, employees, openShift, bills, settings, upcomingBookings, housekeepingOpenShifts] = await Promise.all([
+  const [units, states, logs, stocks, employees, openShift, bills, settings, upcomingBookings, housekeepingOpenShifts, meterReadings] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere(user), orderBy: { sortOrder: "asc" }, include: { owners: { include: { user: { select: { name: true } } } } } }),
     prismaPool[1].housekeepingUnitState.findMany({ where }),
     prismaPool[2].cleaningLog.findMany({ where, orderBy: { startedAt: "desc" }, take: 30, include: { unit: { select: { name: true, shortName: true, unitNumber: true } } } }),
@@ -48,7 +48,7 @@ export default async function HousekeepingPage() {
       // tile on /calendar alongside that day's real checkout.
       where: { ...where, date: { gte: scheduleFrom, lte: scheduleTo }, cancelledAt: null },
       select: {
-        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, guests: true,
+        id: true, unitId: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true, stayType: true, platform: true, guests: true,
         unit: { select: { id: true, name: true, shortName: true, unitNumber: true } },
         cleaner: { select: { id: true, name: true } },
       },
@@ -62,6 +62,7 @@ export default async function HousekeepingPage() {
       select: { id: true, clockIn: true, user: { select: { id: true, name: true } } },
       orderBy: { clockIn: "asc" },
     }),
+    prismaPool[10].meterReading.findMany({ where, orderBy: { createdAt: "desc" }, take: 200 }),
   ]);
 
   const checklistGroups = (settings.checklistGroups as typeof CHECKLIST_GROUPS | null) ?? CHECKLIST_GROUPS;
@@ -76,6 +77,7 @@ export default async function HousekeepingPage() {
       employees={JSON.parse(JSON.stringify(employees))}
       initialShift={JSON.parse(JSON.stringify(openShift))}
       initialBills={JSON.parse(JSON.stringify(bills))}
+      initialMeterReadings={JSON.parse(JSON.stringify(meterReadings))}
       checklistGroups={JSON.parse(JSON.stringify(checklistGroups))}
       upcomingBookings={JSON.parse(JSON.stringify(upcomingBookings))}
       housekeepingOpenShifts={JSON.parse(JSON.stringify(housekeepingOpenShifts))}

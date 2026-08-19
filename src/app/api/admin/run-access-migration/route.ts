@@ -131,6 +131,29 @@ export async function POST(_req: NextRequest) {
       log.push("created staff_notifications + indexes");
     }
 
+    // Real backstop against two near-simultaneous requests for the same
+    // booking's guest access code (a double-clicked confirmation link, or
+    // two tabs) both passing createGuestAccessCode's findFirst check before
+    // either has written its row — the same TOCTOU gap the HOUSEKEEPING
+    // credential type was already protected against via
+    // access_credentials_active_housekeeping_unique (created ad hoc,
+    // outside this file's own tracked history — confirmed live against
+    // production, not recorded here until now). This is the GUEST-type
+    // counterpart: at most one ACTIVE GUEST credential per booking.
+    const existingGuestUniqueIdx = await client.execute(
+      `SELECT name FROM sqlite_master WHERE type='index' AND name='access_credentials_active_guest_unique';`
+    );
+    if (existingGuestUniqueIdx.rows.length > 0) {
+      log.push("access_credentials_active_guest_unique already exists — skipping");
+    } else {
+      await client.execute(`
+        CREATE UNIQUE INDEX access_credentials_active_guest_unique
+          ON access_credentials (type, bookingId)
+          WHERE type = 'GUEST' AND status = 'ACTIVE';
+      `);
+      log.push("created access_credentials_active_guest_unique");
+    }
+
     return NextResponse.json({ ok: true, log });
   } catch (e) {
     return NextResponse.json({ ok: false, log, error: e instanceof Error ? e.message : String(e) }, { status: 500 });

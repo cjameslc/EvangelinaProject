@@ -23,6 +23,21 @@ export function manilaWeekRange(offset = 0, d: Date = new Date()): { start: Date
   return { start, end };
 }
 
+/** Meter Reading's target cadence (a Housekeeping compliance target, not a
+ * Bill's billing cycle): every Monday (a weekly spot-check) and the 1st of
+ * the month (ties to the monthly billing cycle Bills are generated for —
+ * see ensureRecurringBillsForMonth). Shared by the client banner
+ * (HousekeepingView) and the server-side missed-target check
+ * (checkMissedMeterReadingTargets in the meters API route) so both agree
+ * on exactly the same day, computed the same Manila-anchored way as every
+ * other date helper here. */
+export function meterReadingTargetDay(d: Date = new Date()): { isTarget: boolean; label: string | null } {
+  const dayStart = manilaDayStart(d);
+  if (dayStart.getUTCDate() === 1) return { isTarget: true, label: "Monthly billing cycle (1st)" };
+  if (dayStart.getUTCDay() === 1) return { isTarget: true, label: "Weekly Monday check" };
+  return { isTarget: false, label: null };
+}
+
 /**
  * The unit number is the primary identifier (Admin → Units is the source of
  * truth); the display name is secondary and only shown when it adds

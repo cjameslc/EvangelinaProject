@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePlatformAdmin } from "@/lib/ownerScope";
 import { logAudit } from "@/lib/session";
+import { ensureEmployeeForOwnerAccess } from "@/lib/employeeProvision";
 
 const VALID_ROLES = ["OWNER_ADMIN", "CO_OWNER", "HOUSEKEEPING", "BOOKER", "AUDITOR"];
 
@@ -42,6 +43,13 @@ export async function POST(req: NextRequest) {
     data: { userId, ownerId, role },
     select: { role: true, owner: { select: { id: true, businessName: true } }, user: { select: { name: true, username: true } } },
   });
+
+  // Without this, the grant exists but is functionally useless the moment
+  // the person switches in — Bookings' "who am I" lookup (ownEmployeeId)
+  // comes back null, leaving the Booker field blank with nothing to select
+  // (the real bug this fixes, reported live on The Felian). See
+  // ensureEmployeeForOwnerAccess's own doc comment for the full story.
+  await ensureEmployeeForOwnerAccess({ id: userId, name: target.name, role }, ownerId);
 
   await logAudit(user.id, "user.grant_staycation_access", "User", userId, { ownerId, businessName: owner.businessName, role });
 

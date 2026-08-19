@@ -560,3 +560,70 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Meter Reading capture (MeterCaptureModal) — a horizontal light sweep over
+   the just-taken photo while Gemini reads it, so "analyzing" reads as a
+   real scan of the image rather than a generic spinner. The app-wide
+   reduced-motion rule (above) already forces animation-iteration-count:1 +
+   near-zero duration, so this degrades to one static frame automatically —
+   no extra guard needed here. */
+@keyframes meter-scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+.meter-scan-line {
+  animation: meter-scan 1.8s var(--ease-in-out) infinite;
+}
+
+/* Digit-by-digit reveal for a finished reading — never scale(0) (nothing in
+   the real world appears from nothing), staggered per-digit via an inline
+   animation-delay at each call site. animation-fill-mode: forwards keeps
+   the digit at its settled state once reduced-motion collapses this to a
+   single frame, rather than snapping back to its 0%-opacity start. */
+@keyframes meter-digit-in {
+  from { opacity: 0; transform: scale(0.85) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.meter-digit {
+  animation: meter-digit-in 320ms var(--ease-out) both;
+}
+
+/* Monthly metrics bar chart — bar height IS the informative signal (more/
+   less consumption than the shared per-meter-type max), so it earns a real
+   transition on month switch. Animated via transform: scaleY() from a
+   fixed-height track, not the `height` property — height/width trigger
+   layout+paint on every frame; scaleY is GPU-composited. transform-origin:
+   bottom so it grows up from the baseline like a real bar. */
+.meter-metric-bar {
+  transform-origin: bottom;
+  transition: transform 280ms var(--ease-out);
+}
+
+/* Numeric labels don't carry the bar's directional meaning, so they get
+   the cheaper treatment on month switch: a brief blur+opacity dip (Emil
+   Kowalski's "blur masks an imperfect crossfade" trick) instead of a
+   second competing motion. Faster than the bar's 280ms — the number
+   settling first would read as two disconnected animations instead of one
+   month-switch moment. */
+.meter-metric-value {
+  transition: filter 150ms var(--ease-out), opacity 150ms var(--ease-out);
+}
+.meter-metric-value.is-switching {
+  filter: blur(3px);
+  opacity: 0.35;
+}
+
+/* Log & History <-> Monthly Metrics sub-view swap (MeterReadingPanel) — a
+   one-shot mount animation, not a transition (there's no shared element to
+   interrupt mid-motion between two conditionally-rendered trees), so a
+   plain @keyframes animation is the right tool here: it just plays on
+   mount, no JS state needed. Translate-only, no scale — a whole content
+   block popping in at scale(0.85) reads as gimmicky at this size; that
+   treatment is reserved for small elements (meter-digit-in above). */
+@keyframes panel-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.panel-fade-in {
+  animation: panel-fade-in 200ms var(--ease-out) both;
+}

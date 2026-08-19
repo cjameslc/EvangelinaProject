@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prismaPool } from "@/lib/prisma";
 import { requireUser, dashboardUnitWhere } from "@/lib/session";
+import { minutesLateFor } from "@/lib/stayRange";
 
 // Same outlier guard as minutesLate() in
 // src/app/api/housekeeping/unit/[id]/route.ts — a handful of legacy/
@@ -45,7 +46,7 @@ export async function GET() {
     }),
     prismaPool[2].cleaningLog.findMany({
       where: { startedAt: { gte: todayStart }, ...unitFilter },
-      select: { startedAt: true, endedAt: true, booking: { select: { checkOutDate: true, date: true, checkOutTime: true } } },
+      select: { startedAt: true, endedAt: true, booking: { select: { stayType: true, checkOutDate: true, date: true, checkInTime: true, checkOutTime: true, platform: true } } },
     }),
     prismaPool[3].accessCredential.findMany({
       where: { type: "HOUSEKEEPING", ...unitFilter },
@@ -59,7 +60,7 @@ export async function GET() {
     // todaysLogs above, just widened to the calendar month.
     prismaPool[5].cleaningLog.findMany({
       where: { startedAt: { gte: monthStart }, ...unitFilter },
-      select: { startedAt: true, endedAt: true, booking: { select: { checkOutDate: true, date: true, checkOutTime: true } } },
+      select: { startedAt: true, endedAt: true, booking: { select: { stayType: true, checkOutDate: true, date: true, checkInTime: true, checkOutTime: true, platform: true } } },
     }),
     prismaPool[6].accessCredential.findMany({
       where: { type: "HOUSEKEEPING", createdAt: { gte: monthStart }, ...unitFilter },
@@ -90,21 +91,21 @@ export async function GET() {
   const longestMinutes = durations.length ? Math.round(Math.max(...durations)) : null;
   const overdueCount = liveStates.filter((s) => s.startedAt && now.getTime() - s.startedAt.getTime() > 2 * 3600 * 1000).length;
 
-  // Same 10-minute grace/late convention as minutesLate() in
-  // src/app/api/housekeeping/unit/[id]/route.ts, duplicated here rather
-  // than imported since that one's scoped to a single booking id, not a
-  // batch of already-fetched log rows.
-  type LogWithBooking = { startedAt: Date; booking: { checkOutDate: Date | null; date: Date; checkOutTime: string | null } | null };
+  // The actual lateness math now lives in stayRange.ts's minutesLateFor —
+  // this was previously hand-duplicated from minutesLate() in
+  // src/app/api/housekeeping/unit/[id]/route.ts (same convention, admitted
+  // copy-paste), and both independently had the same real bug: comparing
+  // a real startedAt against a hand-built "scheduled" timestamp that was
+  // never actually a real UTC instant. See minutesLateFor's own doc
+  // comment for the full explanation. Kept as a thin local wrapper (not
+  // inlined at each call site) since this file works over a batch of
+  // already-fetched log rows, not a single booking id.
+  type LogWithBooking = { startedAt: Date; booking: { stayType: string; date: Date; checkOutDate: Date | null; checkInTime: string | null; checkOutTime: string | null; platform: string } | null };
   /** Minutes late (past the 10-min grace), or null if on-time / no booking
    * / an implausible outlier (see MAX_PLAUSIBLE_LATE_MS above). */
   function lateMinutesFor(l: LogWithBooking): number | null {
     if (!l.booking) return null;
-    const scheduledDate = l.booking.checkOutDate ?? l.booking.date;
-    const [h, m] = (l.booking.checkOutTime ?? "12:00").split(":").map(Number);
-    const scheduled = new Date(scheduledDate);
-    scheduled.setUTCHours(h, m, 0, 0);
-    const delayMs = l.startedAt.getTime() - scheduled.getTime() - 10 * 60 * 1000;
-    return delayMs > 0 && delayMs <= MAX_PLAUSIBLE_LATE_MS ? Math.round(delayMs / 60000) : null;
+    return minutesLateFor(l.booking, l.startedAt, MAX_PLAUSIBLE_LATE_MS);
   }
 
   const lateJobsToday = todaysLogs.filter((l) => lateMinutesFor(l) !== null).length;
