@@ -83,7 +83,7 @@ export function motivationForViewer(ranked: RankedParticipant[], viewerEmployeeI
   const idx = ranked.findIndex((r) => r.employeeId === viewerEmployeeId);
   if (idx === -1) return null;
   const viewer = ranked[idx];
-  if (idx === 0) return ranked.length > 1 ? "👑 You're leading the September Championship." : "👑 You're currently #1.";
+  if (idx === 0) return ranked.length > 1 ? "👑 You're leading the Championship." : "👑 You're currently #1.";
   const ahead = ranked[idx - 1];
   const gap = ahead.profitPesos - viewer.profitPesos;
   if (idx === 1) return `🔥 You're only ₱${gap.toLocaleString("en-PH")} away from #1.`;

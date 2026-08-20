@@ -20,6 +20,7 @@ import { fetchOrQueue } from "@/lib/offlineQueue";
 import { cn } from "@/lib/utils";
 import { BookingForm, type BookingFormValue } from "./BookingForm";
 import { BookingImportModal } from "./BookingImportModal";
+import { ChampionshipTeaser } from "@/components/gamification/ChampionshipTeaser";
 import { BookingAssistantPanel } from "./BookingAssistantPanel";
 import { OpportunityPanel } from "./OpportunityPanel";
 import { MotivationBanner } from "./MotivationBanner";
@@ -771,11 +772,14 @@ export function BookingsView({
           <h1 className="text-[28px] font-extrabold tracking-tight sm:text-[32px]">Bookings</h1>
           <p className="mt-1 text-[15px] text-[var(--gray)]">Log reservations, track who collected the money, and flag unpaid check-ins.</p>
         </div>
-        {canEdit && (
-          <button onClick={openAddBooking} className="btn-primary flex-none">
-            <PlusIcon className="h-4 w-4" /> Add booking
-          </button>
-        )}
+        <div className="flex flex-none items-center gap-2.5">
+          <ChampionshipTeaser />
+          {canEdit && (
+            <button onClick={openAddBooking} className="btn-primary flex-none">
+              <PlusIcon className="h-4 w-4" /> Add booking
+            </button>
+          )}
+        </div>
       </div>
 
       {canEdit && (

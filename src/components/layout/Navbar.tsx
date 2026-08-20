@@ -14,7 +14,7 @@ import { useTheme } from "@/components/ui/ThemeProvider";
 import { useColorTheme } from "@/components/ui/ColorThemeProvider";
 import { useAvatar } from "@/components/profile/AvatarProvider";
 import { StaycationSwitcher } from "@/components/layout/StaycationSwitcher";
-import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MegaphoneIcon, TrophyIcon } from "@/components/ui/Icons";
+import { GridIcon, FileIcon, HomeIcon, CalendarIcon, SearchIcon, SettingsIcon, WalletIcon, ChartIcon, MoonIcon, SunIcon, LogoutIcon, UserIcon, ChevronDownIcon, BellIcon, MegaphoneIcon } from "@/components/ui/Icons";
 
 // How many role-visible nav items fit inline before the rest collapse into
 // a "More" dropdown — chosen from real measurement: a role seeing all 7
@@ -37,7 +37,6 @@ export const ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   wallet: WalletIcon,
   chart: ChartIcon,
   megaphone: MegaphoneIcon,
-  trophy: TrophyIcon,
 };
 
 export function Navbar() {

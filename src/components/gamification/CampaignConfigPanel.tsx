@@ -6,7 +6,22 @@ import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import type { CampaignDashboardData } from "@/lib/campaignEngine/types";
 
-type EmployeeOption = { id: string; name: string; role: string; active: boolean };
+type EmployeeOption = { id: string; name: string; role: string; active: boolean; user?: { avatarUrl: string | null; avatarColor: string | null } | null };
+
+function Avatar({ name, url, color, size = 22 }: { name: string; url?: string | null; color?: string | null; size?: number }) {
+  const initials = name.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element -- avatarUrl is a stored data-URL, same pattern as every other avatar in this app
+    <img src={url} alt="" width={size} height={size} className="flex-none rounded-full object-cover" style={{ width: size, height: size }} loading="lazy" />
+  ) : (
+    <span
+      className="grid flex-none place-items-center rounded-full font-extrabold text-white"
+      style={{ width: size, height: size, background: color || "#6C5CE7", fontSize: size * 0.42 }}
+    >
+      {initials}
+    </span>
+  );
+}
 
 /**
  * Admin-only campaign setup: target/rewards/hero image + roster with a
@@ -107,12 +122,13 @@ export function CampaignConfigPanel({
                 key={e.id}
                 onClick={() => cycleSide(e.id)}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-[12.5px] font-bold transition duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.96]",
+                  "flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-[12.5px] font-bold transition duration-150 [transition-timing-function:var(--ease-out)] active:scale-[0.96]",
                   side === "A" && "border-violet bg-violet/10 text-violet",
                   side === "B" && "border-blue bg-blue/10 text-blue",
                   !side && "border-[var(--line-2)] text-[var(--gray)]"
                 )}
               >
+                <Avatar name={e.name} url={e.user?.avatarUrl} color={e.user?.avatarColor} />
                 {e.name} {side ? `· Group ${side}` : ""}
               </button>
             );

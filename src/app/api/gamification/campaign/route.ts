@@ -164,19 +164,39 @@ export async function GET(req: NextRequest) {
     campaign = await prisma.gamificationCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
   }
 
+  let viewerEmployeeId: string | null = null;
+  const viewerEmployee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
+  viewerEmployeeId = viewerEmployee?.id ?? null;
+  const viewerRank = viewerEmployeeId ? ranked.find((r) => r.employeeId === viewerEmployeeId)?.rank ?? null : null;
+  const winnerLight = campaign.status === "CLOSED"
+    ? (campaign.winnerEmployeeId ? { employeeId: campaign.winnerEmployeeId, name: participants.find((p) => p.employeeId === campaign!.winnerEmployeeId)?.name ?? ranked[0]?.name ?? "", profitPesos: campaign.winnerProfitPesos ?? 0 } : null)
+    : computeWinner(ranked, targetAchieved);
+
+  // Light mode: skips the day-by-day series and achievement derivation
+  // (the only O(days) work in this route) — for a small, frequently-
+  // polled teaser (e.g. the Bookings tab's Championship badge) that only
+  // needs rank + a motivational line, not the full dashboard.
+  if (req.nextUrl.searchParams.get("light")) {
+    return NextResponse.json({
+      teaser: {
+        campaignId: campaign.id,
+        hasParticipants: participants.length > 0,
+        isParticipant: !!viewerEmployeeId && ranked.some((r) => r.employeeId === viewerEmployeeId),
+        rank: viewerRank,
+        totalParticipants: ranked.length,
+        targetAchieved,
+        motivation: motivationForViewer(ranked, viewerEmployeeId),
+        winnerName: winnerLight?.name ?? null,
+      },
+    });
+  }
+
   const milestones = computeMilestones(campaign.targetPesos, totalProfitPesos);
   const teamBattle = computeTeamBattle(ranked, campaign.targetPesos);
   const dailySeries = computeDailySeries(bookings, campaign.periodStart, campaign.periodEnd, employeeIds, now);
   const achievementMonthLabel = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "long" }).format(campaign.periodStart);
   const achievements = deriveAchievements(dailySeries, participants, campaign.targetPesos, achievementMonthLabel);
-  const winner = campaign.status === "CLOSED"
-    ? (campaign.winnerEmployeeId ? { employeeId: campaign.winnerEmployeeId, name: participants.find((p) => p.employeeId === campaign!.winnerEmployeeId)?.name ?? ranked[0]?.name ?? "", profitPesos: campaign.winnerProfitPesos ?? 0 } : null)
-    : computeWinner(ranked, targetAchieved);
-
-  let viewerEmployeeId: string | null = null;
-  const viewerEmployee = await prisma.employee.findFirst({ where: { userId: user.id, ownerId: user.ownerId }, select: { id: true } });
-  viewerEmployeeId = viewerEmployee?.id ?? null;
-  const viewerRank = viewerEmployeeId ? ranked.find((r) => r.employeeId === viewerEmployeeId)?.rank ?? null : null;
+  const winner = winnerLight;
 
   const data: CampaignDashboardData = {
     campaignId: campaign.id,

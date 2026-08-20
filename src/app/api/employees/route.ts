@@ -10,7 +10,15 @@ export async function GET() {
   // Was missing — same audit sweep as Units/Users/employees/[id]; without
   // this every authenticated staff member (any role) saw every tenant's
   // employee directory, including salary rate and pay-rate notes.
-  const employees = await prisma.employee.findMany({ where: { active: true, ownerId: user.ownerId }, orderBy: { name: "asc" } });
+  // user.avatarUrl/avatarColor included so pickers that show a face per
+  // employee (e.g. the Sales Championship's participant/side config panel)
+  // don't need a second round-trip — additive, existing consumers that
+  // only read the flat Employee fields are unaffected.
+  const employees = await prisma.employee.findMany({
+    where: { active: true, ownerId: user.ownerId },
+    orderBy: { name: "asc" },
+    include: { user: { select: { avatarUrl: true, avatarColor: true } } },
+  });
   return NextResponse.json(employees);
 }
 
