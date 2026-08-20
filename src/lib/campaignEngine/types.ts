@@ -71,6 +71,48 @@ export type Achievement = {
 
 export type CampaignStatus = "ACTIVE" | "CLOSED";
 
+// ---------------------------------------------------------------------
+// Wire types — what actually goes over the JSON response, after masking.
+// Every function above this line (rankParticipants, computeTeamBattle,
+// motivationForViewer, deriveAchievements, computeWinner, ...) operates on
+// real numbers and is unaffected by any of this — masking is a final,
+// one-way transform applied in mask.ts, only in the API route, only to
+// build the response for a specific viewer. See mask.ts's own doc comment.
+//
+// A money field's wire type is `number | string`: a real number for an
+// admin or for a participant's own row, or a pre-formatted teaser string
+// (e.g. "₱8X,XXX+") for everyone else — never a real number a non-admin
+// client could read off the network response, React state, or dev tools.
+// ---------------------------------------------------------------------
+
+export type MoneyDisplay = number | string;
+
+export type WireParticipant = CampaignParticipantInput & {
+  profitPesos: MoneyDisplay;
+  revenuePesos: MoneyDisplay;
+  bookingCount: number;
+  rank: number;
+  trendPct: number | null;
+  /** Relative leaderboard-bar fill (0-100), precomputed server-side from
+   * only as much precision as was already revealed elsewhere (the real
+   * value for an admin/self row, the same masked-band floor used in the
+   * teaser text otherwise) — never derived client-side from raw pesos, so
+   * the bar itself can't be used to back into a tighter number than the
+   * text already discloses. */
+  barPct: number;
+};
+
+export type WireTeamBattleSide = {
+  side: string;
+  members: WireParticipant[];
+  totalProfitPesos: MoneyDisplay;
+  totalRevenuePesos: MoneyDisplay;
+  totalBookings: number;
+  avgProfitPerBooker: MoneyDisplay;
+  avgProfitPerBooking: MoneyDisplay;
+  contributionPct: number;
+};
+
 export type CampaignDashboardData = {
   campaignId: string;
   name: string;
@@ -89,12 +131,17 @@ export type CampaignDashboardData = {
   targetAchieved: boolean;
   targetAchievedAt: string | null;
   milestones: Milestone[];
-  ranked: RankedParticipant[];
-  podium: RankedParticipant[];
-  teamBattle: { A: TeamBattleSide; B: TeamBattleSide; leadingSide: string | null } | null;
+  ranked: WireParticipant[];
+  podium: WireParticipant[];
+  teamBattle: { A: WireTeamBattleSide; B: WireTeamBattleSide; leadingSide: string | null } | null;
+  /** "profit" (admin) — dailySeries values are real cumulative pesos.
+   * "rank" (everyone else) — same shape, but each value is that
+   * employee's 1-based leaderboard rank on that day, never a peso figure. */
+  dailySeriesMode: "profit" | "rank";
   dailySeries: DailyPoint[];
   achievements: Achievement[];
-  winner: { employeeId: string; name: string; profitPesos: number } | null;
+  winner: { employeeId: string; name: string; profitPesos: MoneyDisplay } | null;
   winnerFinalized: boolean; // true once the campaign is CLOSED
+  viewerIsAdmin: boolean;
   viewer: { employeeId: string | null; rank: number | null; motivation: string | null };
 };

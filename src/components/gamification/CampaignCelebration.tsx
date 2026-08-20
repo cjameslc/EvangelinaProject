@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { peso } from "@/lib/format";
+import { renderMoney } from "@/lib/campaignEngine/mask";
 import { Confetti } from "@/components/guest/Confetti";
 import type { CampaignDashboardData } from "@/lib/campaignEngine/types";
 
@@ -53,7 +54,7 @@ export function CampaignCelebration({ data, onClosed }: { data: CampaignDashboar
             <div className="grid h-20 w-20 animate-glow-pulse place-items-center rounded-full bg-gradient-to-br from-[#FFD770] to-[#E8A400] text-[34px] shadow-[0_10px_30px_rgba(255,215,112,.5)]">🏆</div>
             <div className="mt-3 text-[12px] font-extrabold uppercase tracking-wide text-white/70">{data.name.replace(/\s*Sales Championship\s*$/i, "")} Champion</div>
             <div className="mt-1 text-[24px] font-extrabold">{winner.name}</div>
-            <div className="mt-1 text-[14px] font-bold text-white/85">{peso(winner.profitPesos)} Profit Generated</div>
+            <div className="mt-1 text-[14px] font-bold text-white/85">{renderMoney(winner.profitPesos)} Profit Generated</div>
             <div className="mt-4 rounded-2xl bg-white/12 px-5 py-3 backdrop-blur-md">
               <div className="text-[11px] font-extrabold uppercase tracking-wide text-white/70">💰 Reward</div>
               <div className="text-[26px] font-extrabold">{peso(data.winnerRewardPesos)}</div>

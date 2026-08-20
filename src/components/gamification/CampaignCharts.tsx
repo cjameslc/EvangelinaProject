@@ -23,8 +23,8 @@ export function CampaignCharts({ data }: { data: CampaignDashboardData }) {
   return (
     <section className="mt-10 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="card p-4 sm:p-5">
-        <h2 className="mb-2 text-[13px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Profit Trend</h2>
-        <ProfitTrendChart daily={data.dailySeries} participants={data.ranked} />
+        <h2 className="mb-2 text-[13px] font-extrabold uppercase tracking-wide text-[var(--gray)]">{data.dailySeriesMode === "profit" ? "Profit Trend" : "Rank Trend"}</h2>
+        <ProfitTrendChart daily={data.dailySeries} participants={data.ranked} mode={data.dailySeriesMode} totalParticipants={data.ranked.length} />
       </div>
       <div className="card p-4 sm:p-5">
         <h2 className="mb-2 text-[13px] font-extrabold uppercase tracking-wide text-[var(--gray)]">Target Progress</h2>

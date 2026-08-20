@@ -2,6 +2,7 @@
 
 import { peso } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { renderMoney } from "@/lib/campaignEngine/mask";
 import type { CampaignDashboardData } from "@/lib/campaignEngine/types";
 import { TrophyIcon } from "@/components/ui/Icons";
 
@@ -61,11 +62,11 @@ export function CampaignBookerCards({ data, viewerEmployeeId }: { data: Campaign
                   <span className="text-[13px] font-extrabold">{p.rank <= 3 ? RANK_MEDAL[p.rank - 1] : `#${p.rank}`}</span>
                 </div>
                 <div className="mt-2 truncate text-[15px] font-extrabold">{p.name}{isViewer && <span className="ml-1.5 text-[11px] font-bold text-[var(--skin-primary,#6C5CE7)]">(you)</span>}</div>
-                <div className="text-[22px] font-extrabold tabular-nums text-[var(--ink)]">{peso(p.profitPesos)}</div>
+                <div className="text-[22px] font-extrabold tabular-nums text-[var(--ink)]">{renderMoney(p.profitPesos)}</div>
                 <div className="text-[11px] font-bold text-[var(--gray)]">Profit Generated</div>
                 <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11.5px]">
                   <div><span className="text-[var(--gray)]">Bookings </span><span className="font-extrabold">{p.bookingCount}</span></div>
-                  <div><span className="text-[var(--gray)]">Revenue </span><span className="font-extrabold">{peso(p.revenuePesos)}</span></div>
+                  <div><span className="text-[var(--gray)]">Revenue </span><span className="font-extrabold">{renderMoney(p.revenuePesos)}</span></div>
                 </div>
                 <div className="mt-3 rounded-xl bg-gradient-to-r from-[#FFF6E0] to-[#FFE8B0] px-3 py-2 text-center dark:from-[#2a2210] dark:to-[#3a2c10]">
                   <div className="text-[10px] font-extrabold uppercase tracking-wide text-[#8a5a00]">Reward</div>

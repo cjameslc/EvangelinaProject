@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import {
-  computeDailySeries, computeMilestones, computeTeamBattle, computeWinner,
-  deriveAchievements, motivationForViewer, rankParticipants,
+  computeDailyRankSeries, computeDailySeries, computeMilestones, computeTeamBattle, computeWinner,
+  deriveAchievements, motivationForViewer, motivationForViewerMasked, rankParticipants,
 } from "@/lib/campaignEngine/campaign";
 import { computeBookerTotals } from "@/lib/campaignEngine/profit";
+import { maskPeso, toWireRanked, toWireTeamBattleSide } from "@/lib/campaignEngine/mask";
 import type { CampaignBooking, CampaignDashboardData, CampaignParticipantInput } from "@/lib/campaignEngine/types";
+
+/** Admin visibility (real values) is OWNER_ADMIN/CO_OWNER only, matching how this app's RBAC already treats those two roles as the "full financial visibility" tier everywhere else (e.g. earnings/page.tsx's isAdminViewer). Everyone else — BOOKER, HOUSEKEEPING, AUDITOR — gets the masked teaser view, per this feature's explicit brief. */
+function isAdminViewerRole(role: string): boolean {
+  return role === "OWNER_ADMIN" || role === "CO_OWNER";
+}
 
 const DEFAULT_TARGET_PESOS = 250_000;
 const DEFAULT_WINNER_REWARD_PESOS = 15_000;
@@ -37,6 +43,7 @@ export async function GET(req: NextRequest) {
   const { user, error } = await requireUser();
   if (error) return error;
   if (!user.ownerId) return NextResponse.json({ error: "No property selected." }, { status: 400 });
+  const isAdmin = isAdminViewerRole(user.role);
 
   const periodParam = req.nextUrl.searchParams.get("period"); // "YYYY-MM-01", optional — for browsing past campaigns
   let periodStart: Date;
@@ -185,7 +192,7 @@ export async function GET(req: NextRequest) {
         rank: viewerRank,
         totalParticipants: ranked.length,
         targetAchieved,
-        motivation: motivationForViewer(ranked, viewerEmployeeId),
+        motivation: isAdmin ? motivationForViewer(ranked, viewerEmployeeId) : motivationForViewerMasked(ranked, viewerEmployeeId),
         winnerName: winnerLight?.name ?? null,
       },
     });
@@ -195,8 +202,16 @@ export async function GET(req: NextRequest) {
   const teamBattle = computeTeamBattle(ranked, campaign.targetPesos);
   const dailySeries = computeDailySeries(bookings, campaign.periodStart, campaign.periodEnd, employeeIds, now);
   const achievementMonthLabel = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "long" }).format(campaign.periodStart);
-  const achievements = deriveAchievements(dailySeries, participants, campaign.targetPesos, achievementMonthLabel);
-  const winner = winnerLight;
+  const achievements = deriveAchievements(dailySeries, participants, campaign.targetPesos, achievementMonthLabel, isAdmin);
+
+  // Everything above this line operates on real numbers — ranked,
+  // teamBattle, winner, the month-end freeze (already persisted earlier
+  // using the real `ranked`, untouched by any of this). Masking happens
+  // exactly once, right here, building the wire payload for THIS viewer —
+  // see mask.ts's own doc comment for the precision rules.
+  const winnerExactToViewer = winnerLight && (isAdmin || winnerLight.employeeId === viewerEmployeeId);
+  const winner = winnerLight ? { ...winnerLight, profitPesos: winnerExactToViewer ? winnerLight.profitPesos : maskPeso(winnerLight.profitPesos) } : null;
+  const wireRanked = toWireRanked(ranked, isAdmin, viewerEmployeeId);
 
   const data: CampaignDashboardData = {
     campaignId: campaign.id,
@@ -216,14 +231,16 @@ export async function GET(req: NextRequest) {
     targetAchieved,
     targetAchievedAt: campaign.targetAchievedAt ? campaign.targetAchievedAt.toISOString() : null,
     milestones,
-    ranked,
-    podium: ranked.slice(0, 3),
-    teamBattle,
-    dailySeries,
+    ranked: wireRanked,
+    podium: wireRanked.slice(0, 3),
+    teamBattle: teamBattle ? { A: toWireTeamBattleSide(teamBattle.A, isAdmin, viewerEmployeeId, campaign.targetPesos), B: toWireTeamBattleSide(teamBattle.B, isAdmin, viewerEmployeeId, campaign.targetPesos), leadingSide: teamBattle.leadingSide } : null,
+    dailySeriesMode: isAdmin ? "profit" : "rank",
+    dailySeries: isAdmin ? dailySeries : computeDailyRankSeries(dailySeries, employeeIds),
     achievements,
     winner,
     winnerFinalized: campaign.status === "CLOSED",
-    viewer: { employeeId: viewerEmployeeId, rank: viewerRank, motivation: motivationForViewer(ranked, viewerEmployeeId) },
+    viewerIsAdmin: isAdmin,
+    viewer: { employeeId: viewerEmployeeId, rank: viewerRank, motivation: isAdmin ? motivationForViewer(ranked, viewerEmployeeId) : motivationForViewerMasked(ranked, viewerEmployeeId) },
   };
 
   return NextResponse.json({ campaign: data });

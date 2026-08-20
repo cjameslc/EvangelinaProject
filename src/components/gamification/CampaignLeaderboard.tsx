@@ -2,7 +2,8 @@
 
 import { peso } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { CampaignDashboardData, RankedParticipant } from "@/lib/campaignEngine/types";
+import { renderMoney } from "@/lib/campaignEngine/mask";
+import type { CampaignDashboardData, WireParticipant } from "@/lib/campaignEngine/types";
 
 const RANK_MEDAL = ["🥇", "🥈", "🥉"];
 const SIDE_COLOR: Record<string, { text: string; bg: string; ring: string }> = {
@@ -10,7 +11,7 @@ const SIDE_COLOR: Record<string, { text: string; bg: string; ring: string }> = {
   B: { text: "text-blue", bg: "bg-blue/10", ring: "ring-blue/30" },
 };
 
-function Avatar({ p, size = 56 }: { p: RankedParticipant; size?: number }) {
+function Avatar({ p, size = 56 }: { p: WireParticipant; size?: number }) {
   const initials = p.name.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
   return p.avatarUrl ? (
     // eslint-disable-next-line @next/next/no-img-element -- avatarUrl is a stored data-URL, not an optimizable remote asset (same pattern as every other avatar in this app)
@@ -35,7 +36,7 @@ function TrendBadge({ trendPct }: { trendPct: number | null }) {
   );
 }
 
-function PodiumSlot({ p, place }: { p: RankedParticipant; place: 1 | 2 | 3 }) {
+function PodiumSlot({ p, place }: { p: WireParticipant; place: 1 | 2 | 3 }) {
   const heights = { 1: "h-[168px] sm:h-[196px]", 2: "h-[128px] sm:h-[150px]", 3: "h-[104px] sm:h-[122px]" };
   const avatarSize = place === 1 ? 72 : 56;
   return (
@@ -45,7 +46,7 @@ function PodiumSlot({ p, place }: { p: RankedParticipant; place: 1 | 2 | 3 }) {
         <Avatar p={p} size={avatarSize} />
         <div className="max-w-[110px] truncate text-center text-[13px] font-extrabold">{p.name}</div>
         {p.role === "HOUSEKEEPING" && <div className="text-[10px] font-bold text-[var(--gray)]">Housekeeping</div>}
-        <div className="text-center text-[15px] font-extrabold tabular-nums text-[var(--ink)]">{peso(p.profitPesos)}</div>
+        <div className="text-center text-[15px] font-extrabold tabular-nums text-[var(--ink)]">{renderMoney(p.profitPesos)}</div>
         <TrendBadge trendPct={p.trendPct} />
       </div>
       <div
@@ -82,8 +83,6 @@ export function CampaignLeaderboard({ data }: { data: CampaignDashboardData }) {
         <div className="card overflow-hidden">
           <div className="divide-y divide-[var(--line)]">
             {ranked.map((p) => {
-              const maxProfit = ranked[0]?.profitPesos || 1;
-              const barPct = Math.min(100, Math.round((p.profitPesos / maxProfit) * 100));
               const side = SIDE_COLOR[p.side];
               return (
                 <div key={p.employeeId} className="flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-[var(--bg-2)] sm:px-5">
@@ -96,12 +95,12 @@ export function CampaignLeaderboard({ data }: { data: CampaignDashboardData }) {
                       <TrendBadge trendPct={p.trendPct} />
                     </div>
                     <div className="mt-1 h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-[var(--bg-2)]">
-                      <div className="h-full w-full origin-left rounded-full bg-gradient-to-r from-rausch to-gold transition-transform duration-500 ease-[var(--ease-out)]" style={{ transform: `scaleX(${barPct / 100})` }} />
+                      <div className="h-full w-full origin-left rounded-full bg-gradient-to-r from-rausch to-gold transition-transform duration-500 ease-[var(--ease-out)]" style={{ transform: `scaleX(${p.barPct / 100})` }} />
                     </div>
-                    <div className="mt-1 text-[11px] font-semibold text-[var(--gray)]">{p.bookingCount} booking{p.bookingCount === 1 ? "" : "s"} · {peso(p.revenuePesos)} revenue</div>
+                    <div className="mt-1 text-[11px] font-semibold text-[var(--gray)]">{p.bookingCount} booking{p.bookingCount === 1 ? "" : "s"} · {renderMoney(p.revenuePesos)} revenue</div>
                   </div>
                   <div className="flex-none text-right">
-                    <div className="text-[15px] font-extrabold tabular-nums">{peso(p.profitPesos)}</div>
+                    <div className="text-[15px] font-extrabold tabular-nums">{renderMoney(p.profitPesos)}</div>
                     <div className="text-[10.5px] font-bold text-[var(--gray)]">
                       {data.targetAchieved
                         ? `${data.winnerFinalized ? "" : "currently: "}${peso(p.rank === 1 ? data.winnerRewardPesos : data.participantRewardPesos)}`
@@ -131,7 +130,7 @@ export function CampaignLeaderboard({ data }: { data: CampaignDashboardData }) {
                 return (
                   <div key={side} className={cn("rounded-2xl p-4 text-center", c.bg, leading && "ring-2", leading && c.ring)}>
                     <div className={cn("text-[12px] font-extrabold uppercase tracking-wide", c.text)}>{c === SIDE_COLOR.A ? "🟣" : "🔵"} Group {side} {leading && "👑"}</div>
-                    <div className="mt-1.5 text-[24px] font-extrabold tabular-nums sm:text-[30px]">{peso(t.totalProfitPesos)}</div>
+                    <div className="mt-1.5 text-[24px] font-extrabold tabular-nums sm:text-[30px]">{renderMoney(t.totalProfitPesos)}</div>
                     <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/60">
                       <div className={cn("h-full w-full origin-left rounded-full transition-transform duration-500 ease-[var(--ease-out)]", side === "A" ? "bg-violet" : "bg-blue")} style={{ transform: `scaleX(${Math.min(100, t.contributionPct) / 100})` }} />
                     </div>
@@ -142,10 +141,10 @@ export function CampaignLeaderboard({ data }: { data: CampaignDashboardData }) {
             </div>
             <div className="my-3 text-center text-[11px] font-extrabold uppercase tracking-widest text-[var(--gray)]">VS</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[var(--line)] pt-4 text-center text-[12px] sm:grid-cols-4">
-              <Stat label="Revenue" a={peso(teamBattle.A.totalRevenuePesos)} b={peso(teamBattle.B.totalRevenuePesos)} />
+              <Stat label="Revenue" a={renderMoney(teamBattle.A.totalRevenuePesos)} b={renderMoney(teamBattle.B.totalRevenuePesos)} />
               <Stat label="Bookings" a={String(teamBattle.A.totalBookings)} b={String(teamBattle.B.totalBookings)} />
-              <Stat label="Avg / Booker" a={peso(teamBattle.A.avgProfitPerBooker)} b={peso(teamBattle.B.avgProfitPerBooker)} />
-              <Stat label="Avg / Booking" a={peso(teamBattle.A.avgProfitPerBooking)} b={peso(teamBattle.B.avgProfitPerBooking)} />
+              <Stat label="Avg / Booker" a={renderMoney(teamBattle.A.avgProfitPerBooker)} b={renderMoney(teamBattle.B.avgProfitPerBooker)} />
+              <Stat label="Avg / Booking" a={renderMoney(teamBattle.A.avgProfitPerBooking)} b={renderMoney(teamBattle.B.avgProfitPerBooking)} />
             </div>
           </div>
         </section>

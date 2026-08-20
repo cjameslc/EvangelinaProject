@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  computeDailySeries, computeMilestones, computeTeamBattle, computeWinner,
-  deriveAchievements, motivationForViewer, rankParticipants,
+  computeDailyRankSeries, computeDailySeries, computeMilestones, computeTeamBattle, computeWinner,
+  deriveAchievements, motivationForViewer, motivationForViewerMasked, rankParticipants,
 } from "./campaign";
 import { computeBookerTotals } from "./profit";
 import type { CampaignBooking, CampaignParticipantInput } from "./types";
@@ -171,7 +171,7 @@ describe("deriveAchievements", () => {
   it("emits a milestone-unlock achievement the day the total first crosses each threshold", () => {
     const bookings: CampaignBooking[] = [booking({ bookerId: "mark", date: day("2026-09-05"), amount: 50_000 })];
     const series = computeDailySeries(bookings, day("2026-09-01"), day("2026-09-10"), ["mark"], day("2026-09-08"));
-    const achievements = deriveAchievements(series, [mark], 250_000, "September");
+    const achievements = deriveAchievements(series, [mark], 250_000, "September", true);
     expect(achievements.some((a) => a.message.includes("20%"))).toBe(true);
   });
 
@@ -181,8 +181,78 @@ describe("deriveAchievements", () => {
       booking({ bookerId: "riemar", date: day("2026-09-03"), amount: 20_000 }),
     ];
     const series = computeDailySeries(bookings, day("2026-09-01"), day("2026-09-10"), ["mark", "riemar"], day("2026-09-05"));
-    const achievements = deriveAchievements(series, [mark, riemar], 250_000, "September");
+    const achievements = deriveAchievements(series, [mark, riemar], 250_000, "September", true);
     expect(achievements.some((a) => a.message.includes("Riemar moved into #1"))).toBe(true);
     expect(achievements.some((a) => a.message.includes("Mark moved into #1"))).toBe(false);
+  });
+
+  it("never names a side's exact peso amount when includeAmounts is false — a 2-3 person side total is real info about specific people, same reveal risk as an individual amount", () => {
+    const bookings: CampaignBooking[] = [booking({ bookerId: "mark", date: day("2026-09-05"), amount: 50_000 })];
+    const series = computeDailySeries(bookings, day("2026-09-01"), day("2026-09-10"), ["mark"], day("2026-09-08"));
+    const achievements = deriveAchievements(series, [mark], 250_000, "September", false);
+    const sideAchievement = achievements.find((a) => a.message.includes("Group"));
+    expect(sideAchievement).toBeDefined();
+    expect(sideAchievement!.message).not.toMatch(/₱[\d,]/);
+  });
+
+  it("still names the overall campaign-wide target milestone amount regardless of includeAmounts — that figure is the public shared goal, not one side's or one person's number", () => {
+    const bookings: CampaignBooking[] = [booking({ bookerId: "mark", date: day("2026-09-05"), amount: 50_000 })];
+    const series = computeDailySeries(bookings, day("2026-09-01"), day("2026-09-10"), ["mark"], day("2026-09-08"));
+    const achievements = deriveAchievements(series, [mark], 250_000, "September", false);
+    expect(achievements.some((a) => a.message.includes("September reached 20% of target (₱50,000)"))).toBe(true);
+  });
+});
+
+describe("motivationForViewerMasked", () => {
+  const totals = computeBookerTotals(
+    [booking({ bookerId: "riemar", amount: 50000 }), booking({ bookerId: "mark", amount: 47500 }), booking({ bookerId: "earl", amount: 10000 })],
+    ["mark", "riemar", "earl"]
+  );
+  const ranked = rankParticipants(participants, totals, null);
+
+  it("never includes a peso figure in any tier, unlike the admin version", () => {
+    for (const viewerId of ["mark", "riemar", "earl"]) {
+      const msg = motivationForViewerMasked(ranked, viewerId);
+      expect(msg).not.toMatch(/₱[\d,]/);
+    }
+  });
+
+  it("tells #1 they're leading, without naming the runner-up's gap", () => {
+    expect(motivationForViewerMasked(ranked, "riemar")).toMatch(/Leader/i);
+  });
+
+  it("picks a closer tier for a small gap than for a large one, without ever stating the ratio itself", () => {
+    // mark is very close to riemar (47500 vs 50000, ~5% gap) -> neck-and-neck tier
+    expect(motivationForViewerMasked(ranked, "mark")).toMatch(/neck-and-neck/i);
+  });
+
+  it("returns null for a non-participant, same contract as the admin version", () => {
+    expect(motivationForViewerMasked(ranked, "nobody")).toBeNull();
+  });
+});
+
+describe("computeDailyRankSeries", () => {
+  it("converts a dollar-value daily series into a same-shape rank series, with no peso figures anywhere", () => {
+    const bookings: CampaignBooking[] = [
+      booking({ bookerId: "mark", date: day("2026-09-01"), amount: 10_000 }),
+      booking({ bookerId: "riemar", date: day("2026-09-03"), amount: 30_000 }),
+    ];
+    const series = computeDailySeries(bookings, day("2026-09-01"), day("2026-09-05"), ["mark", "riemar"], day("2026-09-04"));
+    const rankSeries = computeDailyRankSeries(series, ["mark", "riemar"]);
+    // Day 1: only mark has booked -> mark is #1.
+    const day1 = rankSeries.find((p) => p.dateIso === "2026-09-01")!;
+    expect(day1.byEmployee.mark).toBe(1);
+    expect(day1.byEmployee.riemar).toBe(2);
+    // Day 3+: riemar has overtaken -> riemar is #1.
+    const day3 = rankSeries.find((p) => p.dateIso === "2026-09-03")!;
+    expect(day3.byEmployee.riemar).toBe(1);
+    expect(day3.byEmployee.mark).toBe(2);
+  });
+
+  it("breaks ties deterministically by employeeId, not by insertion order", () => {
+    const series = [{ dateIso: "2026-09-01", totalProfitPesos: 0, byEmployee: { zed: 0, abe: 0 } }];
+    const rankSeries = computeDailyRankSeries(series, ["zed", "abe"]);
+    expect(rankSeries[0].byEmployee.abe).toBe(1); // alphabetically first wins the tie
+    expect(rankSeries[0].byEmployee.zed).toBe(2);
   });
 });

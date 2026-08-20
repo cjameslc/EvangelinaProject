@@ -77,7 +77,7 @@ export function computeTeamBattle(ranked: RankedParticipant[], targetPesos: numb
   return { A, B, leadingSide };
 }
 
-/** Section 11 + 19 are the same feature (dynamic per-viewer motivational copy) — one function serves both. */
+/** Section 11 + 19 are the same feature (dynamic per-viewer motivational copy) — one function serves both. Admin-only: names an exact peso gap, so it must never reach a non-admin viewer (see motivationForViewerMasked). */
 export function motivationForViewer(ranked: RankedParticipant[], viewerEmployeeId: string | null): string | null {
   if (!viewerEmployeeId) return null;
   const idx = ranked.findIndex((r) => r.employeeId === viewerEmployeeId);
@@ -89,6 +89,34 @@ export function motivationForViewer(ranked: RankedParticipant[], viewerEmployeeI
   if (idx === 1) return `🔥 You're only ₱${gap.toLocaleString("en-PH")} away from #1.`;
   if (idx === ranked.length - 1) return "💪 The race is still open. Keep pushing.";
   return `🚀 You are ₱${gap.toLocaleString("en-PH")} away from overtaking #${idx} (${ahead.name}).`;
+}
+
+/**
+ * The masked counterpart of motivationForViewer, for every non-admin
+ * viewer — qualitative only, never a peso figure. Naming even an exact
+ * *gap* would leak the leader's real number the instant the viewer
+ * combines it with their own (which they already know): leader =
+ * self + gap. So the gap ratio below picks a discrete tier server-side
+ * and only the tier label crosses the wire — many different real ratios
+ * collapse onto the same label, which is what keeps this a one-way
+ * transform.
+ */
+export function motivationForViewerMasked(ranked: RankedParticipant[], viewerEmployeeId: string | null): string | null {
+  if (!viewerEmployeeId) return null;
+  const idx = ranked.findIndex((r) => r.employeeId === viewerEmployeeId);
+  if (idx === -1) return null;
+  if (idx === 0) return ranked.length > 1 ? "👑 You're the Current Leader!" : "👑 You're currently #1.";
+  const leader = ranked[0];
+  const viewer = ranked[idx];
+  const gapRatio = leader.profitPesos > 0 ? (leader.profitPesos - viewer.profitPesos) / leader.profitPesos : 1;
+  if (idx === 1) {
+    if (gapRatio <= 0.05) return "🔥 You're neck-and-neck with #1!";
+    if (gapRatio <= 0.2) return "⚡ You're closing in on #1!";
+    return "🚀 You're #2 — keep pushing for the lead!";
+  }
+  if (idx === ranked.length - 1) return "💪 The race is still open. Keep pushing.";
+  if (gapRatio <= 0.2) return "👀 You're getting close — keep booking!";
+  return "🎯 Keep booking to climb the leaderboard!";
 }
 
 /** Full day-by-day cumulative profit series across the period, one pass over pre-sorted bookings — powers both the Profit Trend chart and achievement-feed derivation below. Stops at min(periodEnd, today) so an in-progress campaign doesn't project fake future days. */
@@ -114,12 +142,31 @@ export function computeDailySeries(bookings: CampaignBooking[], periodStart: Dat
   return points;
 }
 
-/** Derives a real, evidence-based achievement feed purely from the daily series + roster — no separate event log to keep in sync, and nothing here is ever persisted (recomputed fresh on every request, so it's always consistent with the live numbers). Capped and newest-first. */
+/** Non-admin counterpart of computeDailySeries's dollar series — same day-by-day shape, but each employee's value is their 1-based leaderboard rank that day (1 = leading) instead of a peso figure, so the Profit Trend chart can still tell the "who was ahead when" story for a non-admin viewer without a single dollar amount ever crossing the wire. Ties broken by employeeId for a deterministic, stable order. */
+export function computeDailyRankSeries(daily: DailyPoint[], employeeIds: string[]): DailyPoint[] {
+  return daily.map((point) => {
+    const sorted = [...employeeIds].sort((a, b) => (point.byEmployee[b] ?? 0) - (point.byEmployee[a] ?? 0) || a.localeCompare(b));
+    const byEmployeeRank: Record<string, number> = {};
+    sorted.forEach((id, i) => { byEmployeeRank[id] = i + 1; });
+    return { dateIso: point.dateIso, totalProfitPesos: point.totalProfitPesos, byEmployee: byEmployeeRank };
+  });
+}
+
+/** Derives a real, evidence-based achievement feed purely from the daily series + roster — no separate event log to keep in sync, and nothing here is ever persisted (recomputed fresh on every request, so it's always consistent with the live numbers). Capped and newest-first.
+ *
+ * includeAmounts gates only the per-side milestone message ("Group A
+ * crossed ₱50,000") — that figure buckets a side's aggregate into one of
+ * the same 5 fixed bands used for the overall milestone journey, which
+ * for a 2-3 person side is real quantitative info about a specific
+ * (small) group of people, not just "the whole campaign." Lead-change and
+ * overall-target messages never name an individual's or side's money and
+ * stay identical either way. */
 export function deriveAchievements(
   daily: DailyPoint[],
   participants: CampaignParticipantInput[],
   targetPesos: number,
-  monthLabel: string
+  monthLabel: string,
+  includeAmounts: boolean
 ): Achievement[] {
   const achievements: Achievement[] = [];
   const nameOf = (id: string) => participants.find((p) => p.employeeId === id)?.name ?? "Someone";
@@ -162,7 +209,10 @@ export function deriveAchievements(
       const prevIdx = sideMilestoneIdx[side] ?? -1;
       if (idx2 > prevIdx) {
         const m = MILESTONE_DEFS[idx2];
-        achievements.push({ id: `side-${side}-${idx2}-${point.dateIso}`, emoji: "🚀", message: `Group ${side} crossed ₱${Math.round(targetPesos * m.fraction).toLocaleString("en-PH")}`, dateIso: point.dateIso });
+        const sideMessage = includeAmounts
+          ? `Group ${side} crossed ₱${Math.round(targetPesos * m.fraction).toLocaleString("en-PH")}`
+          : `Group ${side} is heating up 🔥`;
+        achievements.push({ id: `side-${side}-${idx2}-${point.dateIso}`, emoji: "🚀", message: sideMessage, dateIso: point.dateIso });
         sideMilestoneIdx[side] = idx2;
       }
     }
