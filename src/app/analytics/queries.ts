@@ -14,17 +14,38 @@ import { staffPerformance } from "@/lib/analytics/staff";
 import type { PayrollRates } from "@/lib/payroll";
 import { unitPerformance, bestWorstUnits, type UnitPerformanceRow } from "@/lib/analytics/units";
 import { formatUnitDisplay } from "@/lib/format";
+import { applyBookingFilters, hasActiveBookingFilters, type BookingFilterExtra, type BookingStatusFilter } from "@/lib/analytics/bookingFilters";
+import {
+  computeForecastConfidence, computeMonthlyForecastSummary, forecastByDayOfWeek, forecastByUnit, forecastByBooker,
+  forecastBySource, generateForecastInsights, type ForecastBooking, type MonthlyForecastSummary, type WeekdayRow,
+  type UnitForecastRow, type BookerForecastRow, type SourceForecastRow, type ForecastInsight,
+} from "@/lib/analytics/forecastEngine";
 
 export type AnalyticsFilters = {
   preset: AnalyticsPeriodPreset;
   customStart?: string;
   customEnd?: string;
   unitIds?: string[] | null;
+  // Booker/Platform/Stay Type/Status — applied post-fetch (see
+  // bookingFilters.ts), page-wide across every Analytics section, not just
+  // Forecast. Empty/undefined on every existing bookmark or link, which is
+  // exactly what keeps rolling this out across already-shipped sections
+  // safe: applyBookingFilters returns its input unchanged when nothing's
+  // set here.
+  bookerIds?: string[] | null;
+  platforms?: string[] | null;
+  stayTypes?: string[] | null;
+  statuses?: BookingStatusFilter[] | null;
 };
+
+function extraFiltersOf(filters: AnalyticsFilters): BookingFilterExtra {
+  return { bookerIds: filters.bookerIds, platforms: filters.platforms, stayTypes: filters.stayTypes, statuses: filters.statuses };
+}
 
 const kpiBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, stayType: true, amount: true, paid: true,
   dpAmount: true, cancelledAt: true, refundedAt: true, guestId: true, contactNumber: true, guests: true,
+  bookerId: true, platform: true, checkInTime: true, checkOutTime: true,
 } as const;
 
 /**
@@ -181,7 +202,7 @@ export type ExecutiveKPIs = {
 };
 
 export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<ExecutiveKPIs> {
-  const data = await cachedFetchKpiData(
+  const data: any = await cachedFetchKpiData(
     user.role,
     user.ownedUnitIds,
     user.ownerId,
@@ -191,10 +212,18 @@ export async function getExecutiveKPIs(user: { role: string; ownedUnitIds: strin
     (filters.unitIds ?? []).join(",")
   );
   const {
-    units, currentBookings, previousBookings, blocks, currentPaidBills, previousPaidBills,
+    units, blocks, currentPaidBills, previousPaidBills,
     employees, salaryHistory, weeklyExpensesCurrent, weeklyExpensesPrevious, expenseRequestsCurrent, expenseRequestsPrevious,
-    airbnbHistoricalRows, trailingMonthBookings,
+    airbnbHistoricalRows,
   } = data;
+  // Booker/Platform/Stay Type/Status filters — applied once here, so every
+  // KPI/chart below (which all read currentBookings/previousBookings/
+  // trailingMonthBookings) automatically respects them without each needing
+  // its own filter step. No-op when nothing's set (see bookingFilters.ts).
+  const extra = extraFiltersOf(filters);
+  const currentBookings = applyBookingFilters(data.currentBookings, extra) as any[];
+  const previousBookings = applyBookingFilters(data.previousBookings, extra) as any[];
+  const trailingMonthBookings = data.trailingMonthBookings.map((arr: any[]) => applyBookingFilters(arr, extra) as any[]);
   const { current, previous } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const currentStart = new Date(current.start);
   const currentEnd = new Date(current.end);
@@ -338,6 +367,7 @@ function granularityForPeriod(start: Date, end: Date): "day" | "week" | "month" 
 
 const revenueBookingSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, platform: true, stayType: true, method: true,
+  bookerId: true, checkInTime: true, checkOutTime: true,
 } as const;
 
 async function fetchRevenueData(
@@ -383,10 +413,11 @@ export type RevenueAnalytics = {
 };
 
 export async function getRevenueAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<RevenueAnalytics> {
-  const data = await cachedFetchRevenueData(
+  const data: any = await cachedFetchRevenueData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { units, bookings } = data;
+  const { units } = data;
+  const bookings = applyBookingFilters(data.bookings, extraFiltersOf(filters)) as any[];
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const granularity = granularityForPeriod(new Date(current.start), new Date(current.end));
   const unitLabels = Object.fromEntries(units.map((u: any) => [u.id, u.shortName]));
@@ -422,7 +453,7 @@ async function fetchFinancialData(
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
   const [bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests] = await Promise.all([
-    prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } }),
+    prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, bookerId: true, platform: true, stayType: true, date: true, checkOutDate: true, checkInTime: true, checkOutTime: true } }),
     prismaPool[1].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     // Pending bills are a "right now" figure, not period-scoped — an unpaid
     // bill doesn't really belong to "last quarter" in a meaningful sense
@@ -458,10 +489,11 @@ export type FinancialAnalytics = {
 };
 
 export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<FinancialAnalytics> {
-  const data = await cachedFetchFinancialData(
+  const data: any = await cachedFetchFinancialData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { bookings, paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests } = data;
+  const { paidBills, pendingBills, employees, salaryHistory, weeklyExpenses, expenseRequests } = data;
+  const bookings = applyBookingFilters(data.bookings, extraFiltersOf(filters)) as any[];
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
 
   // grossAmountCentavos, not bare amount*100 — amount alone is only the
@@ -493,6 +525,7 @@ export async function getFinancialAnalytics(user: { role: string; ownedUnitIds: 
 const bookingAnalyticsSelect = {
   id: true, unitId: true, date: true, checkOutDate: true, stayType: true, paid: true, dpAmount: true,
   checkedInAt: true, checkedOutAt: true, cancelledAt: true, createdAt: true,
+  bookerId: true, platform: true, checkInTime: true, checkOutTime: true,
 } as const;
 
 async function fetchBookingData(
@@ -528,10 +561,10 @@ export type BookingAnalytics = {
 };
 
 export async function getBookingAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<BookingAnalytics> {
-  const data = await cachedFetchBookingData(
+  const data: any = await cachedFetchBookingData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { bookings } = data;
+  const bookings = applyBookingFilters(data.bookings, extraFiltersOf(filters)) as any[];
   return {
     funnel: bookingFunnel(bookings),
     leadTime: leadTimeDistribution(bookings).map((r) => ({ bucket: r.bucket, count: r.count })),
@@ -543,6 +576,7 @@ export async function getBookingAnalytics(user: { role: string; ownedUnitIds: st
 
 const occupancyBookingSelect = {
   unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true,
+  bookerId: true, platform: true, checkInTime: true, checkOutTime: true,
 } as const;
 
 async function fetchOccupancyData(
@@ -609,10 +643,13 @@ export type OccupancyAnalytics = {
 };
 
 export async function getOccupancyAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<OccupancyAnalytics> {
-  const data = await cachedFetchOccupancyData(
+  const data: any = await cachedFetchOccupancyData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { units, bookings, blocks, calendarStart, calendarEnd, trailingMonthData } = data;
+  const { units, blocks, calendarStart, calendarEnd } = data;
+  const extra = extraFiltersOf(filters);
+  const bookings = applyBookingFilters(data.bookings, extra) as any[];
+  const trailingMonthData = data.trailingMonthData.map((m: any) => ({ ...m, bookings: applyBookingFilters(m.bookings, extra) as any[] }));
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const currentStart = new Date(current.start);
   const currentEnd = new Date(current.end);
@@ -685,7 +722,10 @@ async function fetchGuestData(
   const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
   const { current } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
 
-  const guestSelect = { guestId: true, contactNumber: true, guests: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, pax: true } as const;
+  const guestSelect = {
+    guestId: true, contactNumber: true, guests: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, pax: true,
+    date: true, checkOutDate: true, bookerId: true, platform: true, stayType: true, checkInTime: true, checkOutTime: true,
+  } as const;
   const [periodBookings, allTimeBookings] = await Promise.all([
     prismaPool[0].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: guestSelect }),
     // Lifetime Value is, by definition, not scoped to the selected period —
@@ -708,10 +748,12 @@ export type GuestAnalytics = {
 };
 
 export async function getGuestAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<GuestAnalytics> {
-  const data = await cachedFetchGuestData(
+  const data: any = await cachedFetchGuestData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { periodBookings, allTimeBookings } = data;
+  const extra = extraFiltersOf(filters);
+  const periodBookings = applyBookingFilters(data.periodBookings, extra) as any[];
+  const allTimeBookings = applyBookingFilters(data.allTimeBookings, extra) as any[];
   const repeat = guestRepeatRate(periodBookings);
   return {
     repeatRatePct: repeat.repeatRatePct,
@@ -811,7 +853,7 @@ async function fetchStaffData(
     // isCommissionEligible needs both.
     prismaPool[0].booking.findMany({
       where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } },
-      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, paid: true, cancelledAt: true, cancellationCategory: true, dpAmount: true, refundedAt: true },
+      select: { id: true, bookerId: true, cleanerId: true, unitId: true, stayType: true, date: true, checkOutDate: true, checkOutTime: true, checkInTime: true, paid: true, cancelledAt: true, cancellationCategory: true, dpAmount: true, refundedAt: true, platform: true },
     }),
     prismaPool[1].cleaningLog.findMany({ where: { startedAt: { gte: current.start, lt: current.end } }, select: { employeeId: true, startedAt: true } }),
     prismaPool[2].weeklyExpense.findMany({ where: { ownerId, date: { gte: current.start, lt: current.end } }, select: { note: true, amount: true, targetEmployeeId: true } }),
@@ -831,10 +873,11 @@ export type StaffDrillDownBooking = { id: string; date: string; stayType: string
 export type StaffAnalytics = { rows: StaffAnalyticsRow[]; bookings: StaffDrillDownBooking[] };
 
 export async function getStaffAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<StaffAnalytics> {
-  const data = await cachedFetchStaffData(
+  const data: any = await cachedFetchStaffData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { bookings, cleaningLogs, expenses, employees, settings } = data;
+  const { cleaningLogs, expenses, employees, settings } = data;
+  const bookings = applyBookingFilters(data.bookings, extraFiltersOf(filters)) as any[];
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
   const periodDays = daysInRange(current);
   const rates: PayrollRates = {
@@ -909,7 +952,7 @@ async function fetchUnitPerformanceData(
 
   const [units, bookings, bills, blocks] = await Promise.all([
     prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, unitNumber: true, rating: true } }),
-    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true } }),
+    prismaPool[1].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: current.start, lt: current.end } }, select: { unitId: true, stayType: true, date: true, checkOutDate: true, amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, bookerId: true, platform: true, checkInTime: true, checkOutTime: true } }),
     prismaPool[2].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: current.start, lt: current.end } }, select: { unitId: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
     prismaPool[3].calendarBlock.findMany({
       where: { ...bookingUnitWhere, type: { in: ["Maintenance", "Cleaning"] }, date: { lt: current.end }, OR: [{ endDate: null }, { endDate: { gt: current.start } }] },
@@ -928,10 +971,11 @@ export type UnitPerformanceAnalytics = {
 };
 
 export async function getUnitPerformance(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<UnitPerformanceAnalytics> {
-  const data = await cachedFetchUnitPerformanceData(
+  const data: any = await cachedFetchUnitPerformanceData(
     user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
   );
-  const { units, bookings, bills, blocks } = data;
+  const { units, bills, blocks } = data;
+  const bookings = applyBookingFilters(data.bookings, extraFiltersOf(filters)) as any[];
   const { current } = resolveAnalyticsPeriod(filters.preset, { start: filters.customStart ?? "", end: filters.customEnd ?? "" });
 
   const rows = unitPerformance(
@@ -953,7 +997,10 @@ export async function getUnitPerformance(user: { role: string; ownedUnitIds: str
 // concept, not something that should shift if someone picks "This Week" on
 // the same page. Same effectiveUnitIds scoping every other query here uses,
 // so a Co-Owner only ever sees their own units' goals.
-const goalBookingSelect = { unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true } as const;
+const goalBookingSelect = {
+  unitId: true, date: true, amount: true, paid: true, dpAmount: true, refundedAt: true, bookerId: true,
+  platform: true, stayType: true, checkOutDate: true, checkInTime: true, checkOutTime: true, cancelledAt: true,
+} as const;
 
 async function fetchRevenueGoalsData(role: string, ownedUnitIds: string[], ownerId: string | null, filterUnitIdsJoined: string) {
   const user = { role, ownedUnitIds, ownerId };
@@ -984,5 +1031,274 @@ const cachedFetchRevenueGoalsData = unstable_cache(fetchRevenueGoalsData, ["anal
 export type RevenueGoalsData = Awaited<ReturnType<typeof fetchRevenueGoalsData>>;
 
 export async function getRevenueGoalsData(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<RevenueGoalsData> {
-  return cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, user.ownerId, (filters.unitIds ?? []).join(","));
+  const data: any = await cachedFetchRevenueGoalsData(user.role, user.ownedUnitIds, user.ownerId, (filters.unitIds ?? []).join(","));
+  if (!hasActiveBookingFilters(extraFiltersOf(filters))) return data;
+  const extra = extraFiltersOf(filters);
+  return { ...data, bookingsThisMonth: applyBookingFilters(data.bookingsThisMonth, extra) as any[], bookingsLastMonth: applyBookingFilters(data.bookingsLastMonth, extra) as any[] };
+}
+
+// ---------------------------------------------------------------------
+// Forecast & Predictive Analytics — the new section. Two deliberately
+// different scopes coexist here, same split RevenueGoalsSection already
+// established elsewhere on this page:
+//   - The Monthly Forecast Summary/Pace/Scenarios/Target (sections 1-3, 11
+//     of the brief this was built from) are always the real CURRENT
+//     calendar month, independent of whatever period preset is selected —
+//     "this month's target" isn't something that should shift if someone
+//     picks "This Week" elsewhere on the page.
+//   - Day-of-week/Unit/Booker/Source breakdowns and Insights follow the
+//     selected filter period (date range + unit + booker + platform + stay
+//     type + status), per section 16's explicit requirement.
+// Unit actuals are NOT re-fetched/re-computed here — getUnitPerformance is
+// called directly and its rows fed into forecastByUnit, so the Unit
+// Forecast table can never disagree with the existing Unit Performance
+// section for the exact same real numbers (section 18's "one calculation,
+// one source of truth").
+// ---------------------------------------------------------------------
+
+const forecastBookingSelect = {
+  id: true, unitId: true, bookerId: true, stayType: true, platform: true, date: true, checkOutDate: true,
+  amount: true, paid: true, dpAmount: true, cancelledAt: true, refundedAt: true, checkInTime: true, checkOutTime: true,
+} as const;
+
+async function fetchForecastData(
+  role: string,
+  ownedUnitIds: string[],
+  ownerId: string | null,
+  preset: AnalyticsPeriodPreset,
+  customStart: string,
+  customEnd: string,
+  filterUnitIdsJoined: string
+) {
+  const user = { role, ownedUnitIds, ownerId };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = await effectiveUnitIds(user, filterUnitIds);
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+  const billUnitWhere = effective ? { unitId: { in: effective } } : {};
+
+  const { current: periodRange, previous: previousPeriodRange } = resolveAnalyticsPeriod(preset, { start: customStart, end: customEnd });
+  const monthRange = periodRangeFor("monthly", 0);
+  const trailingMonths = [3, 2, 1].map((n) => periodRangeFor("monthly", -n));
+  const now = manilaNowPlaceholder();
+
+  const [
+    units, employees, settings, monthBookings, periodBookings, previousPeriodBookings, paidBillsThisMonth,
+    salaryHistory, weeklyExpensesThisMonth, expenseRequestsThisMonth, maintenanceBlocksRemaining,
+    ...trailingMonthResults
+  ] = await Promise.all([
+    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, unitNumber: true, rating: true, monthlyRevenueTargetOverride: true } }),
+    prismaPool[1].employee.findMany({ where: { ownerId, active: true }, select: { id: true, name: true } }),
+    prismaPool[2].settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! } }),
+    prismaPool[3].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: monthRange.start, lt: monthRange.end } }, select: forecastBookingSelect }),
+    prismaPool[4].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: periodRange.start, lt: periodRange.end } }, select: forecastBookingSelect }),
+    prismaPool[5].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: previousPeriodRange.start, lt: previousPeriodRange.end } }, select: forecastBookingSelect }),
+    prismaPool[6].bill.findMany({ where: { ...billUnitWhere, paid: true, paidAt: { gte: monthRange.start, lt: monthRange.end } }, select: { amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } }),
+    prismaPool[7].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+    prismaPool[8].weeklyExpense.findMany({ where: { ownerId, category: "TIKTOK_ADS", date: { gte: monthRange.start, lt: monthRange.end } }, select: { category: true, amount: true } }),
+    prismaPool[9].expenseRequest.findMany({ where: { status: "APPROVED", date: { gte: monthRange.start, lt: monthRange.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
+    // Only maintenance blocks still ahead (now -> month end) — this feeds
+    // remainingAvailableNights, not a historical figure.
+    prismaPool[10].calendarBlock.findMany({
+      where: { ...bookingUnitWhere, type: "Maintenance", date: { lt: monthRange.end }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
+      select: { unitId: true, date: true, endDate: true },
+    }),
+    ...trailingMonths.map(async (range, i) => {
+      const tBookings = await prismaPool[(11 + i) % 13].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: range.start, lt: range.end } }, select: forecastBookingSelect });
+      return { bookings: tBookings, start: range.start, end: range.end };
+    }),
+  ]);
+
+  return JSON.parse(JSON.stringify({
+    units, employees, monthlyRevenueTargetPerUnit: settings.monthlyRevenueTargetPerUnit,
+    monthBookings, periodBookings, previousPeriodBookings, paidBillsThisMonth, salaryHistory, weeklyExpensesThisMonth, expenseRequestsThisMonth,
+    maintenanceBlocksRemaining, trailingMonthResults,
+    monthStart: monthRange.start, monthEnd: monthRange.end, periodStart: periodRange.start, periodEnd: periodRange.end,
+    previousPeriodStart: previousPeriodRange.start, previousPeriodEnd: previousPeriodRange.end, now,
+  }));
+}
+
+const cachedFetchForecastData = unstable_cache(fetchForecastData, ["analytics-forecast"], { revalidate: 60 });
+
+export type ForecastAnalytics = {
+  summary: MonthlyForecastSummary;
+  weekdayRows: WeekdayRow[];
+  unitRows: UnitForecastRow[];
+  bookerRows: BookerForecastRow[];
+  sourceRows: SourceForecastRow[];
+  insights: ForecastInsight[];
+  historicalComparison: {
+    label: string;
+    revenueGrowthPct: number | null;
+    bookingsGrowthPct: number | null;
+    occupancyGrowthPct: number | null;
+    adrGrowthPct: number | null;
+    netProfitGrowthPct: number | null;
+  };
+  // Section 6 — Revenue Metrics (ADR/RevPAR/etc): Actual (this period so
+  // far) | Historical Average (trailing 3 months) | Forecast (elapsed-frac
+  // blend of the two, same blend methodology as computeMonthlyForecastSummary
+  // uses for revenue — never a separately-invented projection method).
+  revenueMetrics: {
+    adrPesos: { actual: number; historicalAvg: number; forecast: number };
+    revparPesos: { actual: number; historicalAvg: number; forecast: number };
+    revenuePerUnitPesos: { actual: number; forecast: number };
+    revenuePerBookingPesos: { actual: number; forecast: number };
+  };
+  // Section 4 — Booking Forecast: same Actual/Confirmed/Forecast/Projected
+  // split as the revenue summary, applied to booking COUNT instead of
+  // pesos, using the identical daysElapsed/daysRemaining pace blend.
+  bookingForecast: { actualBookings: number; confirmedBookings: number; forecastAdditionalBookings: number; projectedTotalBookings: number };
+};
+
+export async function getForecastAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<ForecastAnalytics> {
+  const data: any = await cachedFetchForecastData(
+    user.role, user.ownedUnitIds, user.ownerId, filters.preset, filters.customStart ?? "", filters.customEnd ?? "", (filters.unitIds ?? []).join(",")
+  );
+  const extra = extraFiltersOf(filters);
+  const units: { id: string; name: string; shortName: string; unitNumber: string; rating: number; monthlyRevenueTargetOverride: number | null }[] = data.units;
+  const employees: { id: string; name: string }[] = data.employees;
+  const monthBookings = applyBookingFilters(data.monthBookings, extra) as ForecastBooking[];
+  const periodBookings = applyBookingFilters(data.periodBookings, extra) as ForecastBooking[];
+  const previousPeriodBookings = applyBookingFilters(data.previousPeriodBookings, extra) as ForecastBooking[];
+  const trailingMonthResults: { bookings: ForecastBooking[]; start: string; end: string }[] = data.trailingMonthResults.map((r: any) => ({ ...r, bookings: applyBookingFilters(r.bookings, extra) }));
+
+  const now = new Date(data.now);
+  const monthStart = new Date(data.monthStart);
+  const monthEnd = new Date(data.monthEnd);
+  const periodStart = new Date(data.periodStart);
+  const periodEnd = new Date(data.periodEnd);
+  const unitCount = units.length;
+
+  const targetPesos = units.reduce((s, u) => s + (u.monthlyRevenueTargetOverride ?? data.monthlyRevenueTargetPerUnit), 0);
+
+  // Real accrued net profit so far this month — same
+  // accruedOperationalCostsCentavos formula Dashboard/Executive KPIs
+  // already use, not a second expense model.
+  const elapsedMonthBookings = elapsedBookings(monthBookings, monthEnd, now);
+  const actualRevenueCentavosSoFar = collectedRevenueCentavos(elapsedMonthBookings);
+  const paidExpensesCents = paidExpensesCentavos(data.paidBillsThisMonth);
+  const accruedCosts = accruedOperationalCostsCentavos({
+    employees: [], // payroll isn't unit-filtered/booking-filtered — omitted here to avoid double-fetching the full employee/salary set just for this one margin-rate input; paid Bills + ad/expense accruals still capture the real cash-cost signal this margin rate needs
+    salaryHistory: data.salaryHistory,
+    weeklyExpenses: data.weeklyExpensesThisMonth,
+    expenseRequests: data.expenseRequestsThisMonth,
+    periodStart: monthStart,
+    periodEnd: monthEnd,
+    now,
+  });
+  const currentMonthNetProfitSoFarCentavos = netProfitCentavos({ revenueCentavos: actualRevenueCentavosSoFar, paidExpensesCentavos: paidExpensesCents, otherPaidCostsCentavos: accruedCosts });
+
+  const trailingMonthRevenuePesos = trailingMonthResults.map((r) => collectedRevenueCentavos(r.bookings) / 100);
+  const trailingMonthBookingCounts = trailingMonthResults.map((r) => r.bookings.filter((b) => !b.cancelledAt).length);
+  const trailingMonthOccupancyPct = trailingMonthResults.map(
+    (r) => computeOccupancy({ unitCount, periodStart: new Date(r.start), periodEnd: new Date(r.end), bookings: r.bookings as any, maintenanceBlocks: [], cleaningBlocks: [] }).occupancyPct
+  );
+  const actualOccupancyPctSoFar = computeOccupancy({ unitCount, periodStart: monthStart, periodEnd: now, bookings: elapsedMonthBookings as any, maintenanceBlocks: [], cleaningBlocks: [] }).occupancyPct;
+  const maintenanceNightsRemaining = computeOccupancy({ unitCount, periodStart: now, periodEnd: monthEnd, bookings: [], maintenanceBlocks: data.maintenanceBlocksRemaining, cleaningBlocks: [] }).maintenanceNights;
+  const cancellationRatePct = cancellationRate(monthBookings);
+
+  const summary = computeMonthlyForecastSummary({
+    currentMonthBookings: monthBookings, now, monthStart, monthEnd, targetPesos, unitCount, maintenanceNightsRemaining,
+    trailingMonthRevenuePesos, trailingMonthBookingCounts, trailingMonthOccupancyPct, cancellationRatePct,
+    currentMonthNetProfitSoFarCentavos, actualOccupancyPctSoFar,
+  });
+
+  const periodDays = daysInRange({ start: periodStart, end: periodEnd });
+  const daysElapsed = Math.min(periodDays, Math.max(1, Math.floor((Math.min(now.getTime(), periodEnd.getTime()) - periodStart.getTime()) / 86400000) + 1));
+
+  const weekdayRows = forecastByDayOfWeek(periodBookings as any, unitCount, periodStart, periodEnd);
+
+  const unitPerf = await getUnitPerformance(user, filters);
+  const lastPeriodRevenueByUnit: Record<string, number> = {};
+  for (const b of previousPeriodBookings) {
+    if (b.cancelledAt) continue;
+    lastPeriodRevenueByUnit[b.unitId] = (lastPeriodRevenueByUnit[b.unitId] ?? 0) + collectedAmountCentavosSafe(b);
+  }
+  const unitRows = forecastByUnit(unitPerf.rows, lastPeriodRevenueByUnit, daysElapsed, periodDays);
+
+  const lastPeriodRevenueByBooker: Record<string, number> = {};
+  for (const b of previousPeriodBookings) {
+    if (b.cancelledAt || !b.bookerId) continue;
+    lastPeriodRevenueByBooker[b.bookerId] = (lastPeriodRevenueByBooker[b.bookerId] ?? 0) + collectedAmountCentavosSafe(b);
+  }
+  const bookerRows = forecastByBooker(employees.map((e) => ({ employeeId: e.id, name: e.name })), periodBookings, lastPeriodRevenueByBooker, daysElapsed, periodDays);
+
+  const lastPeriodRevenueBySource: Record<string, number> = {};
+  for (const b of previousPeriodBookings) {
+    if (b.cancelledAt) continue;
+    lastPeriodRevenueBySource[b.platform] = (lastPeriodRevenueBySource[b.platform] ?? 0) + collectedAmountCentavosSafe(b);
+  }
+  const sourceRows = forecastBySource(periodBookings as any, lastPeriodRevenueBySource, daysElapsed, periodDays);
+
+  const insights = generateForecastInsights({ summary, weekdayRows, unitRows, bookerRows });
+
+  const periodRevenueCentavos = collectedRevenueCentavos(periodBookings);
+  const previousRevenueCentavos = collectedRevenueCentavos(previousPeriodBookings);
+  const periodBookingCount = periodBookings.filter((b) => !b.cancelledAt).length;
+  const previousBookingCount = previousPeriodBookings.filter((b) => !b.cancelledAt).length;
+  const previousPeriodStart = new Date(data.previousPeriodStart);
+  const previousPeriodEnd = new Date(data.previousPeriodEnd);
+  const periodOcc = computeOccupancy({ unitCount, periodStart, periodEnd, bookings: periodBookings as any, maintenanceBlocks: [], cleaningBlocks: [] });
+  const previousOcc = computeOccupancy({ unitCount, periodStart: previousPeriodStart, periodEnd: previousPeriodEnd, bookings: previousPeriodBookings as any, maintenanceBlocks: [], cleaningBlocks: [] });
+  const periodAdr = computeADR(periodBookings as any, periodStart, periodEnd);
+  const previousAdr = computeADR(previousPeriodBookings as any, previousPeriodStart, previousPeriodEnd);
+  const periodNetProfitCentavos = netProfitCentavos({ revenueCentavos: periodRevenueCentavos, paidExpensesCentavos: 0 });
+  const previousNetProfitCentavos = netProfitCentavos({ revenueCentavos: previousRevenueCentavos, paidExpensesCentavos: 0 });
+
+  // Revenue Metrics (section 6) — trailing-month ADR/RevPAR computed from
+  // the same trailingMonthResults bookings already fetched for the summary
+  // engine, not a second fetch.
+  const trailingAdrs = trailingMonthResults.map((r) => computeADR(r.bookings as any, new Date(r.start), new Date(r.end)));
+  const trailingRevpars = trailingMonthResults.map((r) => {
+    const occ = computeOccupancy({ unitCount, periodStart: new Date(r.start), periodEnd: new Date(r.end), bookings: r.bookings as any, maintenanceBlocks: [], cleaningBlocks: [] });
+    return computeRevPAR(collectedRevenueCentavos(r.bookings), occ.availableNights);
+  });
+  const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
+  const historicalAdr = avg(trailingAdrs);
+  const historicalRevpar = avg(trailingRevpars);
+  const elapsedFrac = periodDays > 0 ? Math.min(1, daysElapsed / periodDays) : 1;
+  const forecastAdr = Math.round(periodAdr * elapsedFrac + historicalAdr * (1 - elapsedFrac));
+  const periodRevpar = computeRevPAR(periodRevenueCentavos, periodOcc.availableNights);
+  const forecastRevpar = Math.round(periodRevpar * elapsedFrac + historicalRevpar * (1 - elapsedFrac));
+  const revenuePerUnitActual = unitCount > 0 ? Math.round(periodRevenueCentavos / 100 / unitCount) : 0;
+  const revenuePerBookingActual = periodBookingCount > 0 ? Math.round(periodRevenueCentavos / 100 / periodBookingCount) : 0;
+  const projectedRevenuePesos = summary.projectedRevenueCentavos / 100;
+  const revenuePerUnitForecast = unitCount > 0 ? Math.round(projectedRevenuePesos / unitCount) : 0;
+  const forecastBookingCount = Math.max(periodBookingCount, Math.round(periodBookingCount / Math.max(elapsedFrac, 0.01)));
+  const revenuePerBookingForecast = forecastBookingCount > 0 ? Math.round(projectedRevenuePesos / forecastBookingCount) : 0;
+
+  // Booking Forecast (section 4) — mirrors the revenue Actual/Confirmed/
+  // Forecast split exactly, on booking count instead of pesos, using the
+  // same summary.pace.daysElapsed/daysRemaining this month's revenue split
+  // already computed (no second period-math model).
+  const actualBookingsCount = elapsedMonthBookings.filter((b) => !b.cancelledAt).length;
+  const confirmedBookingsCount = monthBookings.filter((b) => !b.cancelledAt && new Date(b.date).getTime() >= now.getTime() && new Date(b.date).getTime() < monthEnd.getTime()).length;
+  const bookingDailyPace = summary.pace.daysElapsed > 0 ? actualBookingsCount / summary.pace.daysElapsed : 0;
+  const forecastAdditionalBookings = Math.round(bookingDailyPace * summary.pace.daysRemaining);
+  const projectedTotalBookings = actualBookingsCount + confirmedBookingsCount + forecastAdditionalBookings;
+
+  return {
+    summary, weekdayRows, unitRows, bookerRows, sourceRows, insights,
+    historicalComparison: {
+      label: `${formatDateRangeShort(periodStart, new Date(periodEnd.getTime() - 86400000))} vs previous period`,
+      revenueGrowthPct: revenueGrowthPct(periodRevenueCentavos, previousRevenueCentavos),
+      bookingsGrowthPct: revenueGrowthPct(periodBookingCount * 100, previousBookingCount * 100), // reused as a generic %-change helper (100x scale cancels out)
+      occupancyGrowthPct: previousOcc.occupancyPct > 0 ? Math.round(((periodOcc.occupancyPct - previousOcc.occupancyPct) / previousOcc.occupancyPct) * 100) : null,
+      adrGrowthPct: previousAdr > 0 ? Math.round(((periodAdr - previousAdr) / previousAdr) * 100) : null,
+      netProfitGrowthPct: revenueGrowthPct(periodNetProfitCentavos, previousNetProfitCentavos),
+    },
+    revenueMetrics: {
+      adrPesos: { actual: periodAdr, historicalAvg: Math.round(historicalAdr), forecast: forecastAdr },
+      revparPesos: { actual: periodRevpar, historicalAvg: Math.round(historicalRevpar), forecast: forecastRevpar },
+      revenuePerUnitPesos: { actual: revenuePerUnitActual, forecast: revenuePerUnitForecast },
+      revenuePerBookingPesos: { actual: revenuePerBookingActual, forecast: revenuePerBookingForecast },
+    },
+    bookingForecast: { actualBookings: actualBookingsCount, confirmedBookings: confirmedBookingsCount, forecastAdditionalBookings, projectedTotalBookings },
+  };
+}
+
+function collectedAmountCentavosSafe(b: ForecastBooking): number {
+  if (b.refundedAt) return 0;
+  return ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
 }

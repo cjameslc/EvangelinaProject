@@ -3,14 +3,26 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Pill } from "@/components/ui/Pill";
 import { ANALYTICS_PERIOD_PRESETS, type AnalyticsPeriodPreset } from "@/lib/analytics/period";
+import { PLATFORMS, PLATFORM_LABEL, STAY_TYPES } from "@/lib/constants";
 
 type UnitOption = { id: string; shortName: string };
+type BookerOption = { id: string; name: string };
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "upcoming", label: "Upcoming" },
+  { value: "active", label: "Active" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
 
 // Filters live in the URL (not local state) so a filtered view is
 // bookmarkable/shareable, and the page's Server Component render, the
-// auto-refresh timer (added in a later phase), and a shared link all agree
-// on exactly what's filtered — see the module plan's data-fetching section.
-export function AnalyticsFilterBar({ units }: { units: UnitOption[] }) {
+// auto-refresh timer, and a shared link all agree on exactly what's
+// filtered. Booker/Platform/Stay Type/Status are the newer additions
+// (added for Forecast & Predictive Analytics) — applied post-fetch across
+// EVERY section on this page, not just Forecast, via
+// applyBookingFilters() in queries.ts.
+export function AnalyticsFilterBar({ units, bookers }: { units: UnitOption[]; bookers: BookerOption[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -19,6 +31,10 @@ export function AnalyticsFilterBar({ units }: { units: UnitOption[] }) {
   const customStart = searchParams.get("start") || "";
   const customEnd = searchParams.get("end") || "";
   const selectedUnitIds = searchParams.get("units")?.split(",").filter(Boolean) ?? [];
+  const selectedBookerIds = searchParams.get("bookers")?.split(",").filter(Boolean) ?? [];
+  const selectedPlatforms = searchParams.get("platforms")?.split(",").filter(Boolean) ?? [];
+  const selectedStayTypes = searchParams.get("stayTypes")?.split(",").filter(Boolean) ?? [];
+  const selectedStatuses = searchParams.get("statuses")?.split(",").filter(Boolean) ?? [];
 
   function setParam(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -29,12 +45,12 @@ export function AnalyticsFilterBar({ units }: { units: UnitOption[] }) {
     router.push(`${pathname}?${params.toString()}`);
   }
 
-  function toggleUnit(unitId: string) {
-    const next = selectedUnitIds.includes(unitId)
-      ? selectedUnitIds.filter((id) => id !== unitId)
-      : [...selectedUnitIds, unitId];
-    setParam({ units: next.length > 0 ? next.join(",") : null });
+  function toggle(paramKey: string, current: string[], value: string) {
+    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+    setParam({ [paramKey]: next.length > 0 ? next.join(",") : null });
   }
+
+  const hasExtraFilters = selectedBookerIds.length > 0 || selectedPlatforms.length > 0 || selectedStayTypes.length > 0 || selectedStatuses.length > 0;
 
   return (
     <div className="card mb-5 space-y-3 p-4">
@@ -60,20 +76,79 @@ export function AnalyticsFilterBar({ units }: { units: UnitOption[] }) {
       )}
 
       {units.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">Units</span>
+        <FilterRow label="Units">
           {units.map((u) => (
-            <Pill key={u.id} on={selectedUnitIds.includes(u.id)} onClick={() => toggleUnit(u.id)}>
+            <Pill key={u.id} on={selectedUnitIds.includes(u.id)} onClick={() => toggle("units", selectedUnitIds, u.id)}>
               {u.shortName}
             </Pill>
           ))}
-          {selectedUnitIds.length > 0 && (
-            <button onClick={() => setParam({ units: null })} className="text-[11.5px] font-semibold text-[var(--gray)] underline">
-              Clear
-            </button>
-          )}
-        </div>
+          {selectedUnitIds.length > 0 && <ClearButton onClick={() => setParam({ units: null })} />}
+        </FilterRow>
+      )}
+
+      {bookers.length > 1 && (
+        <FilterRow label="Booker">
+          {bookers.map((b) => (
+            <Pill key={b.id} on={selectedBookerIds.includes(b.id)} onClick={() => toggle("bookers", selectedBookerIds, b.id)}>
+              {b.name}
+            </Pill>
+          ))}
+          {selectedBookerIds.length > 0 && <ClearButton onClick={() => setParam({ bookers: null })} />}
+        </FilterRow>
+      )}
+
+      <FilterRow label="Source">
+        {PLATFORMS.map((p) => (
+          <Pill key={p} on={selectedPlatforms.includes(p)} onClick={() => toggle("platforms", selectedPlatforms, p)}>
+            {PLATFORM_LABEL[p] ?? p}
+          </Pill>
+        ))}
+        {selectedPlatforms.length > 0 && <ClearButton onClick={() => setParam({ platforms: null })} />}
+      </FilterRow>
+
+      <FilterRow label="Stay Type">
+        {Object.keys(STAY_TYPES).map((key) => (
+          <Pill key={key} on={selectedStayTypes.includes(key)} onClick={() => toggle("stayTypes", selectedStayTypes, key)}>
+            {(STAY_TYPES as Record<string, { label: string }>)[key].label}
+          </Pill>
+        ))}
+        {selectedStayTypes.length > 0 && <ClearButton onClick={() => setParam({ stayTypes: null })} />}
+      </FilterRow>
+
+      <FilterRow label="Status">
+        {STATUS_OPTIONS.map((s) => (
+          <Pill key={s.value} on={selectedStatuses.includes(s.value)} onClick={() => toggle("statuses", selectedStatuses, s.value)}>
+            {s.label}
+          </Pill>
+        ))}
+        {selectedStatuses.length > 0 && <ClearButton onClick={() => setParam({ statuses: null })} />}
+      </FilterRow>
+
+      {hasExtraFilters && (
+        <button
+          onClick={() => setParam({ bookers: null, platforms: null, stayTypes: null, statuses: null })}
+          className="text-[11.5px] font-semibold text-[var(--gray)] underline"
+        >
+          Clear all extra filters
+        </button>
       )}
     </div>
+  );
+}
+
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--gray)]">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ClearButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="text-[11.5px] font-semibold text-[var(--gray)] underline">
+      Clear
+    </button>
   );
 }

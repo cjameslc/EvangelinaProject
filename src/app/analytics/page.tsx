@@ -24,6 +24,7 @@ import { ExportMenu } from "@/components/analytics/ExportMenu";
 import { AutoRefresh } from "@/components/analytics/AutoRefresh";
 import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
 import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoalsSection";
+import { ForecastSection } from "@/components/analytics/sections/ForecastSection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import { peso, pesoCentavos } from "@/lib/format";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
@@ -61,17 +62,28 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
   if (!user) redirect("/login");
   if (!effectivePageAccess(user.role, user.additionalPageAccess, user.ownerEnabledModules).includes("/analytics")) redirect("/");
 
-  const availableUnits = await prisma.unit.findMany({
-    where: dashboardUnitIdWhere(user),
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, shortName: true },
-  });
+  const [availableUnits, availableBookers] = await Promise.all([
+    prisma.unit.findMany({
+      where: dashboardUnitIdWhere(user),
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, shortName: true },
+    }),
+    prisma.employee.findMany({
+      where: { ownerId: user.ownerId, active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
 
   const filters: AnalyticsFilters = {
     preset: (searchParams.period as AnalyticsPeriodPreset) || "month",
     customStart: searchParams.start,
     customEnd: searchParams.end,
     unitIds: searchParams.units ? searchParams.units.split(",").filter(Boolean) : null,
+    bookerIds: searchParams.bookers ? searchParams.bookers.split(",").filter(Boolean) : null,
+    platforms: searchParams.platforms ? searchParams.platforms.split(",").filter(Boolean) : null,
+    stayTypes: searchParams.stayTypes ? searchParams.stayTypes.split(",").filter(Boolean) : null,
+    statuses: searchParams.statuses ? (searchParams.statuses.split(",").filter(Boolean) as AnalyticsFilters["statuses"]) : null,
   };
 
   const firstName = user.name?.split(" ")[0] ?? "there";
@@ -112,7 +124,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       </div>
 
       <div className="mt-5">
-        <AnalyticsFilterBar units={availableUnits} />
+        <AnalyticsFilterBar units={availableUnits} bookers={availableBookers} />
       </div>
 
       <Suspense fallback={<KpiRowSkeleton />} key={`kpi-${JSON.stringify(filters)}`}>
@@ -126,6 +138,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-4">
         <Suspense fallback={<SectionSkeleton />} key={`goals-${JSON.stringify(filters)}`}>
           <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`forecast-${JSON.stringify(filters)}`}>
+          <ForecastSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
