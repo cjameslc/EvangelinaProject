@@ -140,10 +140,11 @@ export async function addTtlockPasscode(params: {
   return json;
 }
 
-/** Permanent, non-expiring passcode (keyboardPwdType=2) — used only for the
- * one-time emergency-reserve-code provisioning, never for a real guest
- * booking (those get a period passcode via addTtlockPasscode, scoped to
- * the actual stay dates). */
+/** Permanent, non-expiring passcode (keyboardPwdType=2) — used for the
+ * one-time emergency-reserve-code provisioning and for a unit's fixed
+ * AIRBNB_PERMANENT code (see setAirbnbPermanentCode in access/service.ts).
+ * Never used for an ordinary per-booking guest code — those get a period
+ * passcode via addTtlockPasscode, scoped to the actual stay dates. */
 export async function addTtlockPermanentPasscode(params: {
   lockId: number;
   passcode: string;

@@ -213,6 +213,9 @@ function UnitModal({ unit, justCreated, ownerCandidates, onClose, onSave }: { un
   const [linking, setLinking] = useState(false);
   const [markingReplaced, setMarkingReplaced] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [airbnbCode, setAirbnbCode] = useState<{ code: string; source: string } | null>(null);
+  const [airbnbCodeInput, setAirbnbCodeInput] = useState("");
+  const [savingAirbnbCode, setSavingAirbnbCode] = useState(false);
 
   const exportUrl = icalToken && typeof window !== "undefined" ? `${window.location.origin}/api/ical/${icalToken}.ics` : "";
 
@@ -271,6 +274,33 @@ function UnitModal({ unit, justCreated, ownerCandidates, onClose, onSave }: { un
     setLockState(j);
     setAvailableLocks(null);
     toast("Lock unlinked");
+  }
+
+  // Fetch the unit's existing fixed Airbnb code once a lock is linked, so
+  // the admin sees what's already set rather than an empty field they
+  // might overwrite by accident.
+  useEffect(() => {
+    if (!unit || !lockState?.ttlockLockId) return;
+    fetch(`/api/ttlock/airbnb-permanent-code?unitId=${unit.id}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.credential) { setAirbnbCode(data.credential); setAirbnbCodeInput(data.credential.code); } })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit?.id, lockState?.ttlockLockId]);
+
+  async function saveAirbnbCode() {
+    if (!unit || !/^\d{4,8}$/.test(airbnbCodeInput)) { toast("Enter a 4-8 digit code", true); return; }
+    setSavingAirbnbCode(true);
+    const res = await fetch("/api/ttlock/airbnb-permanent-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unitId: unit.id, code: airbnbCodeInput }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setSavingAirbnbCode(false);
+    if (!res.ok) { toast(j.error ?? "Couldn't set the code", true); return; }
+    setAirbnbCode(j);
+    toast("Airbnb permanent code set ✓ — every Airbnb guest of this unit will use it until you change it again");
   }
 
   async function markBatteryReplaced() {
@@ -530,6 +560,28 @@ function UnitModal({ unit, justCreated, ownerCandidates, onClose, onSave }: { un
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {unit && lockState?.ttlockLockId && (
+          <div className="rounded-2xl border border-[var(--line)] p-4">
+            <label className="field-label">Airbnb permanent code</label>
+            <p className="mt-0.5 text-[12px] text-[var(--gray)]">
+              One fixed code, shared by every Airbnb guest of this unit — never expires, never regenerated per booking. Only changes when you set a new one here.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={airbnbCodeInput}
+                onChange={(e) => setAirbnbCodeInput(e.target.value.replace(/\D/g, ""))}
+                className="field-input !w-auto min-w-[140px]"
+                placeholder="e.g. 546281"
+                maxLength={8}
+              />
+              <button type="button" onClick={saveAirbnbCode} disabled={savingAirbnbCode || !airbnbCodeInput} className="btn-sm btn-primary">
+                {savingAirbnbCode ? "Saving…" : airbnbCode ? "Update code" : "Set code"}
+              </button>
+              {airbnbCode && <span className="text-[11.5px] text-[var(--gray)]">Active: {airbnbCode.code} ({airbnbCode.source === "ttlock" ? "on TTLock" : "manual record"})</span>}
+            </div>
           </div>
         )}
 

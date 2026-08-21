@@ -9,10 +9,14 @@ import { isUniqueConstraintError } from "@/lib/apiValidation";
 // (the low-level HTTP adapter it calls into), are the ONLY code in the app
 // allowed to talk to TTLock or write to AccessCredential — every caller
 // elsewhere (guest booking creation, booking cancel/edit, Admin, Dashboard)
-// goes through the exported functions here. Scoped to the two credential
+// goes through the exported functions here. Scoped to the credential
 // types this app actually has real use for today:
 //   GUEST                 — a per-booking self-check-in code
 //   OWNER_ADMIN_EMERGENCY — a manually-triggered Owner/Admin override
+//   HOUSEKEEPING          — a per-cleaning code for the assigned employee
+//   AIRBNB_PERMANENT      — one fixed, non-expiring code per unit, shared
+//                           by every Airbnb guest of that unit forever
+//                           (never per-booking, never auto-rotated)
 // Every lifecycle transition is written to the existing app-wide AuditLog
 // (src/lib/audit.ts) under action "access.credential.*" — one audit trail,
 // not a bespoke one for this feature.
@@ -94,8 +98,18 @@ type AccessCodeParams = {
  * Idempotent — safe to call more than once for the same booking (a caller
  * retry, a double-submit): no-ops if an ACTIVE credential already exists,
  * and assignReserveCode() releases a code it grabbed if it loses a race to
- * record its credential first. */
+ * record its credential first.
+ *
+ * Airbnb bookings are deliberately excluded (no-op) — an Airbnb guest gets
+ * the unit's fixed AIRBNB_PERMANENT code instead (see
+ * setAirbnbPermanentCode/resolveActiveCredential below), never a one-off
+ * dated passcode tied to that single booking. Without this guard, a guest
+ * reaching the portal for an Airbnb-imported booking (verify-confirmation,
+ * b/[cn]) would silently mint a temporary code that expires at checkout
+ * and supersedes the permanent one in resolveActiveCredential's lookup
+ * order — the exact bug this guard exists to close. */
 export async function createGuestAccessCode(params: AccessCodeParams): Promise<void> {
+  if (params.platform === "Airbnb") return;
   try {
     const existing = await prisma.accessCredential.findFirst({
       where: { bookingId: params.bookingId, type: "GUEST", status: "ACTIVE" },
@@ -301,15 +315,89 @@ export async function releaseAccessCodeForBooking(bookingId: string): Promise<vo
   await logAudit(null, "access.credential.expired", "AccessCredential", credential.id, { bookingId });
 }
 
-/** Staff-initiated reveal — logs who saw the code and when. Returns null if
- * no active credential exists for this booking. */
-export async function revealCredentialForBooking(bookingId: string, actorUserId: string | null): Promise<{ id: string; code: string; validFrom: Date | null; validUntil: Date | null } | null> {
-  const credential = await prisma.accessCredential.findFirst({
-    where: { bookingId, type: "GUEST", status: "ACTIVE" },
+/**
+ * The one place that decides which ACTIVE credential answers "what's the
+ * door code" for a booking — a per-booking GUEST credential when one
+ * exists, or the unit's fixed AIRBNB_PERMANENT credential when the
+ * booking is on Airbnb (the normal case now that createGuestAccessCode
+ * skips Airbnb entirely — see its own doc comment). Both the guest-facing
+ * door-code lookup (src/app/api/guest/door-code/route.ts) and the
+ * staff-facing reveal endpoint call this so the two surfaces can never
+ * disagree about which code is "the" code for a given booking.
+ */
+export async function resolveActiveCredential(params: { bookingId: string; unitId: string; platform: string }): Promise<{ id: string; code: string; validFrom: Date | null; validUntil: Date | null } | null> {
+  const guestCredential = await prisma.accessCredential.findFirst({
+    where: { bookingId: params.bookingId, type: "GUEST", status: "ACTIVE" },
   });
+  if (guestCredential) return { id: guestCredential.id, code: guestCredential.code, validFrom: guestCredential.validFrom, validUntil: guestCredential.validUntil };
+
+  if (params.platform === "Airbnb") {
+    const permanent = await prisma.accessCredential.findFirst({
+      where: { unitId: params.unitId, type: "AIRBNB_PERMANENT", status: "ACTIVE" },
+    });
+    if (permanent) return { id: permanent.id, code: permanent.code, validFrom: null, validUntil: null };
+  }
+  return null;
+}
+
+/** Staff-initiated reveal — logs who saw the code and when. Returns null if
+ * no active credential exists for this booking (per resolveActiveCredential:
+ * GUEST first, then the unit's AIRBNB_PERMANENT code for an Airbnb booking). */
+export async function revealCredentialForBooking(bookingId: string, actorUserId: string | null): Promise<{ id: string; code: string; validFrom: Date | null; validUntil: Date | null } | null> {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { unitId: true, platform: true } });
+  if (!booking) return null;
+  const credential = await resolveActiveCredential({ bookingId, unitId: booking.unitId, platform: booking.platform });
   if (!credential) return null;
   await logAudit(actorUserId, "access.credential.viewed", "AccessCredential", credential.id, { bookingId });
-  return { id: credential.id, code: credential.code, validFrom: credential.validFrom, validUntil: credential.validUntil };
+  return credential;
+}
+
+/**
+ * Sets (or rotates) a unit's single fixed Airbnb permanent code — an
+ * explicit, admin-triggered action, never automatic. Idempotent: calling
+ * it again with the SAME code it already has is a no-op (satisfies "run
+ * synchronization multiple times and verify no duplicate Airbnb PINs are
+ * created"). Calling it with a DIFFERENT code is a deliberate rotation —
+ * the old TTLock passcode is deleted (best-effort) and the old credential
+ * row is revoked before the new one is created, so at most one
+ * AIRBNB_PERMANENT credential is ever ACTIVE per unit at a time.
+ *
+ * If the TTLock add call fails (or the code was never added through this
+ * app to begin with — e.g. programmed directly at the physical keypad by
+ * whoever installed the lock), the credential is still recorded with
+ * source "manual" and no ttlockKeyboardPwdId, so the app has a real
+ * record of "this is the unit's permanent code" even without an
+ * addressable TTLock passcode to manage later.
+ */
+export async function setAirbnbPermanentCode(params: { unitId: string; code: string; actorUserId: string | null }): Promise<{ id: string; code: string; source: string }> {
+  const unit = await prisma.unit.findUnique({ where: { id: params.unitId }, select: { ttlockLockId: true, unitNumber: true } });
+  if (!unit) throw new Error("Unit not found.");
+
+  const existing = await prisma.accessCredential.findFirst({ where: { unitId: params.unitId, type: "AIRBNB_PERMANENT", status: "ACTIVE" } });
+  if (existing && existing.code === params.code) return { id: existing.id, code: existing.code, source: existing.source };
+
+  if (existing) {
+    if (existing.source === "ttlock" && existing.ttlockKeyboardPwdId && unit.ttlockLockId) {
+      await deleteTtlockPasscode(unit.ttlockLockId, existing.ttlockKeyboardPwdId).catch(() => {});
+    }
+    await prisma.accessCredential.update({ where: { id: existing.id }, data: { status: "REVOKED", revokedAt: new Date(), revokedByUserId: params.actorUserId, reason: "Rotated to a new Airbnb permanent code" } });
+  }
+
+  let source: "ttlock" | "manual" = "manual";
+  let ttlockKeyboardPwdId: number | null = null;
+  if (unit.ttlockLockId) {
+    const result = await withRetry(() => addTtlockPermanentPasscode({ lockId: unit.ttlockLockId!, passcode: params.code, name: `Airbnb-${unit.unitNumber}` }));
+    if (result.ok) {
+      source = "ttlock";
+      ttlockKeyboardPwdId = result.value.keyboardPwdId;
+    }
+  }
+
+  const credential = await prisma.accessCredential.create({
+    data: { type: "AIRBNB_PERMANENT", unitId: params.unitId, bookingId: null, guestId: null, code: params.code, source, ttlockKeyboardPwdId, status: "ACTIVE", validFrom: null, validUntil: null, createdByUserId: params.actorUserId },
+  });
+  await logAudit(params.actorUserId, "access.credential.generated", "AccessCredential", credential.id, { unitId: params.unitId, type: "AIRBNB_PERMANENT", source });
+  return { id: credential.id, code: credential.code, source: credential.source };
 }
 
 /** Logs a copy/send action against an already-revealed credential — never
