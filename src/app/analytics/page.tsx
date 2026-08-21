@@ -4,7 +4,6 @@ import { getCurrentUser } from "@/lib/session";
 import { effectivePageAccess } from "@/lib/pageAccess";
 import { dashboardUnitIdWhere } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { manilaTimeGreeting } from "@/lib/manilaTime";
 import { SeasonalBadge } from "@/components/skins/SeasonalBadge";
 import { AnalyticsFilterBar } from "@/components/analytics/AnalyticsFilterBar";
 import { KpiRow } from "@/components/analytics/KpiRow";
@@ -26,6 +25,7 @@ import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
 import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoalsSection";
 import { ForecastSection } from "@/components/analytics/sections/ForecastSection";
 import { ProfitabilitySection } from "@/components/analytics/sections/ProfitabilitySection";
+import { ExecutiveOverview } from "@/components/analytics/sections/ExecutiveOverview";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import { peso, pesoCentavos } from "@/lib/format";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
@@ -88,140 +88,152 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
   };
 
   const firstName = user.name?.split(" ")[0] ?? "there";
-  const today = new Date().toLocaleDateString("en-US", { timeZone: "Asia/Manila", weekday: undefined, year: "numeric", month: "long", day: "numeric" });
+  const filtersActive = !!(
+    filters.preset !== "month" || filters.unitIds?.length || filters.bookerIds?.length || filters.platforms?.length || filters.stayTypes?.length || filters.statuses?.length
+  );
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6">
-      {/* Business Health Verdict — brief section 1: "at the very top of
-          the Analytics tab," above the KPI row and even the greeting
-          header, so it's the literal first thing an owner sees. */}
-      <Suspense fallback={null} key={`health-${JSON.stringify(filters)}`}>
-        <ProfitabilitySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} bannerOnly />
-      </Suspense>
-
-      {/* Compact premium header — a subtle violet glow behind the greeting,
-          not a second hero (MetricsHero below is the real hero); brief
-          section 4 explicitly warns against consuming excessive vertical
-          space here. */}
-      <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--card)] px-5 py-4">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -left-10 -top-16 h-40 w-40 rounded-full opacity-[0.14] blur-3xl"
-          style={{ background: "var(--skin-primary, #6C5CE7)" }}
-        />
-        <div className="relative flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-[19px] font-extrabold tracking-tight sm:text-[22px]">
-              {manilaTimeGreeting()}, {firstName} 👋
-            </h1>
-            <p className="mt-0.5 text-[13px] text-[var(--gray)]">Your Staycation Performance · {today}</p>
-          </div>
-          <SeasonalBadge showDefault />
-        </div>
-      </div>
-
-      <div className="mt-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-extrabold tracking-tight">Analytics</h2>
-          <p className="mt-1 text-sm text-[var(--gray)]">Executive, Revenue, Financial, Booking, Occupancy, Guest, Housekeeping, and Staff analytics for your portfolio.</p>
-        </div>
+      {/* Minimal utility row — filters + export, kept out of the way of
+          the executive view below (brief section 4/31: restraint, no
+          second hero, no redundant "Analytics" title repeating the nav). */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SeasonalBadge showDefault />
         <div className="flex items-center gap-2">
           <AutoRefresh />
           <ExportMenu />
         </div>
       </div>
 
+      {/* Filters are progressively disclosed, not shown by default — on a
+          375px phone a full filter bar would push every business number
+          below the fold before the owner sees anything (brief section 4:
+          "see only what matters first" / section 24's mobile hierarchy).
+          Native <details>, no client JS. */}
+      <details className="mt-3" open={filtersActive || undefined}>
+        <summary className="cursor-pointer select-none list-none text-[13px] font-bold text-[var(--gray)]">Filters{filtersActive ? " (active)" : ""}</summary>
+        <div className="mt-2">
+          <AnalyticsFilterBar units={availableUnits} bookers={availableBookers} />
+        </div>
+      </details>
+
+      {/* The redesigned executive experience — hero/verdict, compact KPI
+          density, "what needs your attention," director's brief, target,
+          unit table + drawer, waterfall narrative, break-even distance,
+          pricing intelligence, decision-lab simulator, booker performance.
+          Pure presentation over the SAME data the sections below compute —
+          see ExecutiveOverview.tsx's own doc comment. */}
       <div className="mt-5">
-        <AnalyticsFilterBar units={availableUnits} bookers={availableBookers} />
-      </div>
-
-      <Suspense fallback={<KpiRowSkeleton />} key={`kpi-${JSON.stringify(filters)}`}>
-        <ExecutiveKpiSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-      </Suspense>
-
-      <div className="mt-4">
-        <AIInsightsPanel section="executive" filters={filters} title="AI Insights — Executive Summary" />
-      </div>
-
-      <div className="mt-4">
-        <Suspense fallback={<SectionSkeleton />} key={`goals-${JSON.stringify(filters)}`}>
-          <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+        <Suspense fallback={<SectionSkeleton />} key={`overview-${JSON.stringify(filters)}`}>
+          <ExecutiveOverview user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} firstName={firstName} />
         </Suspense>
       </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`forecast-${JSON.stringify(filters)}`}>
-          <ForecastSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+      {/* Advanced analytics — every existing section, preserved in full
+          (brief's own "Final Requirement": never remove or replace
+          existing functionality) but tucked behind a native disclosure so
+          it doesn't compete with the executive view above for attention
+          (brief section 20/29). Native <details> — no client JS needed,
+          and every Suspense boundary inside still streams in normally
+          regardless of open/closed state, so nothing here is slower than
+          before, just organized. */}
+      <details className="card mt-6 p-0">
+        <summary className="cursor-pointer select-none list-none p-4 text-[14px] font-extrabold text-[var(--ink)]">
+          <span className="inline-flex items-center gap-2">
+            Advanced analytics
+            <span className="text-[12px] font-medium text-[var(--gray)]">Revenue, Financial, Forecast, Profitability, Booking, Occupancy, Guests, Housekeeping, Staff, Sources, Units</span>
+          </span>
+        </summary>
+        <div className="border-t border-[var(--line)] p-4 pt-2">
+          <Suspense fallback={<KpiRowSkeleton />} key={`kpi-${JSON.stringify(filters)}`}>
+            <ExecutiveKpiSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+          </Suspense>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`profitability-${JSON.stringify(filters)}`}>
-          <ProfitabilitySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-4">
+            <AIInsightsPanel section="executive" filters={filters} title="AI Insights — Executive Summary" />
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`revenue-${JSON.stringify(filters)}`}>
-          <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-4">
+            <Suspense fallback={<SectionSkeleton />} key={`goals-${JSON.stringify(filters)}`}>
+              <RevenueGoalsSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`financial-${JSON.stringify(filters)}`}>
-          <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`forecast-${JSON.stringify(filters)}`}>
+              <ForecastSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-4">
-        <AIInsightsPanel section="revenue" filters={filters} title="AI Insights — Revenue & Financial" />
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`profitability-${JSON.stringify(filters)}`}>
+              <ProfitabilitySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`booking-${JSON.stringify(filters)}`}>
-          <BookingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`revenue-${JSON.stringify(filters)}`}>
+              <RevenueSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`occupancy-${JSON.stringify(filters)}`}>
-          <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`financial-${JSON.stringify(filters)}`}>
+              <FinancialSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`guest-${JSON.stringify(filters)}`}>
-          <GuestSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-4">
+            <AIInsightsPanel section="revenue" filters={filters} title="AI Insights — Revenue & Financial" />
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`hk-${JSON.stringify(filters)}`}>
-          <HousekeepingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`booking-${JSON.stringify(filters)}`}>
+              <BookingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
-          <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`occupancy-${JSON.stringify(filters)}`}>
+              <OccupancySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`commission-${JSON.stringify(filters)}`}>
-          <CommissionSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`guest-${JSON.stringify(filters)}`}>
+              <GuestSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-6">
-        <Suspense fallback={<SectionSkeleton />} key={`units-${JSON.stringify(filters)}`}>
-          <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
-        </Suspense>
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`hk-${JSON.stringify(filters)}`}>
+              <HousekeepingSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
 
-      <div className="mt-4">
-        <AIInsightsPanel section="operations" filters={filters} title="AI Insights — Operations & Team" />
-      </div>
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`staff-${JSON.stringify(filters)}`}>
+              <StaffSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
+
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`commission-${JSON.stringify(filters)}`}>
+              <CommissionSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
+
+          <div className="mt-6">
+            <Suspense fallback={<SectionSkeleton />} key={`units-${JSON.stringify(filters)}`}>
+              <UnitPerformanceSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+            </Suspense>
+          </div>
+
+          <div className="mt-4">
+            <AIInsightsPanel section="operations" filters={filters} title="AI Insights — Operations & Team" />
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

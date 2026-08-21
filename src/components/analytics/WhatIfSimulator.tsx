@@ -23,7 +23,7 @@ export type SimulatorBaseline = {
   operationalPesos: number;
 };
 
-export function WhatIfSimulator({ baseline }: { baseline: SimulatorBaseline }) {
+export function WhatIfSimulator({ baseline, title = "What-If Simulator" }: { baseline: SimulatorBaseline; title?: string }) {
   const [adrDelta, setAdrDelta] = useState(0);
   const [occupancyDeltaPct, setOccupancyDeltaPct] = useState(0);
   const [bookingsDelta, setBookingsDelta] = useState(0);
@@ -66,7 +66,7 @@ export function WhatIfSimulator({ baseline }: { baseline: SimulatorBaseline }) {
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-[13.5px] font-extrabold">What-If Simulator</h4>
+        <h4 className="text-[13.5px] font-extrabold">{title}</h4>
         <button onClick={reset} className="text-[11.5px] font-semibold text-[var(--gray)] underline">Reset</button>
       </div>
       <p className="mb-3 text-[11.5px] text-[var(--gray)]">A simplified sensitivity model against this month&apos;s real baseline — for exploring which lever moves profit the most, not a precise re-forecast.</p>
