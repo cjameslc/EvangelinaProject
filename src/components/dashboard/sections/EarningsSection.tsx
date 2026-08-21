@@ -328,7 +328,7 @@ export function EarningsSection({
                 <span className="font-bold text-amber">−{peso(periodSalary)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-[var(--line)] pt-1.5 text-[14.5px]">
-                <span className="font-extrabold">Total earned</span>
+                <span className="font-extrabold">Cash after payroll</span>
                 <span className={cn("font-extrabold", displayedPeriodIncome - periodSalary < 0 && "text-amber")}>{peso(displayedPeriodIncome - periodSalary)}</span>
               </div>
             </div>

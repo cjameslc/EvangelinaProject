@@ -2,8 +2,6 @@
 
 import { useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { manilaTimeGreeting } from "@/lib/manilaTime";
-import { useSeasonalSkin } from "@/components/skins/SeasonalSkinProvider";
 import { RevenueGoalsPanel } from "@/components/shared/RevenueGoalsPanel";
 import { useRevenueGoalsPanelData } from "@/components/shared/useRevenueGoalsPanelData";
 import type { SalaryHistoryEntry } from "@/lib/payroll";
@@ -27,6 +25,7 @@ import { SecurityMonitorSection } from "./sections/SecurityMonitorSection";
 import { HousekeepingOperationsSection } from "./sections/HousekeepingOperationsSection";
 import { YourListingsSection } from "./sections/YourListingsSection";
 import { UpcomingExpensesSection } from "./sections/UpcomingExpensesSection";
+import { ExecutiveDashboardOverview } from "./sections/ExecutiveDashboardOverview";
 
 export function DashboardView({
   role,
@@ -105,7 +104,6 @@ export function DashboardView({
 }) {
   const { data: session } = useSession();
   const name = session?.user?.name?.split(" ")[0] ?? "there";
-  const skin = useSeasonalSkin();
 
   // Business runs in Manila (UTC+8) — computed once here and threaded down
   // as a plain string into every hook that needs "today," rather than each
@@ -244,23 +242,62 @@ export function DashboardView({
 
   return (
     <div className="dashboard-metrics mx-auto max-w-[1120px] px-4 py-9 sm:px-6">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[26px] font-extrabold tracking-tight sm:text-[32px]">
-            {manilaTimeGreeting()}, {name} {skin.id !== "evangelina" && <span aria-hidden="true">{skin.emoji}</span>}{" "}
-            <span className="ml-1 rounded-full bg-amber/15 px-2.5 py-1 text-[12px] font-bold text-amber align-middle">★ Superhost</span>
-          </h1>
-          <p className="mt-1 text-[15px] text-[var(--gray)]">Here&rsquo;s how your {units.length} stays in Cubao are performing.</p>
-        </div>
-      </div>
-
-      <RevenueGoalsPanel
-        portfolio={revenueGoalPortfolio}
+      <ExecutiveDashboardOverview
+        firstName={name}
+        units={units}
         unitGoals={unitGoals}
-        milestones={revenueGoalMilestones}
-        leaderboard={revenueGoalLeaderboard}
-        bookerContribution={bookerContribution}
+        netProfitRaw={netProfitRaw}
+        marginRaw={marginRaw}
+        cashFlowRaw={cashFlowRaw}
+        filteredOccupancy={filteredOccupancy}
+        filteredAdr={filteredAdr}
+        filteredRevpar={filteredRevpar}
+        periodPhrase={periodPhrase}
+        displayedPeriodIncome={displayedPeriodIncome}
+        periodSalary={periodSalary}
+        platformBreakdown={platformBreakdown}
+        overdueCentavos={overdueCentavos}
+        billsDueMonthCentavos={billsDueMonthCentavos}
+        billsPaidMonthCentavos={billsPaidMonthCentavos}
+        attentionFindings={attentionFindings}
+        bookingsWeek={bookingsWeek}
+        bookingsMonth={bookingsMonth}
+        hkStates={hkStates}
+        cleaningLogsRecent={cleaningLogsRecent}
+        stocks={stocks}
+        expenseRequestsMonth={expenseRequestsMonth}
+        pendingGuestRequests={pendingGuestRequests}
+        dueBills={dueBills}
+        dueDateFor={dueDateFor}
+        billMeta={billMeta}
+        batteryStats={batteryStats}
+        lockedUnits={lockedUnits}
+        batteryTier={batteryTier}
+        upcomingCheckinRiskUnits={upcomingCheckinRiskUnits}
+        reserveCodeStats={reserveCodeStats}
+        dismissedAttentionKeys={dismissedAttentionKeys}
+        todayIso={todayIso}
+        unitStatus={unitStatus}
       />
+
+      {/* Full Monthly Revenue Goal panel — milestones, leaderboard, per-unit
+          cards, booker contribution — preserved in full (nothing removed),
+          tucked below the new compact Unit table above since it would
+          otherwise duplicate the same information at 5x the visual weight. */}
+      <details className="card mb-6">
+        <summary className="cursor-pointer select-none list-none p-4 text-[14px] font-extrabold text-[var(--ink)]">
+          Full revenue goal detail <span className="text-[12px] font-medium text-[var(--gray)]">Milestones, leaderboard, per-unit cards</span>
+        </summary>
+        <div className="border-t border-[var(--line)] p-4 pt-2">
+          <RevenueGoalsPanel
+            portfolio={revenueGoalPortfolio}
+            unitGoals={unitGoals}
+            milestones={revenueGoalMilestones}
+            leaderboard={revenueGoalLeaderboard}
+            bookerContribution={bookerContribution}
+          />
+        </div>
+      </details>
 
       <EarningsSection
         rangeType={rangeType} setRangeType={setRangeType}
