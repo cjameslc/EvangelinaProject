@@ -20,6 +20,14 @@ import {
   forecastBySource, generateForecastInsights, type ForecastBooking, type MonthlyForecastSummary, type WeekdayRow,
   type UnitForecastRow, type BookerForecastRow, type SourceForecastRow, type ForecastInsight,
 } from "@/lib/analytics/forecastEngine";
+import {
+  computeIncomeBreakdown, computeExpenseBreakdown, computeThreeProfitViews, computeWaterfall, computeBreakEven,
+  computeContributionByDimension, computeUnitEconomics, computeBookerProfitability, computeSourceProfitability,
+  computeBusinessHealthVerdict, computeRedFlags, generateBrutalTruths, computeStatusQuoProjection, computeTopActions,
+  type ProfitBooking, type IncomeBreakdown, type ExpenseBreakdown, type ThreeProfitViews, type WaterfallStep,
+  type BreakEvenResult, type ContributionRow, type UnitEconomicsRow, type BookerProfitRow, type SourceProfitRow,
+  type HealthVerdict, type RedFlag, type BrutalTruth, type StatusQuoProjection, type ActionRecommendation,
+} from "@/lib/analytics/profitability";
 
 export type AnalyticsFilters = {
   preset: AnalyticsPeriodPreset;
@@ -1301,4 +1309,269 @@ export async function getForecastAnalytics(user: { role: string; ownedUnitIds: s
 function collectedAmountCentavosSafe(b: ForecastBooking): number {
   if (b.refundedAt) return 0;
   return ((b.paid ? b.amount : 0) + (b.dpAmount || 0)) * 100;
+}
+
+// ---------------------------------------------------------------------
+// Income vs Expenses / Profitability Intelligence — always the real
+// current/previous CALENDAR MONTH, same fixed-month convention
+// getRevenueGoalsData already uses (Bills/RecurringExpenseTemplate are
+// themselves generated per calendar month, so a P&L/break-even/waterfall
+// view tied to an arbitrary date-range preset would mix a partial-month
+// expense picture with whatever range happens to be selected). Booker/
+// Platform/Stay Type/Status filters still apply (post-fetch, same as
+// every other section) — only the DATE RANGE preset doesn't drive this
+// section's scope.
+// ---------------------------------------------------------------------
+
+const profitabilityBookingSelect = {
+  id: true, unitId: true, bookerId: true, stayType: true, platform: true, date: true, checkOutDate: true,
+  amount: true, paid: true, dpAmount: true, cancelledAt: true, cancellationCategory: true, refundedAt: true,
+  originalAmount: true, couponDiscountAmount: true, checkInTime: true, checkOutTime: true,
+} as const;
+
+const profitabilityBillSelect = { key: true, unitId: true, paid: true, amountDue: true, amountPaid: true, amountDueCentavos: true, amountPaidCentavos: true } as const;
+
+async function fetchProfitabilityData(role: string, ownedUnitIds: string[], ownerId: string | null, filterUnitIdsJoined: string) {
+  const user = { role, ownedUnitIds, ownerId };
+  const filterUnitIds = filterUnitIdsJoined ? filterUnitIdsJoined.split(",") : null;
+  const effective = await effectiveUnitIds(user, filterUnitIds);
+  const unitIdWhere = effective ? { id: { in: effective } } : {};
+  const bookingUnitWhere = effective ? { unitId: { in: effective } } : {};
+  const billUnitWhere = effective ? { unitId: { in: effective } } : {};
+
+  const month = periodRangeFor("monthly", 0);
+  const previousMonth = periodRangeFor("monthly", -1);
+  const now = manilaNowPlaceholder();
+
+  const [
+    units, employees, settings,
+    monthBookings, previousMonthBookings,
+    monthBills, previousMonthBills,
+    monthWeeklyExpenses, previousMonthWeeklyExpenses,
+    monthExpenseRequests, previousMonthExpenseRequests,
+    salaryHistory,
+  ] = await Promise.all([
+    prismaPool[0].unit.findMany({ where: unitIdWhere, select: { id: true, name: true, shortName: true, unitNumber: true, rating: true } }),
+    prismaPool[1].employee.findMany({ where: { ownerId, active: true }, select: { id: true, name: true, role: true, monthlySalary: true, active: true } }),
+    prismaPool[2].settings.upsert({ where: { ownerId: ownerId! }, update: {}, create: { ownerId: ownerId! } }),
+    prismaPool[3].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: month.start, lt: month.end } }, select: profitabilityBookingSelect }),
+    prismaPool[4].booking.findMany({ where: { ...bookingUnitWhere, date: { gte: previousMonth.start, lt: previousMonth.end } }, select: profitabilityBookingSelect }),
+    prismaPool[5].bill.findMany({ where: { ...billUnitWhere, month: month.start }, select: profitabilityBillSelect }),
+    prismaPool[6].bill.findMany({ where: { ...billUnitWhere, month: previousMonth.start }, select: profitabilityBillSelect }),
+    prismaPool[7].weeklyExpense.findMany({ where: { ownerId, date: { gte: month.start, lt: month.end } }, select: { category: true, amount: true, targetEmployeeId: true } }),
+    prismaPool[8].weeklyExpense.findMany({ where: { ownerId, date: { gte: previousMonth.start, lt: previousMonth.end } }, select: { category: true, amount: true, targetEmployeeId: true } }),
+    prismaPool[9].expenseRequest.findMany({ where: { status: { not: "REJECTED" }, date: { gte: month.start, lt: month.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
+    prismaPool[10].expenseRequest.findMany({ where: { status: { not: "REJECTED" }, date: { gte: previousMonth.start, lt: previousMonth.end }, employee: { ownerId } }, select: { category: true, amount: true, status: true } }),
+    prismaPool[11].salaryHistory.findMany({ select: { employeeId: true, monthlySalary: true, effectiveDate: true } }),
+  ]);
+
+  return JSON.parse(JSON.stringify({
+    units, employees, bookerCommissionPesos: settings.bookerCommission,
+    monthBookings, previousMonthBookings, monthBills, previousMonthBills,
+    monthWeeklyExpenses, previousMonthWeeklyExpenses, monthExpenseRequests, previousMonthExpenseRequests, salaryHistory,
+    monthStart: month.start, monthEnd: month.end, previousMonthStart: previousMonth.start, previousMonthEnd: previousMonth.end, now,
+  }));
+}
+
+const cachedFetchProfitabilityData = unstable_cache(fetchProfitabilityData, ["analytics-profitability"], { revalidate: 60 });
+
+export type ProfitabilityAnalytics = {
+  income: IncomeBreakdown;
+  expense: ExpenseBreakdown;
+  profitViews: ThreeProfitViews;
+  waterfall: WaterfallStep[];
+  breakEven: BreakEvenResult;
+  contributionByUnit: ContributionRow[];
+  contributionBySource: ContributionRow[];
+  contributionByStayType: ContributionRow[];
+  unitEconomics: UnitEconomicsRow[];
+  bookerProfitability: BookerProfitRow[];
+  sourceProfitability: SourceProfitRow[];
+  healthVerdict: HealthVerdict;
+  redFlags: RedFlag[];
+  brutalTruths: BrutalTruth[];
+  statusQuoProjection: StatusQuoProjection[];
+  topActions: ActionRecommendation[];
+  revenueGrowthPct: number | null;
+  expenseGrowthPct: number | null;
+  marginTrendPct: number | null;
+  discountToGrossPct: number;
+  topSourceRevenueSharePct: number;
+  targetProbabilityPct: number | null;
+};
+
+export async function getProfitabilityAnalytics(user: { role: string; ownedUnitIds: string[]; ownerId: string | null }, filters: AnalyticsFilters): Promise<ProfitabilityAnalytics> {
+  const data: any = await cachedFetchProfitabilityData(user.role, user.ownedUnitIds, user.ownerId, (filters.unitIds ?? []).join(","));
+  const extra = extraFiltersOf(filters);
+  const units: { id: string; name: string; shortName: string; unitNumber: string; rating: number }[] = data.units;
+  const employees: { id: string; name: string; role: string; monthlySalary: number; active: boolean }[] = data.employees;
+  const monthBookings = applyBookingFilters(data.monthBookings, extra) as ProfitBooking[];
+  const previousMonthBookings = applyBookingFilters(data.previousMonthBookings, extra) as ProfitBooking[];
+  const bookerCommissionPesos: number = data.bookerCommissionPesos;
+
+  const monthStart = new Date(data.monthStart);
+  const monthEnd = new Date(data.monthEnd);
+  const previousMonthStart = new Date(data.previousMonthStart);
+  const previousMonthEnd = new Date(data.previousMonthEnd);
+  const now = new Date(data.now);
+  const unitCount = units.length;
+
+  // Forecast's own already-computed month summary — reused directly for
+  // Confirmed/Forecast income and target probability, never recomputed.
+  const forecastAnalytics = await getForecastAnalytics(user, filters);
+  const summary = forecastAnalytics.summary;
+
+  const income = computeIncomeBreakdown(monthBookings, summary);
+  const expense = computeExpenseBreakdown({
+    bills: data.monthBills, weeklyExpenses: data.monthWeeklyExpenses, expenseRequests: data.monthExpenseRequests,
+    employees,
+    salaryHistory: data.salaryHistory, bookings: monthBookings, bookerCommissionPesos,
+    periodStart: monthStart, periodEnd: monthEnd, now,
+  });
+  const profitViews = computeThreeProfitViews(income, expense);
+  const waterfall = computeWaterfall(income, expense);
+
+  const daysInMonth = Math.max(1, Math.round((monthEnd.getTime() - monthStart.getTime()) / 86400000));
+  const daysElapsed = Math.min(daysInMonth, Math.max(1, Math.floor((now.getTime() - monthStart.getTime()) / 86400000) + 1));
+  const elapsedFrac = daysElapsed / daysInMonth;
+
+  const bookingCount = monthBookings.filter((b) => !b.cancelledAt).length;
+  const availableNights = unitCount * daysInMonth;
+  const currentAdrCentavos = bookingCount > 0 ? Math.round(income.grossRevenueCentavos / bookingCount / (income.grossRevenueCentavos > 0 ? 1 : 1)) : 0;
+  const totalVariableCostsCentavos = expense.variable.totalCentavos + expense.payroll.bookerCommissionsCentavos;
+  const totalFixedCostsCentavos = expense.fixed.totalCentavos + expense.payroll.salaryCentavos;
+
+  const breakEven = computeBreakEven({
+    fixedCostsCentavos: totalFixedCostsCentavos,
+    totalVariableCostsCentavos,
+    bookingCount,
+    grossRevenueCentavos: income.grossRevenueCentavos,
+    unitCount,
+    availableNights,
+    currentAdrCentavos: (() => {
+      const nights = monthBookings.filter((b) => !b.cancelledAt).length;
+      return nights > 0 ? Math.round(income.grossRevenueCentavos / nights) : currentAdrCentavos;
+    })(),
+  });
+
+  const dimensionBookings = monthBookings as any;
+  const contributionByUnit = computeContributionByDimension(dimensionBookings, "unit", totalVariableCostsCentavos, bookingCount, Object.fromEntries(units.map((u) => [u.id, formatUnitDisplay(u.unitNumber, u.shortName)])));
+  const contributionBySource = computeContributionByDimension(dimensionBookings, "source", totalVariableCostsCentavos, bookingCount);
+  const contributionByStayType = computeContributionByDimension(dimensionBookings, "stayType", totalVariableCostsCentavos, bookingCount);
+
+  const monthUnitRows = unitPerformance(units, monthBookings as any, data.monthBills, [], [], monthStart, monthEnd);
+  const sharedCostsCentavos = totalFixedCostsCentavos + expense.variable.marketingCentavos + expense.variable.operationalCentavos + expense.payroll.bookerCommissionsCentavos;
+  const unitEconomics = computeUnitEconomics(monthUnitRows, monthBookings, sharedCostsCentavos, monthStart, monthEnd);
+
+  const bookerProfitability = computeBookerProfitability(employees.map((e) => ({ employeeId: e.id, name: e.name })), monthBookings, bookerCommissionPesos);
+  const sourceProfitability = computeSourceProfitability(dimensionBookings, totalVariableCostsCentavos, bookingCount);
+
+  // Growth comparisons — previous month computed fully-elapsed (now =
+  // previousMonthEnd), current month's revenue uses the Forecast engine's
+  // own full-month PROJECTION (not a second projection model) so a
+  // partial-month actual isn't compared against a full prior month.
+  const previousExpense = computeExpenseBreakdown({
+    bills: data.previousMonthBills, weeklyExpenses: data.previousMonthWeeklyExpenses, expenseRequests: data.previousMonthExpenseRequests,
+    employees,
+    salaryHistory: data.salaryHistory, bookings: previousMonthBookings, bookerCommissionPesos,
+    periodStart: previousMonthStart, periodEnd: previousMonthEnd, now: previousMonthEnd,
+  });
+  const previousIncome = computeIncomeBreakdown(previousMonthBookings, { confirmedFutureRevenueCentavos: 0, forecastAdditionalRevenueCentavos: 0 });
+  const previousProfitViews = computeThreeProfitViews(previousIncome, previousExpense);
+  const projectedExpenseCentavos = elapsedFrac > 0 ? expense.totalAccruedCentavos / elapsedFrac : expense.totalAccruedCentavos;
+
+  const revGrowth = revenueGrowthPct(summary.projectedRevenueCentavos, previousIncome.collectedRevenueCentavos);
+  const expGrowth = revenueGrowthPct(Math.round(projectedExpenseCentavos), previousExpense.totalAccruedCentavos);
+  const marginTrendPct = profitViews.operatingMarginPct - previousProfitViews.operatingMarginPct;
+
+  const discountToGrossPct = income.grossRevenueCentavos > 0 ? Math.round((income.discountGivenCentavos / income.grossRevenueCentavos) * 100) : 0;
+  const totalSourceRevenue = sourceProfitability.reduce((s, r) => s + r.grossRevenueCentavos, 0);
+  const topSourceRevenueSharePct = totalSourceRevenue > 0 ? Math.round((Math.max(...sourceProfitability.map((r) => r.grossRevenueCentavos), 0) / totalSourceRevenue) * 100) : 0;
+
+  const underperformingUnits = unitEconomics.filter((u) => u.fullyLoadedMarginPct < 5).map((u) => formatUnitDisplay(u.unitNumber, u.name));
+  const lowProfitHighVolumeBookers = bookerProfitability.filter((b) => b.volumeVsProfitFlag === "high_volume_low_profit").map((b) => b.name);
+  const lowContributionHighRevenueSources = sourceProfitability.filter((s) => s.revenueRank <= 2 && s.revenueRank < s.profitRank).map((s) => s.source);
+
+  const healthVerdict = computeBusinessHealthVerdict({
+    operatingMarginPct: profitViews.operatingMarginPct,
+    economicMarginPct: profitViews.economicMarginPct,
+    revenueGrowthPct: revGrowth,
+    expenseGrowthPct: expGrowth,
+    occupancyPct: summary.projectedOccupancyPct,
+    breakEvenOccupancyPct: breakEven.breakEvenOccupancyPct,
+    cancellationRatePct: cancellationRate(monthBookings),
+    fixedCostToRevenuePct: income.grossRevenueCentavos > 0 ? Math.round((totalFixedCostsCentavos / income.grossRevenueCentavos) * 100) : 0,
+  });
+
+  const redFlags = computeRedFlags({
+    revenueGrowthPct: revGrowth,
+    expenseGrowthPct: expGrowth,
+    marginTrendPct,
+    operatingProfitCentavos: profitViews.operatingProfitCentavos,
+    economicProfitCentavos: profitViews.economicProfitCentavos,
+    occupancyPct: summary.projectedOccupancyPct,
+    breakEvenOccupancyPct: breakEven.breakEvenOccupancyPct,
+    adrCentavos: breakEven.breakEvenAdrCentavos,
+    breakEvenAdrCentavos: breakEven.breakEvenAdrCentavos,
+    topSourceRevenueSharePct,
+    cancellationRatePct: cancellationRate(monthBookings),
+    utilityToRevenuePct: income.grossRevenueCentavos > 0 ? Math.round(((expense.variable.electricityCentavos + expense.variable.waterCentavos) / income.grossRevenueCentavos) * 100) : 0,
+    payrollToRevenuePct: income.grossRevenueCentavos > 0 ? Math.round((expense.payroll.totalCentavos / income.grossRevenueCentavos) * 100) : 0,
+    discountToGrossPct,
+    fixedCostToRevenuePct: income.grossRevenueCentavos > 0 ? Math.round((totalFixedCostsCentavos / income.grossRevenueCentavos) * 100) : 0,
+    targetProbabilityPct: summary.targetProbabilityPct,
+    projectedRevenueBelowBreakEven: summary.projectedRevenueCentavos < breakEven.breakEvenRevenueCentavos,
+    underperformingUnits,
+    lowProfitHighVolumeBookers,
+    lowContributionHighRevenueSources,
+  });
+
+  const worst = [...unitEconomics].sort((a, b) => a.fullyLoadedMarginPct - b.fullyLoadedMarginPct)[0] ?? null;
+  const brutalTruths = generateBrutalTruths({
+    revenueGrowthPct: revGrowth,
+    operatingMarginPct: profitViews.operatingMarginPct,
+    previousOperatingMarginPct: previousProfitViews.operatingMarginPct,
+    occupancyPct: summary.projectedOccupancyPct,
+    breakEvenOccupancyPct: breakEven.breakEvenOccupancyPct,
+    adrCentavos: breakEven.breakEvenAdrCentavos,
+    breakEvenAdrCentavos: breakEven.breakEvenAdrCentavos,
+    worstUnitLabel: worst ? formatUnitDisplay(worst.unitNumber, worst.name) : null,
+    worstUnitMarginPct: worst ? worst.fullyLoadedMarginPct : null,
+    expenseGrowthPct: expGrowth,
+    fixedCostToRevenuePct: income.grossRevenueCentavos > 0 ? Math.round((totalFixedCostsCentavos / income.grossRevenueCentavos) * 100) : 0,
+  });
+
+  const dailyRevenueCentavos = daysElapsed > 0 ? income.collectedRevenueCentavos / daysElapsed : 0;
+  const dailyExpenseCentavos = daysElapsed > 0 ? expense.totalAccruedCentavos / daysElapsed : 0;
+  const statusQuoProjection = computeStatusQuoProjection(dailyRevenueCentavos, dailyExpenseCentavos);
+
+  const weekdayRows = forecastByDayOfWeek(monthBookings as any, unitCount, monthStart, monthEnd);
+  const weekend = weekdayRows.filter((r) => r.dow === 0 || r.dow === 6);
+  const weekday = weekdayRows.filter((r) => r.dow >= 1 && r.dow <= 5);
+  const weekendOccupancyPct = weekend.length > 0 ? Math.round(weekend.reduce((s, r) => s + r.occupancyPct, 0) / weekend.length) : 0;
+  const weekdayOccupancyPct = weekday.length > 0 ? Math.round(weekday.reduce((s, r) => s + r.occupancyPct, 0) / weekday.length) : 0;
+  const worstSource = [...sourceProfitability].sort((a, b) => a.contributionMarginPct - b.contributionMarginPct)[0] ?? null;
+
+  const topActions = computeTopActions({
+    weekendOccupancyPct, weekdayOccupancyPct,
+    weekdayAvailableNightsPerMonth: Math.round(unitCount * daysInMonth * (5 / 7)),
+    adrCentavos: breakEven.breakEvenAdrCentavos,
+    occupiedNightsPerMonth: monthUnitRows.reduce((s, u) => s + Math.round((u.occupancyPct / 100) * daysInMonth), 0),
+    operationalCentavosPerBooking: bookingCount > 0 ? Math.round(expense.variable.operationalCentavos / bookingCount) : 0,
+    bookingsPerMonth: bookingCount,
+    cancellationRatePct: cancellationRate(monthBookings),
+    cancelledBookingsPerMonth: monthBookings.filter((b) => b.cancelledAt).length,
+    worstSourceLabel: worstSource?.source ?? null,
+    worstSourceContributionMarginPct: worstSource?.contributionMarginPct ?? null,
+    worstSourceRevenueCentavos: worstSource?.grossRevenueCentavos ?? null,
+  });
+
+  return {
+    income, expense, profitViews, waterfall, breakEven,
+    contributionByUnit, contributionBySource, contributionByStayType,
+    unitEconomics, bookerProfitability, sourceProfitability,
+    healthVerdict, redFlags, brutalTruths, statusQuoProjection, topActions,
+    revenueGrowthPct: revGrowth, expenseGrowthPct: expGrowth, marginTrendPct,
+    discountToGrossPct, topSourceRevenueSharePct, targetProbabilityPct: summary.targetProbabilityPct,
+  };
 }

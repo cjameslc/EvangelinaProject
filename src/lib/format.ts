@@ -77,13 +77,13 @@ export function formatUnitDisplay(unitNumber: string | null | undefined, fallbac
 }
 
 export function peso(n: number | null | undefined): string {
-  const v = Math.round(n ?? 0);
+  const v = Math.round(n ?? 0) || 0; // `|| 0` folds -0 into 0 so a value that rounds to zero never renders as "₱-0"
   return "₱" + v.toLocaleString("en-PH");
 }
 
 /** Formats an integer centavo amount (e.g. 1830026) as a peso string with cents ("₱18,300.26"). */
 export function pesoCentavos(centavos: number | null | undefined): string {
-  const v = centavos ?? 0;
+  const v = (centavos ?? 0) || 0; // `|| 0` folds -0 into 0 so a value that rounds to zero never renders as "₱-0.00"
   return "₱" + (v / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 

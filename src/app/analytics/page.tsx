@@ -25,6 +25,7 @@ import { AutoRefresh } from "@/components/analytics/AutoRefresh";
 import { AIInsightsPanel } from "@/components/analytics/AIInsightsPanel";
 import { RevenueGoalsSection } from "@/components/analytics/sections/RevenueGoalsSection";
 import { ForecastSection } from "@/components/analytics/sections/ForecastSection";
+import { ProfitabilitySection } from "@/components/analytics/sections/ProfitabilitySection";
 import { getExecutiveKPIs, type AnalyticsFilters } from "@/app/analytics/queries";
 import { peso, pesoCentavos } from "@/lib/format";
 import type { AnalyticsPeriodPreset } from "@/lib/analytics/period";
@@ -91,6 +92,13 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
 
   return (
     <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6">
+      {/* Business Health Verdict — brief section 1: "at the very top of
+          the Analytics tab," above the KPI row and even the greeting
+          header, so it's the literal first thing an owner sees. */}
+      <Suspense fallback={null} key={`health-${JSON.stringify(filters)}`}>
+        <ProfitabilitySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} bannerOnly />
+      </Suspense>
+
       {/* Compact premium header — a subtle violet glow behind the greeting,
           not a second hero (MetricsHero below is the real hero); brief
           section 4 explicitly warns against consuming excessive vertical
@@ -144,6 +152,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Re
       <div className="mt-6">
         <Suspense fallback={<SectionSkeleton />} key={`forecast-${JSON.stringify(filters)}`}>
           <ForecastSection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
+        </Suspense>
+      </div>
+
+      <div className="mt-6">
+        <Suspense fallback={<SectionSkeleton />} key={`profitability-${JSON.stringify(filters)}`}>
+          <ProfitabilitySection user={{ role: user.role, ownedUnitIds: user.ownedUnitIds, ownerId: user.ownerId }} filters={filters} />
         </Suspense>
       </div>
 
